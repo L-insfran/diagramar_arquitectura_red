@@ -1,0 +1,45 @@
+import { defineConfig } from '@adonisjs/core/app'
+
+export default defineConfig({
+  commands: [
+    () => import('@adonisjs/core/commands'),
+    () => import('@adonisjs/lucid/commands'),
+  ],
+  providers: [
+    () => import('@adonisjs/core/providers/app_provider'),
+    () => import('@adonisjs/core/providers/hash_provider'),
+    () => import('@adonisjs/core/providers/vinejs_provider'),
+    () => import('@adonisjs/cors/cors_provider'),
+    () => import('@adonisjs/lucid/database_provider'),
+    () => import('@adonisjs/auth/auth_provider'),
+  ],
+  preloads: [
+    () => import('#start/kernel'),
+    () => import('#start/routes'),
+  ],
+  directories: {
+    config: 'config',
+    public: 'public',
+    contracts: 'contracts',
+    providers: 'providers',
+    languageFiles: 'resources/lang',
+    migrations: 'database/migrations',
+    seeders: 'database/seeders',
+    factories: 'database/factories',
+    views: 'resources/views',
+    start: 'start',
+    tmp: 'tmp',
+    tests: 'tests',
+    httpControllers: 'app/controllers',
+    models: 'app/models',
+    services: 'app/services',
+    exceptions: 'app/exceptions',
+    mailers: 'app/mailers',
+    middleware: 'app/middleware',
+    validators: 'app/validators',
+    commands: 'commands',
+    events: 'app/events',
+    listeners: 'app/listeners',
+    policies: 'app/policies',
+  },
+})
