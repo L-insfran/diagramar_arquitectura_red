@@ -445,7 +445,7 @@ export default function Topology() {
   const logicalLinkCount = graphTopology.edges.length - physicalDiagram.edges.length
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <PageHeader
         title={companyName ? `${companyName} — Arquitectura de Red` : 'Arquitectura de Red'}
         subtitle={`Documentación visual unificada · Rol: ${roleInActiveCompany === 'admin' ? 'Administrador' : roleInActiveCompany === 'operator' ? 'Operador' : 'Visualizador'}`}
@@ -465,22 +465,22 @@ export default function Topology() {
 
       {!isLoading && !error && topology && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <Card title="Dispositivos" value={physicalDiagram.nodes.length} subtitle="Capa física" />
-            <Card title="Enlaces" value={physicalDiagram.edges.length} subtitle="Capa física" />
-            <Card title="VLANs" value={summary?.vlanCount ?? 0} subtitle="En inventario" />
-            <Card title="Redes" value={summary?.networkCount ?? 0} subtitle="Documentadas" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+            <Card compact title="Dispositivos" value={physicalDiagram.nodes.length} subtitle="Capa física" />
+            <Card compact title="Enlaces" value={physicalDiagram.edges.length} subtitle="Capa física" />
+            <Card compact title="VLANs" value={summary?.vlanCount ?? 0} subtitle="En inventario" />
+            <Card compact title="Redes" value={summary?.networkCount ?? 0} subtitle="Documentadas" />
             {Object.entries(mediumStats).map(([mt, count]) => {
               const Icon = MEDIUM_ICON[mt as MediumType]
               return (
-                <Card key={mt} title={MEDIUM_LABELS[mt as MediumType]} value={count}
-                  subtitle={<span className="inline-flex items-center gap-1"><Icon className="w-3 h-3" style={{ color: MEDIUM_COLORS[mt as MediumType] }} />{mt.toUpperCase()}</span>} />
+                <Card key={mt} compact title={MEDIUM_LABELS[mt as MediumType]} value={count}
+                  subtitle={<span className="inline-flex items-center gap-1"><Icon className="w-2.5 h-2.5" style={{ color: MEDIUM_COLORS[mt as MediumType] }} />{mt.toUpperCase()}</span>} />
               )
             })}
           </div>
 
           {physicalDiagram.edges.length > 0 && (
-            <div className="flex flex-wrap items-center gap-4 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
               <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Leyenda:</span>
               {([['utp', 'Cable UTP', '─'], ['fiber', 'Fibra óptica', '─'], ['wifi', 'WiFi', '┈']] as const).map(([mt, label, line]) => (
                 <span key={mt} className="inline-flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
@@ -510,10 +510,10 @@ export default function Topology() {
             </div>
           )}
 
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-3 sm:p-4">
-            <div className="mb-3 px-1 space-y-1">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-2 sm:p-3">
+            <div className="mb-2 px-1">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Diagrama de topología (capa física)</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400 mt-0.5">
                 Solo se dibujan enlaces físicos entre puertos. Clic en un puerto conectado para resaltar su enlace;
                 doble clic en el cable para editarlo. Los enlaces lógicos quedan en la tabla inferior
                 {logicalLinkCount > 0 ? ` (${logicalLinkCount} oculto${logicalLinkCount === 1 ? '' : 's'} en el diagrama)` : ''}.

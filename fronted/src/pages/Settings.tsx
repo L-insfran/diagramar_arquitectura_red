@@ -1,4 +1,4 @@
-import { Sun, Moon, Users, ChevronRight } from 'lucide-react'
+import { Sun, Moon, Users, ChevronRight, Tags } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -57,6 +57,34 @@ export default function SettingsPage() {
             </Button>
           </div>
         </Card>
+
+        {/* Device types — admin only */}
+        {isAdmin && (
+          <Card title="Tipos de dispositivo">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                  <Tags className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    Catálogo de tipos
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Agregar, editar y eliminar tipos para dispositivos
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => navigate('/settings/device-types')}
+              >
+                Administrar
+              </Button>
+            </div>
+          </Card>
+        )}
 
         {/* User management — admin only */}
         {isAdmin && (

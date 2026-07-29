@@ -20,6 +20,7 @@ import Employees from './pages/Employees'
 import EmployeeDetail from './pages/EmployeeDetail'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
+import DeviceTypes from './pages/DeviceTypes'
 import Clients from './pages/Clients'
 import SelectClient from './pages/SelectClient'
 
@@ -123,6 +124,7 @@ function AppRoutes() {
         <Route path="/clients" element={<GlobalAdminOnly><Clients /></GlobalAdminOnly>} />
         <Route path="/settings" element={<MutateOnly><Settings /></MutateOnly>} />
         <Route path="/settings/users" element={<AdminOnly><Users /></AdminOnly>} />
+        <Route path="/settings/device-types" element={<AdminOnly><DeviceTypes /></AdminOnly>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

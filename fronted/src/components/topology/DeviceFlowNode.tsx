@@ -87,7 +87,7 @@ function PortCell({
       style={{ width: cellW, height: cellH, minWidth: cellW, maxWidth: cellW, minHeight: cellH, maxHeight: cellH }}
       title={
         port.connected
-          ? `Puerto ${port.portNumber} · ${displayName} · clic para resaltar enlace`
+          ? `Puerto ${port.portNumber} · ${displayName} · clic para ir al dispositivo conectado`
           : `Puerto ${port.portNumber} · ${displayName}`
       }
       onClick={(e) => {
@@ -143,7 +143,7 @@ function WifiChip({
       style={{ width: cellW, height: cellH, minWidth: cellW, maxWidth: cellW, minHeight: cellH, maxHeight: cellH }}
       title={
         port.connected
-          ? `WiFi · ${displayName} · clic para resaltar enlace`
+          ? `WiFi · ${displayName} · clic para ir al dispositivo conectado`
           : `WiFi · ${displayName}`
       }
       onClick={(e) => {

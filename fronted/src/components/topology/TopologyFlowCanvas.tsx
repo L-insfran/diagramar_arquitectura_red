@@ -63,6 +63,7 @@ import {
   type PrintOrientation,
 } from '../../utils/printDiagramSectorGrid'
 import { PrintSectorBoundsOverlay } from './PrintSectorBoundsOverlay'
+import { PortNavigationBridge } from './PortNavigationBridge'
 import {
   absoluteNodePosition,
   applyWorkAreaHierarchy,
@@ -1060,6 +1061,14 @@ function TopologyFlowInner({
     if (!selection) return ids
     if (selection.kind === 'port') {
       ids.add(selection.portId)
+      for (const edge of edges) {
+        if (edge.data?.sourcePortId === selection.portId && edge.data.targetPortId) {
+          ids.add(edge.data.targetPortId)
+        }
+        if (edge.data?.targetPortId === selection.portId && edge.data.sourcePortId) {
+          ids.add(edge.data.sourcePortId)
+        }
+      }
       return ids
     }
     const edge = edges.find((e) => e.id === selection.edgeId)
@@ -1328,7 +1337,7 @@ function TopologyFlowInner({
 
   const shellClass = fullscreen
     ? 'fixed inset-0 z-[130] flex flex-col overflow-hidden bg-slate-50 dark:bg-gray-950'
-    : 'relative h-[min(620px,82vh)] w-full min-h-[380px] rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-950'
+    : 'relative h-[min(calc(100dvh-14rem),88vh)] w-full min-h-[420px] rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-950'
 
   return (
     <div className={shellClass} ref={setShellRef}>
@@ -1392,6 +1401,7 @@ function TopologyFlowInner({
               printOrientationRef={printOrientationRef}
             />
             <FitViewAfterLayoutChange fullscreen={fullscreen} />
+            <PortNavigationBridge selection={selection} edges={edges} nodes={nodes} onClearSelection={clearPortSelection} />
             <TopologyFlowPanels persistenceKey={persistenceKey} topology={topology}
               setNodes={setNodes} setEdges={setEdges} edgeLayoutsRef={edgeLayoutsRef}
               fullscreen={fullscreen} onFullscreenChange={onFullscreenChange}

@@ -7,10 +7,33 @@ interface CardProps {
   value?: string | number
   children?: ReactNode
   className?: string
+  compact?: boolean
   onClick?: () => void
 }
 
-export function Card({ title, subtitle, icon, value, children, className = '', onClick }: CardProps) {
+export function Card({ title, subtitle, icon, value, children, className = '', compact = false, onClick }: CardProps) {
+  if (compact) {
+    return (
+      <div
+        className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 ${onClick ? 'cursor-pointer hover:border-blue-500/50 transition-colors' : ''} ${className}`}
+        onClick={onClick}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            {title && <h3 className="text-[11px] font-medium text-gray-500 dark:text-gray-400 truncate leading-tight">{title}</h3>}
+            {subtitle != null && subtitle !== '' && (
+              <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate leading-tight">{subtitle}</div>
+            )}
+          </div>
+          {value !== undefined && (
+            <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-white shrink-0 leading-none">{value}</p>
+          )}
+        </div>
+        {children}
+      </div>
+    )
+  }
+
   return (
     <div
       className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 ${onClick ? 'cursor-pointer hover:border-blue-500/50 transition-colors' : ''} ${className}`}
