@@ -1,34 +1,73 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import Company from '#models/company'
+import CompanyMembership from '#models/company_membership'
 import Department from '#models/department'
 import SystemUser from '#models/system_user'
 import DeviceType from '#models/device_type'
+import VlanService from '#services/vlan_service'
 
 export default class extends BaseSeeder {
   async run() {
-    const company = await Company.create({
-      name: 'Demo Company',
-      domain: 'demo.local',
-      address: '123 Network Street',
-      phone: '+1-555-0100',
-      isActive: true,
-    })
+    const vlanService = new VlanService()
 
-    await Department.createMany([
-      { companyId: company.id, name: 'IT', description: 'Information Technology' },
-      { companyId: company.id, name: 'Engineering', description: 'Software Engineering' },
-      { companyId: company.id, name: 'Operations', description: 'Network Operations Center' },
-    ])
+    const company = await Company.firstOrCreate(
+      { domain: 'demo.local' },
+      {
+        name: 'Demo Company',
+        domain: 'demo.local',
+        address: '123 Network Street',
+        phone: '+1-555-0100',
+        isActive: true,
+      }
+    )
+    await vlanService.ensureNativeVlan(company.id)
 
-    await SystemUser.create({
-      companyId: company.id,
-      email: 'admin@demo.local',
-      password: 'admin123',
-      firstName: 'Admin',
-      lastName: 'User',
-      role: 'admin',
-      isActive: true,
-    })
+    const clientTwo = await Company.firstOrCreate(
+      { domain: 'cliente2.local' },
+      {
+        name: 'Cliente 2 S.A.',
+        domain: 'cliente2.local',
+        address: 'Av. Industrial 450',
+        phone: '+1-555-0200',
+        isActive: true,
+      }
+    )
+    await vlanService.ensureNativeVlan(clientTwo.id)
+
+    await Department.firstOrCreate(
+      { companyId: company.id, name: 'IT' },
+      { companyId: company.id, name: 'IT', description: 'Information Technology' }
+    )
+    await Department.firstOrCreate(
+      { companyId: company.id, name: 'Engineering' },
+      { companyId: company.id, name: 'Engineering', description: 'Software Engineering' }
+    )
+    await Department.firstOrCreate(
+      { companyId: company.id, name: 'Operations' },
+      { companyId: company.id, name: 'Operations', description: 'Network Operations Center' }
+    )
+
+    const admin = await SystemUser.updateOrCreate(
+      { email: 'admin@demo.local' },
+      {
+        companyId: company.id,
+        email: 'admin@demo.local',
+        password: 'admin123',
+        firstName: 'Admin',
+        lastName: 'User',
+        role: 'admin',
+        isActive: true,
+      }
+    )
+
+    await CompanyMembership.updateOrCreate(
+      { systemUserId: admin.id, companyId: company.id },
+      { systemUserId: admin.id, companyId: company.id, role: 'admin', isDefault: true }
+    )
+    await CompanyMembership.updateOrCreate(
+      { systemUserId: admin.id, companyId: clientTwo.id },
+      { systemUserId: admin.id, companyId: clientTwo.id, role: 'admin', isDefault: false }
+    )
 
     const deviceTypes = [
       { name: 'Router', icon: 'globe', description: 'Network router for traffic routing' },

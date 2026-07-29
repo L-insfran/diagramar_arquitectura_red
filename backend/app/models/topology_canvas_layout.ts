@@ -5,6 +5,16 @@ import Company from './company.js'
 
 export type CanvasPoint = { x: number; y: number }
 
+export type CanvasWorkArea = {
+  id: string
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  titleFontSize?: number
+}
+
 export default class TopologyCanvasLayout extends BaseModel {
   @column({ isPrimary: true })
   declare id: string
@@ -13,7 +23,7 @@ export default class TopologyCanvasLayout extends BaseModel {
   declare companyId: string
 
   @column()
-  declare layer: 'physical' | 'logical'
+  declare layer: 'physical' | 'logical' | 'unified'
 
   @column()
   declare scope: string
@@ -23,6 +33,13 @@ export default class TopologyCanvasLayout extends BaseModel {
 
   @column()
   declare labelOffsets: Record<string, CanvasPoint>
+
+  @column()
+  declare workAreas: CanvasWorkArea[]
+
+  /** deviceId → workAreaId */
+  @column()
+  declare nodeParents: Record<string, string>
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

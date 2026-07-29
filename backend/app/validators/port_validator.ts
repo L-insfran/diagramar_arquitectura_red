@@ -3,6 +3,11 @@ import vine from '@vinejs/vine'
 const portType = vine.enum(['ethernet', 'fiber', 'serial', 'wireless', 'wan', 'sfp'] as const)
 const portStatus = vine.enum(['up', 'down', 'disabled'] as const)
 
+const vlanAssignment = vine.object({
+  vlanId: vine.string().uuid(),
+  isTagged: vine.boolean().optional(),
+})
+
 export const createPortValidator = vine.compile(
   vine.object({
     deviceId: vine.string().uuid(),
@@ -12,6 +17,8 @@ export const createPortValidator = vine.compile(
     speed: vine.string().trim().maxLength(50).optional().nullable(),
     status: portStatus.optional(),
     description: vine.string().trim().optional(),
+    /** Associa VLANs del inventario al puerto (access/trunk vía isTagged). */
+    vlanAssignments: vine.array(vlanAssignment).optional(),
   })
 )
 
@@ -24,5 +31,7 @@ export const updatePortValidator = vine.compile(
     speed: vine.string().trim().maxLength(50).optional().nullable(),
     status: portStatus.optional(),
     description: vine.string().trim().optional(),
+    /** Si se envía (aunque sea []), reemplaza las VLANs del puerto. */
+    vlanAssignments: vine.array(vlanAssignment).optional(),
   })
 )

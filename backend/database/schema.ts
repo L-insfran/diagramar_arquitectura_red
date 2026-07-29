@@ -53,6 +53,25 @@ export class CompanySchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
+export class CompanyMembershipSchema extends BaseModel {
+  static $columns = ['companyId', 'createdAt', 'id', 'isDefault', 'role', 'systemUserId', 'updatedAt'] as const
+  $columns = CompanyMembershipSchema.$columns
+  @column()
+  declare companyId: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare isDefault: boolean
+  @column()
+  declare role: any
+  @column()
+  declare systemUserId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class ConnectionSchema extends BaseModel {
   static $columns = ['bandwidth', 'cableCategory', 'cableLength', 'companyId', 'connectionStatus', 'connectionType', 'createdAt', 'description', 'fiberConnector', 'fiberType', 'id', 'mediumType', 'metadata', 'sourcePortId', 'targetPortId', 'updatedAt', 'wifiBand', 'wifiSecurity', 'wifiSsid', 'wifiStandard'] as const
   $columns = ConnectionSchema.$columns
@@ -360,7 +379,7 @@ export class SystemUserSchema extends BaseModel {
 }
 
 export class TopologyCanvasLayoutSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'id', 'labelOffsets', 'layer', 'nodePositions', 'scope', 'updatedAt'] as const
+  static $columns = ['companyId', 'createdAt', 'id', 'labelOffsets', 'layer', 'nodeParents', 'nodePositions', 'scope', 'updatedAt', 'workAreas'] as const
   $columns = TopologyCanvasLayoutSchema.$columns
   @column()
   declare companyId: string
@@ -373,11 +392,15 @@ export class TopologyCanvasLayoutSchema extends BaseModel {
   @column()
   declare layer: string
   @column()
+  declare nodeParents: any
+  @column()
   declare nodePositions: any
   @column()
   declare scope: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+  @column()
+  declare workAreas: any
 }
 
 export class VlanSchema extends BaseModel {

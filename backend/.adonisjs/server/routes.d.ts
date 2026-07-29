@@ -8,6 +8,7 @@ export type ScannedRoutes = {
     'auth.register': { paramsTuple?: []; params?: {} }
     'auth.logout': { paramsTuple?: []; params?: {} }
     'auth.me': { paramsTuple?: []; params?: {} }
+    'me.companies': { paramsTuple?: []; params?: {} }
     'companies.index': { paramsTuple?: []; params?: {} }
     'companies.store': { paramsTuple?: []; params?: {} }
     'companies.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -65,6 +66,8 @@ export type ScannedRoutes = {
     'system_users.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'user_memberships.index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'user_memberships.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.index': { paramsTuple?: []; params?: {} }
     'employee_credentials.store': { paramsTuple?: []; params?: {} }
     'employee_credentials.reveal': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -74,6 +77,7 @@ export type ScannedRoutes = {
   }
   GET: {
     'auth.me': { paramsTuple?: []; params?: {} }
+    'me.companies': { paramsTuple?: []; params?: {} }
     'companies.index': { paramsTuple?: []; params?: {} }
     'companies.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
@@ -96,12 +100,14 @@ export type ScannedRoutes = {
     'device_credentials.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.index': { paramsTuple?: []; params?: {} }
     'system_users.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'user_memberships.index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.index': { paramsTuple?: []; params?: {} }
     'employee_credentials.reveal': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   HEAD: {
     'auth.me': { paramsTuple?: []; params?: {} }
+    'me.companies': { paramsTuple?: []; params?: {} }
     'companies.index': { paramsTuple?: []; params?: {} }
     'companies.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
@@ -124,6 +130,7 @@ export type ScannedRoutes = {
     'device_credentials.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.index': { paramsTuple?: []; params?: {} }
     'system_users.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'user_memberships.index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.index': { paramsTuple?: []; params?: {} }
     'employee_credentials.reveal': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -158,6 +165,7 @@ export type ScannedRoutes = {
     'device_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_credentials.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'user_memberships.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   DELETE: {

@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { CompanyProvider, useCompany } from './contexts/CompanyContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ToastViewport } from './components/ToastViewport'
 import { MainLayout } from './layouts/MainLayout'
@@ -19,6 +20,8 @@ import Employees from './pages/Employees'
 import EmployeeDetail from './pages/EmployeeDetail'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
+import Clients from './pages/Clients'
+import SelectClient from './pages/SelectClient'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -38,17 +41,34 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-/** Blocks viewer role from accessing admin/operator-only routes. */
 function MutateOnly({ children }: { children: React.ReactNode }) {
   const { canMutate } = usePermissions()
   if (!canMutate) return <Navigate to="/" replace />
   return <>{children}</>
 }
 
-/** Blocks non-admin users from accessing admin-only routes. */
 function AdminOnly({ children }: { children: React.ReactNode }) {
-  const { isAdmin } = usePermissions()
-  if (!isAdmin) return <Navigate to="/" replace />
+  const { isGlobalAdmin, isAdmin } = usePermissions()
+  if (!isGlobalAdmin && !isAdmin) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
+function GlobalAdminOnly({ children }: { children: React.ReactNode }) {
+  const { isGlobalAdmin } = usePermissions()
+  if (!isGlobalAdmin) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
+function CompanyGate({ children }: { children: React.ReactNode }) {
+  const { needsCompanySelection, isLoading } = useCompany()
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+  if (needsCompanySelection) return <Navigate to="/select-client" replace />
   return <>{children}</>
 }
 
@@ -70,9 +90,19 @@ function AppRoutes() {
         element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
       />
       <Route
+        path="/select-client"
         element={
           <ProtectedRoute>
-            <MainLayout />
+            <SelectClient />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        element={
+          <ProtectedRoute>
+            <CompanyGate>
+              <MainLayout />
+            </CompanyGate>
           </ProtectedRoute>
         }
       >
@@ -90,6 +120,7 @@ function AppRoutes() {
         <Route path="/topology" element={<Topology />} />
         <Route path="/employees" element={<Employees />} />
         <Route path="/employees/:id" element={<EmployeeDetail />} />
+        <Route path="/clients" element={<GlobalAdminOnly><Clients /></GlobalAdminOnly>} />
         <Route path="/settings" element={<MutateOnly><Settings /></MutateOnly>} />
         <Route path="/settings/users" element={<AdminOnly><Users /></AdminOnly>} />
       </Route>
@@ -103,10 +134,12 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <ToastProvider>
-            <AppRoutes />
-            <ToastViewport />
-          </ToastProvider>
+          <CompanyProvider>
+            <ToastProvider>
+              <AppRoutes />
+              <ToastViewport />
+            </ToastProvider>
+          </CompanyProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

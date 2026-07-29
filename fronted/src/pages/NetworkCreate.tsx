@@ -7,6 +7,7 @@ import { Input } from '../components/Input'
 import { Select } from '../components/Select'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
 import { networksService } from '../services/networks.service'
 import { vlansService } from '../services/vlans.service'
 import type { Vlan } from '../types'
@@ -39,6 +40,7 @@ export default function NetworkCreate() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const { user, isLoading: authLoading } = useAuth()
+  const { activeCompanyId } = useCompany()
   const isEditMode = Boolean(id)
   const isAdmin = user?.role === 'admin'
   const { data: existingNetwork, isLoading: isLoadingNetwork } = useApi(
@@ -47,12 +49,12 @@ export default function NetworkCreate() {
   )
   const { data: vlanData, isLoading: vlansLoading } = useApi<Vlan[]>(
     () => {
-      if (!user?.companyId) {
+      if (!activeCompanyId) {
         return Promise.resolve([])
       }
-      return vlansService.getAll(user.companyId)
+      return vlansService.getAll(activeCompanyId)
     },
-    [user?.companyId]
+    [activeCompanyId]
   )
   const [form, setForm] = useState(initialFormState)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -128,6 +130,11 @@ export default function NetworkCreate() {
       return
     }
 
+    if (!isEditMode && !activeCompanyId) {
+      setFormError('Selecciona un cliente activo antes de crear una red.')
+      return
+    }
+
     if (!hasRequiredFields) {
       setFormError('Nombre y subred son obligatorios.')
       return
@@ -150,7 +157,7 @@ export default function NetworkCreate() {
         await networksService.update(id, payload)
       } else {
         await networksService.create({
-          companyId: user.companyId,
+          companyId: activeCompanyId,
           ...payload,
         })
       }

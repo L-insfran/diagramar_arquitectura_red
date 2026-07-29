@@ -1,12 +1,45 @@
 import dagre from 'dagre'
 import type { Edge, Node } from '@xyflow/react'
+import { TOPOLOGY_NODE_MIN_WIDTH, TOPOLOGY_HEADER_HEIGHT, TOPOLOGY_HEADER_HEIGHT_PATCH, computePortPanelLayout, getDiagramDisplayPorts, isCompactPortPanel, isStructuredCablingDeviceType } from './topologyPortPanel'
+import type { TopologyPortSummary } from '../types'
 
-/** Keep in sync with `DeviceFlowNode` fixed size and React Flow `node.style`. */
-export const TOPOLOGY_NODE_WIDTH = 300
-export const TOPOLOGY_NODE_HEIGHT = 158
+/** @deprecated Use TOPOLOGY_NODE_MIN_WIDTH */
+export const TOPOLOGY_NODE_WIDTH = TOPOLOGY_NODE_MIN_WIDTH
+/** @deprecated Use computeNodeDimensions */
+export const TOPOLOGY_NODE_HEIGHT = TOPOLOGY_HEADER_HEIGHT + 16
 
-const NODE_WIDTH = TOPOLOGY_NODE_WIDTH
-const NODE_HEIGHT = TOPOLOGY_NODE_HEIGHT
+export type LayoutOptions = {
+  direction?: 'TB' | 'LR'
+  /** Espaciado amplio y jerarquía clara — ideal para impresión y lectura. */
+  printFriendly?: boolean
+}
+
+function nodeDimensions(node: Node): { width: number; height: number } {
+  const data = node.data as {
+    nodeWidth?: number
+    nodeHeight?: number
+    ports?: TopologyPortSummary[]
+    totalPortCount?: number
+    portCount?: number
+    deviceType?: string | null
+  } | undefined
+  if (data?.nodeWidth != null && data?.nodeHeight != null) {
+    return { width: data.nodeWidth, height: data.nodeHeight }
+  }
+  const style = node.style as { width?: number; height?: number } | undefined
+  if (typeof style?.width === 'number' && typeof style?.height === 'number') {
+    return { width: style.width, height: style.height }
+  }
+  const allPorts = Array.isArray(data?.ports) ? data.ports : []
+  const display = getDiagramDisplayPorts(allPorts)
+  const total = data?.totalPortCount ?? data?.portCount ?? allPorts.length
+  const compact = isCompactPortPanel(display.length, total)
+  const headerHeight = isStructuredCablingDeviceType(data?.deviceType)
+    ? TOPOLOGY_HEADER_HEIGHT_PATCH
+    : TOPOLOGY_HEADER_HEIGHT
+  const layout = computePortPanelLayout(display.length, compact, total, headerHeight)
+  return { width: layout.width, height: layout.height }
+}
 
 function maxIncidentDegree(edges: Edge[]): number {
   const deg = new Map<string, number>()
@@ -19,40 +52,78 @@ function maxIncidentDegree(edges: Edge[]): number {
   return m
 }
 
-/**
- * Assigns positions to React Flow nodes using Dagre (layered directed layout).
- * Separa más capas y nodos cuando hay muchas conexiones para reducir cruces y solapes.
- */
-export function layoutTopologyNodes(nodes: Node[], edges: Edge[], direction: 'TB' | 'LR' = 'TB') {
-  if (nodes.length === 0) {
-    return { nodes, edges }
-  }
+function maxNodeWidth(nodes: Node[]): number {
+  let m = TOPOLOGY_NODE_MIN_WIDTH
+  for (const n of nodes) m = Math.max(m, nodeDimensions(n).width)
+  return m
+}
 
+function inDegree(nodeId: string, edges: Edge[]): number {
+  return edges.filter((e) => e.target === nodeId).length
+}
+
+/**
+ * Layout jerárquico con Dagre optimizado para diagramas de red legibles e imprimibles.
+ * - Flujo top→bottom (ISP arriba, access abajo)
+ * - Espaciado generoso entre capas
+ * - Nodos ordenados por grado dentro de cada rank
+ */
+export function layoutTopologyNodes(
+  nodes: Node[],
+  edges: Edge[],
+  options: LayoutOptions = {},
+) {
+  if (nodes.length === 0) return { nodes, edges }
+
+  const direction = options.direction ?? 'TB'
+  const printFriendly = options.printFriendly !== false
   const maxDeg = maxIncidentDegree(edges)
-  const edgeBoost = Math.min(140, Math.floor(edges.length * 1.2))
-  const fanBoost = Math.min(100, Math.max(0, maxDeg - 4) * 8)
-  const ranksep = Math.min(280, 100 + edgeBoost + fanBoost + Math.floor(NODE_HEIGHT * 0.15))
-  const nodesep = Math.min(220, 64 + Math.floor(maxDeg * 4))
+  const avgHeight =
+    nodes.reduce((sum, n) => sum + nodeDimensions(n).height, 0) / Math.max(nodes.length, 1)
+  const maxWidth = maxNodeWidth(nodes)
+
+  const ranksep = printFriendly
+    ? Math.min(560, Math.max(280, Math.floor(avgHeight * 0.85 + maxDeg * 16 + edges.length * 5)))
+    : Math.min(320, 100 + Math.floor(edges.length * 1.2))
+
+  const nodesep = printFriendly
+    ? Math.min(440, Math.max(180, Math.floor(maxWidth * 0.2 + maxDeg * 18)))
+    : Math.min(240, 72 + Math.floor(maxDeg * 4))
 
   const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: direction, ranksep, nodesep, marginx: 40, marginy: 40 })
+  g.setGraph({
+    rankdir: direction,
+    ranker: 'network-simplex',
+    align: direction === 'TB' ? 'UL' : undefined,
+    nodesep,
+    ranksep,
+    edgesep: printFriendly ? 40 : 20,
+    marginx: printFriendly ? 80 : 40,
+    marginy: printFriendly ? 80 : 40,
+  })
 
   for (const node of nodes) {
-    g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT })
+    const { width, height } = nodeDimensions(node)
+    g.setNode(node.id, { width, height })
   }
+
   for (const edge of edges) {
-    g.setEdge(edge.source, edge.target)
+    const srcIn = inDegree(edge.source, edges)
+    const tgtIn = inDegree(edge.target, edges)
+    const weight = tgtIn >= srcIn ? 1 : 2
+    g.setEdge(edge.source, edge.target, { weight, minlen: printFriendly ? (maxDeg > 6 ? 3 : 2) : 1 })
   }
 
   dagre.layout(g)
 
   const layoutedNodes = nodes.map((node) => {
+    const { width, height } = nodeDimensions(node)
     const pos = g.node(node.id)
     return {
       ...node,
       position: {
-        x: pos.x - NODE_WIDTH / 2,
-        y: pos.y - NODE_HEIGHT / 2,
+        x: pos.x - width / 2,
+        y: pos.y - height / 2,
       },
     }
   })

@@ -3,14 +3,11 @@ import hash from '@adonisjs/core/services/hash'
 import DeviceCredential from '#models/device_credential'
 import Device from '#models/device'
 import SystemUser from '#models/system_user'
+import { canAccessCompany, canMutateInCompany } from '#services/authorization_service'
 import {
   createDeviceCredentialValidator,
   updateDeviceCredentialValidator,
 } from '#validators/device_credential_validator'
-
-function canAccessCompany(user: SystemUser, companyId: string) {
-  return user.role === 'admin' || user.companyId === companyId
-}
 
 function credentialJson(credential: DeviceCredential) {
   const serialized = credential.serialize() as Record<string, unknown>
@@ -26,7 +23,7 @@ export default class DeviceCredentialsController {
       return response.badRequest({ success: false, message: 'device_id query parameter is required' })
     }
     const device = await Device.findOrFail(deviceId)
-    if (!canAccessCompany(user, device.companyId)) {
+    if (!(await canAccessCompany(user, device.companyId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const rows = await DeviceCredential.query().where('device_id', deviceId).orderBy('credential_type', 'asc')
@@ -37,7 +34,7 @@ export default class DeviceCredentialsController {
     const user = auth.getUserOrFail() as SystemUser
     const data = await request.validateUsing(createDeviceCredentialValidator)
     const device = await Device.findOrFail(data.deviceId)
-    if (!canAccessCompany(user, device.companyId)) {
+    if (!(await canMutateInCompany(user, device.companyId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const { password, ...rest } = data
@@ -51,7 +48,7 @@ export default class DeviceCredentialsController {
   async show({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await DeviceCredential.query().where('id', params.id).preload('device').firstOrFail()
-    if (!canAccessCompany(user, credential.device.companyId)) {
+    if (!(await canAccessCompany(user, credential.device.companyId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     return response.ok({ success: true, data: credentialJson(credential) })
@@ -60,7 +57,7 @@ export default class DeviceCredentialsController {
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await DeviceCredential.query().where('id', params.id).preload('device').firstOrFail()
-    if (!canAccessCompany(user, credential.device.companyId)) {
+    if (!(await canMutateInCompany(user, credential.device.companyId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const data = await request.validateUsing(updateDeviceCredentialValidator)
@@ -76,7 +73,7 @@ export default class DeviceCredentialsController {
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await DeviceCredential.query().where('id', params.id).preload('device').firstOrFail()
-    if (!canAccessCompany(user, credential.device.companyId)) {
+    if (!(await canMutateInCompany(user, credential.device.companyId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     await credential.delete()

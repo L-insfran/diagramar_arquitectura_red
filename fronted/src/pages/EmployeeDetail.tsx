@@ -19,6 +19,7 @@ import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
 import { employeesService } from '../services/employees.service'
 import { employeeCredentialsService } from '../services/employee-credentials.service'
 import type { EmployeeCredential, EmployeeCredentialKind } from '../types'
@@ -61,13 +62,14 @@ export default function EmployeeDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { activeCompanyId } = useCompany()
 
   const {
     data: employee,
     isLoading: loadingEmployee,
   } = useApi(
     () => (id ? employeesService.getById(id) : Promise.reject(new Error('No id'))),
-    [id]
+    [id, activeCompanyId]
   )
 
   const {
@@ -76,7 +78,7 @@ export default function EmployeeDetail() {
     refetch: refetchCreds,
   } = useApi(
     () => (id ? employeeCredentialsService.getByEmployee(id) : Promise.resolve([])),
-    [id]
+    [id, activeCompanyId]
   )
 
   // Modal state
@@ -130,7 +132,7 @@ export default function EmployeeDetail() {
     event.preventDefault()
     setFormError(null)
 
-    if (!user?.companyId || !id) return
+    if (!activeCompanyId || !id) return
 
     if (!form.username.trim()) {
       setFormError('El usuario es obligatorio.')
@@ -160,7 +162,7 @@ export default function EmployeeDetail() {
       } else {
         await employeeCredentialsService.create({
           employeeId: id,
-          companyId: user.companyId,
+          companyId: activeCompanyId,
           kind: form.kind,
           label: form.label.trim() || undefined,
           username: form.username.trim(),

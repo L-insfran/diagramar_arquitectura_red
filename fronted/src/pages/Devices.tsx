@@ -8,6 +8,7 @@ import { Button } from '../components/Button'
 import { Select } from '../components/Select'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
+import { useCompany } from '../contexts/CompanyContext'
 import { useToast } from '../contexts/ToastContext'
 import { devicesService } from '../services/devices.service'
 import { deviceTypesService } from '../services/device-types.service'
@@ -18,13 +19,14 @@ const NOTEBOOK_NAMES = ['notebook', 'notebock']
 export default function Devices() {
   const navigate = useNavigate()
   const { canMutate, isViewer } = usePermissions()
+  const { activeCompanyId } = useCompany()
   const toast = useToast()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [deviceTypeFilter, setDeviceTypeFilter] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const { data: deviceTypes } = useApi(() => deviceTypesService.getAll())
+  const { data: deviceTypes } = useApi(() => deviceTypesService.getAll(), [activeCompanyId])
 
   const notebookTypeId = useMemo(
     () => deviceTypes?.find((t) => NOTEBOOK_NAMES.includes(t.name.toLowerCase()))?.id ?? null,
@@ -38,7 +40,7 @@ export default function Devices() {
         status: statusFilter || undefined,
         deviceTypeId: deviceTypeFilter || undefined,
       }),
-    [search, statusFilter, deviceTypeFilter]
+    [search, statusFilter, deviceTypeFilter, activeCompanyId]
   )
 
   const isNotebook = (d: Device) =>

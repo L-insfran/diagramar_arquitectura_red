@@ -15,6 +15,23 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* Cables por encima de las tarjetas: se ve el trazo puerto ↔ puerto */
+.react-flow.topology-port-edges-above .react-flow__edges {
+  z-index: 12 !important;
+}
+.react-flow.topology-port-edges-above .react-flow__nodes {
+  z-index: 3 !important;
+}
+.react-flow.topology-port-edges-above .react-flow__edge.selected {
+  z-index: 13 !important;
+}
+
+/* Áreas de trabajo detrás de los equipos, por encima del fondo */
+.react-flow__node-workArea {
+  z-index: -1 !important;
+  pointer-events: all;
+}
+
 @layer base {
   * {
     @apply border-gray-200 dark:border-gray-800;

@@ -5,13 +5,15 @@ import { DataTable, type Column } from '../components/DataTable'
 import { Button } from '../components/Button'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
+import { useCompany } from '../contexts/CompanyContext'
 import { vlansService } from '../services/vlans.service'
 import type { Vlan } from '../types'
 
 export default function Vlans() {
   const navigate = useNavigate()
   const { canMutate } = usePermissions()
-  const { data: vlans, isLoading } = useApi(() => vlansService.getAll())
+  const { activeCompanyId } = useCompany()
+  const { data: vlans, isLoading } = useApi(() => vlansService.getAll(), [activeCompanyId])
 
   const columns: Column<Vlan>[] = [
     {

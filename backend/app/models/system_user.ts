@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 import { compose } from '@adonisjs/core/helpers'
 import hash from '@adonisjs/core/services/hash'
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import { BaseModel, column, belongsTo, hasMany, manyToMany } from '@adonisjs/lucid/orm'
 import { withAuthFinder } from '@adonisjs/auth/mixins/lucid'
 import { DbAccessTokensProvider } from '@adonisjs/auth/access_tokens'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
 import Company from './company.js'
+import CompanyMembership from './company_membership.js'
 
 // withAuthFinder already registers a @beforeSave hook that hashes the password
 // automatically whenever $dirty.password changes — no manual hook needed.
@@ -52,4 +53,15 @@ export default class SystemUser extends compose(
 
   @belongsTo(() => Company)
   declare company: BelongsTo<typeof Company>
+
+  @hasMany(() => CompanyMembership)
+  declare memberships: HasMany<typeof CompanyMembership>
+
+  @manyToMany(() => Company, {
+    pivotTable: 'company_memberships',
+    pivotForeignKey: 'system_user_id',
+    pivotRelatedForeignKey: 'company_id',
+    pivotColumns: ['role', 'is_default'],
+  })
+  declare companies: ManyToMany<typeof Company>
 }

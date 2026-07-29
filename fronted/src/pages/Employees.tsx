@@ -9,7 +9,7 @@ import { Input } from '../components/Input'
 import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
 import { useApi } from '../hooks/useApi'
-import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { employeesService } from '../services/employees.service'
 import { departmentsService } from '../services/departments.service'
@@ -40,10 +40,13 @@ function formatSubmitError(err: unknown): string {
 
 export default function Employees() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { activeCompanyId } = useCompany()
   const { canMutate, isViewer } = usePermissions()
-  const { data: employees, isLoading, error, refetch } = useApi(() => employeesService.getAll())
-  const { data: departments } = useApi(() => departmentsService.getAll())
+  const { data: employees, isLoading, error, refetch } = useApi(
+    () => employeesService.getAll(),
+    [activeCompanyId]
+  )
+  const { data: departments } = useApi(() => departmentsService.getAll(), [activeCompanyId])
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -84,8 +87,8 @@ export default function Employees() {
     event.preventDefault()
     setFormError(null)
 
-    if (!user?.companyId) {
-      setFormError('Tu sesión no tiene empresa asignada.')
+    if (!activeCompanyId) {
+      setFormError('No hay un cliente activo seleccionado.')
       return
     }
 
@@ -115,7 +118,7 @@ export default function Employees() {
         })
       } else {
         await employeesService.create({
-          companyId: user.companyId,
+          companyId: activeCompanyId,
           firstName,
           lastName,
           ...(email ? { email } : {}),

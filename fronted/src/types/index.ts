@@ -9,6 +9,26 @@ export interface Company {
   updatedAt: string
 }
 
+export interface CompanyMembershipSummary {
+  id?: string
+  companyId: string
+  role: 'admin' | 'operator' | 'viewer'
+  isDefault: boolean
+  company?: {
+    id: string
+    name: string
+    domain: string | null
+    isActive: boolean
+  } | null
+}
+
+export interface AccessibleCompany extends Company {
+  role: 'admin' | 'operator' | 'viewer'
+  isDefault: boolean
+  deviceCount?: number
+  connectionCount?: number
+}
+
 export interface Department {
   id: string
   companyId: string
@@ -29,6 +49,7 @@ export interface SystemUser {
   isActive: boolean
   createdAt: string
   updatedAt: string
+  memberships?: CompanyMembershipSummary[]
 }
 
 export interface Employee {
@@ -85,7 +106,7 @@ export interface Port {
   status: 'up' | 'down' | 'disabled'
   description: string | null
   device?: Device
-  vlans?: Vlan[]
+  vlans?: Array<Vlan & { isTagged?: boolean }>
 }
 
 export interface Vlan {
@@ -174,6 +195,29 @@ export interface TopologyData {
   edges: TopologyEdge[]
 }
 
+export interface TopologyNetworkSummary {
+  id: string
+  name: string
+  subnet: string
+}
+
+export interface TopologyVlanSummary {
+  id: string
+  vlanId: number
+  name: string
+  isTagged: boolean
+  networks: TopologyNetworkSummary[]
+}
+
+export interface TopologyPortSummary {
+  id: string
+  name: string
+  portNumber: number
+  portType: Port['portType']
+  status: Port['status']
+  connected: boolean
+}
+
 export interface TopologyNode {
   id: string
   label: string
@@ -186,6 +230,12 @@ export interface TopologyNode {
     deviceType: string | null
     manufacturer: string | null
     model: string | null
+    vlanCount?: number
+    vlans?: TopologyVlanSummary[]
+    networks?: TopologyNetworkSummary[]
+    portCount?: number
+    portsInUse?: number
+    ports?: TopologyPortSummary[]
   }
 }
 
@@ -197,66 +247,46 @@ export interface TopologyEdge {
   targetPort: string
   sourcePortId: string
   targetPortId: string
+  sourcePortNumber?: number
+  targetPortNumber?: number
+  sourcePortStatus?: Port['status']
+  targetPortStatus?: Port['status']
   connectionType: 'physical' | 'logical'
   medium: MediumInfo
   connectionStatus: ConnectionStatusType
   bandwidth: string | null
   description: string | null
   metadata?: ConnectionMetadata | null
+  sourceVlans?: TopologyVlanSummary[]
+  targetVlans?: TopologyVlanSummary[]
+  vlans?: TopologyVlanSummary[]
+  networks?: TopologyNetworkSummary[]
+  portRole?: 'trunk' | 'access'
+  linkStatus?: 'active' | 'down'
   networkLabel?: string
   vlanLabel?: string
 }
 
-export interface LogicalNetworkSummary {
-  id: string
-  name: string
-  subnet: string
-}
-
-export interface LogicalVlanSummary {
-  id: string
-  vlanId: number
-  name: string
-  isTagged: boolean
-  networks: LogicalNetworkSummary[]
-}
-
-export interface LogicalTopologyEdge {
-  id: string
-  source: string
-  target: string
-  sourcePort: string
-  targetPort: string
-  sourcePortId: string
-  targetPortId: string
-  connectionType: 'logical'
-  medium: MediumInfo
-  connectionStatus: ConnectionStatusType
-  bandwidth: string | null
-  description: string | null
-  metadata?: ConnectionMetadata | null
-  sourcePortNumber: number
-  targetPortNumber: number
-  sourcePortStatus: Port['status']
-  targetPortStatus: Port['status']
-  sourceVlans: LogicalVlanSummary[]
-  targetVlans: LogicalVlanSummary[]
-  vlans: LogicalVlanSummary[]
-  networks: LogicalNetworkSummary[]
-  status: 'active' | 'down'
-}
-
-export interface LogicalTopologyLayer {
-  nodes: TopologyNode[]
-  edges: LogicalTopologyEdge[]
+export interface TopologySummary {
+  deviceCount: number
+  linkCount: number
+  vlanCount: number
+  networkCount: number
+  byMedium: Record<MediumType, number>
+  byStatus: Record<ConnectionStatusType, number>
 }
 
 export interface TopologyPayload {
-  physical: TopologyData
-  logical: LogicalTopologyLayer
-  /** Lista completa de dispositivos; sirve para enriquecer nodos de las capas con hostname, etc. */
+  graph: TopologyData
   inventory?: TopologyNode[]
+  summary: TopologySummary
 }
+
+/** @deprecated Kept as aliases during migration */
+export type LogicalNetworkSummary = TopologyNetworkSummary
+export type LogicalVlanSummary = TopologyVlanSummary
+export type LogicalTopologyEdge = TopologyEdge
+export type LogicalTopologyLayer = TopologyData
 
 export type EmployeeCredentialKind = 'file_server' | 'vpn' | 'email' | 'rdp' | 'other'
 

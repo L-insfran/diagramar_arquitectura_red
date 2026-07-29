@@ -5,7 +5,9 @@ export default class DeviceService {
     const query = Device.query()
       .where('company_id', companyId)
       .preload('deviceType')
-      .preload('ports', (q) => q.orderBy('port_number', 'asc'))
+      .preload('ports', (q) =>
+        q.orderBy('port_number', 'asc').preload('vlans')
+      )
       .orderBy('name', 'asc')
 
     if (filters?.status) {
@@ -29,7 +31,9 @@ export default class DeviceService {
     return Device.query()
       .where('id', id)
       .preload('deviceType')
-      .preload('ports', (q) => q.orderBy('port_number', 'asc'))
+      .preload('ports', (q) =>
+        q.orderBy('port_number', 'asc').preload('vlans')
+      )
       .preload('credentials')
       .preload('employees')
       .firstOrFail()

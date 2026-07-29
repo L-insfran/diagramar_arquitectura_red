@@ -6,6 +6,7 @@ import { Input } from '../components/Input'
 import { PageHeader } from '../components/PageHeader'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
 import { vlansService } from '../services/vlans.service'
 
 interface VlanFormState {
@@ -24,6 +25,7 @@ export default function VlanCreate() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
+  const { activeCompanyId } = useCompany()
   const isEditMode = Boolean(id)
   const { data: existingVlan, isLoading: isLoadingVlan } = useApi(
     () => (id ? vlansService.getById(id) : Promise.resolve(null)),
@@ -54,6 +56,11 @@ export default function VlanCreate() {
       return
     }
 
+    if (!isEditMode && !activeCompanyId) {
+      setFormError('Selecciona un cliente activo antes de crear una VLAN.')
+      return
+    }
+
     if (!form.vlanId.trim() || !form.name.trim()) {
       setFormError('El ID y el nombre de la VLAN son obligatorios.')
       return
@@ -75,7 +82,7 @@ export default function VlanCreate() {
         })
       } else {
         await vlansService.create({
-          companyId: user.companyId,
+          companyId: activeCompanyId,
           vlanId: vlanIdNumber,
           name: form.name.trim(),
           description: form.description.trim() || undefined,

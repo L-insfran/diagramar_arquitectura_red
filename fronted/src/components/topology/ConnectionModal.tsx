@@ -65,6 +65,7 @@ interface ConnectionModalProps {
   companyId: string
   edge: TopologyEdge | null
   onSaved: () => void
+  /** @deprecated Layer mode removed; kept for call-site compatibility */
   mode?: 'physical' | 'logical'
   physicalEdges?: PhysicalEdgeRef[]
 }
@@ -130,7 +131,7 @@ const CONNECTION_STATUS_OPTIONS: SelectOption[] = [
   { value: 'verified', label: 'Verificada' },
 ]
 
-export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mode, physicalEdges = [] }: ConnectionModalProps) {
+export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mode: _mode, physicalEdges = [] }: ConnectionModalProps) {
   const isEdit = !!edge
 
   const [devices, setDevices] = useState<Device[]>([])
@@ -243,8 +244,9 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
 
   useEffect(() => {
     if (!isOpen) return
-    if (mode) setConnectionType(mode)
-  }, [isOpen, mode])
+    // Always create physical links in the unified topology view
+    if (!edge) setConnectionType('physical')
+  }, [isOpen, edge])
 
   useEffect(() => {
     if (!isOpen || !companyId) return
@@ -401,18 +403,15 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
     [devices]
   )
 
-  const metadataPayload =
-    connectionType === 'logical'
-      ? (() => {
-          const payload: ConnectionMetadata = {}
-          if (vlanName.trim()) payload.vlanName = vlanName.trim()
-          if (vlanId.trim()) payload.vlanId = Number(vlanId)
-          if (networkName.trim()) payload.networkName = networkName.trim()
-          if (notes.trim()) payload.notes = notes.trim()
-          if (logicalStatus) payload.status = logicalStatus
-          return Object.keys(payload).length ? payload : null
-        })()
-      : undefined
+  const metadataPayload = (() => {
+    const payload: ConnectionMetadata = {}
+    if (vlanName.trim()) payload.vlanName = vlanName.trim()
+    if (vlanId.trim()) payload.vlanId = Number(vlanId)
+    if (networkName.trim()) payload.networkName = networkName.trim()
+    if (notes.trim()) payload.notes = notes.trim()
+    if (connectionType === 'logical' && logicalStatus) payload.status = logicalStatus
+    return Object.keys(payload).length ? payload : null
+  })()
 
   const handleExistingVlanSelection = useCallback(
     (id: string) => {
@@ -461,7 +460,7 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
         connectionStatus: connStatus,
         bandwidth: bandwidthVal,
         description: descriptionVal,
-        metadata: connectionType === 'logical' ? metadataPayload : undefined,
+        metadata: metadataPayload,
       }
 
       if (isEdit && edge) {
@@ -481,7 +480,17 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
     }
   }
 
-  const showLogicalFields = connectionType === 'logical'
+  const sourcePortVlans = useMemo(() => {
+    const port = sourcePorts.find((p) => p.id === sourcePortId)
+    return port?.vlans ?? []
+  }, [sourcePorts, sourcePortId])
+
+  const targetPortVlans = useMemo(() => {
+    const port = targetPorts.find((p) => p.id === targetPortId)
+    return port?.vlans ?? []
+  }, [targetPorts, targetPortId])
+
+  const showManualOverride = true
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? 'Editar conexión' : 'Nueva conexión'} size="lg">
@@ -510,6 +519,44 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
                 hint={targetDeviceId && targetDisabledStats.total > 0 ? formatPortHint(targetDisabledStats) : undefined} />
             </div>
 
+            {(sourcePortId || targetPortId) && (
+              <div className="rounded-lg border border-violet-200 dark:border-violet-800/40 p-4 space-y-2 bg-violet-50/40 dark:bg-violet-950/20">
+                <p className="text-xs uppercase tracking-wide font-semibold text-violet-700 dark:text-violet-300">
+                  VLANs de los puertos (derivadas del inventario)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-700 dark:text-gray-300">
+                  <div>
+                    <p className="font-semibold mb-1">Origen</p>
+                    {sourcePortVlans.length ? (
+                      <ul className="space-y-0.5">
+                        {sourcePortVlans.map((v) => (
+                          <li key={v.id}>VLAN {v.vlanId} · {v.name}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-500">Sin VLANs asignadas al puerto</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-semibold mb-1">Destino</p>
+                    {targetPortVlans.length ? (
+                      <ul className="space-y-0.5">
+                        {targetPortVlans.map((v) => (
+                          <li key={v.id}>VLAN {v.vlanId} · {v.name}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-500">Sin VLANs asignadas al puerto</p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  Para asignar VLANs reales al switch: abrí el dispositivo → Edit en el puerto → sección
+                  «VLANs del puerto». La etiqueta manual más abajo es solo un complemento en el diagrama.
+                </p>
+              </div>
+            )}
+
             {hasAnyDisabled && (
               <div className="space-y-2">
                 {hasDownPorts && (
@@ -524,18 +571,12 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
                   <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
                     <Lock className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Los puertos asignados a una conexión física están bloqueados (excepto en dispositivos <span className="font-semibold">Cableado Estructurado</span>, donde un mismo puerto puede tener varios enlaces físicos). Las conexiones lógicas pueden reutilizar cualquier puerto.
+                      Los puertos asignados a una conexión están bloqueados (excepto en dispositivos <span className="font-semibold">Cableado Estructurado</span>, donde un mismo puerto puede tener varios enlaces).
                     </p>
                   </div>
                 )}
               </div>
             )}
-
-            {/* Tipo de conexión */}
-            <Select label="Tipo de enlace" options={[
-              { value: 'physical', label: 'Físico' },
-              { value: 'logical', label: 'Lógico' },
-            ]} value={connectionType} onChange={(e) => setConnectionType(e.target.value as 'physical' | 'logical')} />
 
             {/* Medio de conexión */}
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
@@ -588,10 +629,15 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
                 value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Trunk, ID de circuito, etc." />
             </div>
 
-            {/* Campos lógicos */}
-            {showLogicalFields && (
-              <div className="space-y-3 rounded-lg border border-indigo-200 dark:border-indigo-800/40 p-4 bg-indigo-50/30 dark:bg-indigo-950/20">
-                <p className="text-xs uppercase tracking-wide font-semibold text-indigo-600 dark:text-indigo-400">Metadatos lógicos</p>
+            {/* Override manual opcional */}
+            {showManualOverride && (
+              <div className="space-y-3 rounded-lg border border-slate-200 dark:border-slate-700 p-4 bg-slate-50/40 dark:bg-slate-900/30">
+                <p className="text-xs uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-400">
+                  Etiqueta manual (opcional)
+                </p>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  Se muestra en el diagrama como complemento a las VLANs del puerto, marcado como (manual).
+                </p>
                 {loadingLogicalCatalog && (
                   <p className="text-xs text-gray-500 dark:text-gray-400">Cargando VLANs y redes…</p>
                 )}
@@ -610,18 +656,12 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
                     options={[{ value: '', label: 'Seleccionar red' }, ...networks.map((n) => ({ value: n.id, label: n.name }))]}
                     value={selectedLogicalNetworkId} onChange={(e) => handleExistingNetworkSelection(e.target.value)} />
                 )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Input label="Red" placeholder="ej. Prod VLAN" value={networkName}
-                    onChange={(e) => { setNetworkName(e.target.value); setSelectedLogicalNetworkId('') }} />
-                  <Select label="Estado del enlace" options={[
-                    { value: 'active', label: 'Activo' },
-                    { value: 'down', label: 'Caído' },
-                  ]} value={logicalStatus} onChange={(e) => setLogicalStatus(e.target.value as 'active' | 'down')} />
-                </div>
+                <Input label="Red" placeholder="ej. Prod VLAN" value={networkName}
+                  onChange={(e) => { setNetworkName(e.target.value); setSelectedLogicalNetworkId('') }} />
                 <div className="space-y-1.5">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notas adicionales</label>
                   <textarea className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 min-h-[80px]"
-                    value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe el contexto lógico (vSwitch, subred, owner...)" />
+                    value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe contexto adicional…" />
                 </div>
               </div>
             )}

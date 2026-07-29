@@ -1,5 +1,7 @@
 import axios from 'axios'
 
+const ACTIVE_COMPANY_KEY = 'nm:active-company'
+
 const api = axios.create({
   baseURL: '/api',
   headers: {
@@ -11,6 +13,10 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem('auth_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  const companyId = localStorage.getItem(ACTIVE_COMPANY_KEY)
+  if (companyId) {
+    config.headers['X-Company-Id'] = companyId
   }
   return config
 })

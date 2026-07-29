@@ -1,6 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import SystemUser from '#models/system_user'
-import { isAdmin } from '#services/authorization_service'
+import CompanyMembership from '#models/company_membership'
+import { canAccessCompany, isAdmin } from '#services/authorization_service'
+import { requireCompanyContext } from '#services/company_context_service'
 import {
   createSystemUserValidator,
   updateSystemUserValidator,
@@ -13,17 +15,22 @@ function userJson(user: SystemUser) {
 }
 
 export default class SystemUsersController {
-  async index({ auth, request, response }: HttpContext) {
-    const currentUser = auth.getUserOrFail() as SystemUser
+  async index(ctx: HttpContext) {
+    const currentUser = ctx.auth.getUserOrFail() as SystemUser
     if (!isAdmin(currentUser)) {
-      return response.forbidden({ success: false, message: 'Only administrators can manage users' })
+      return ctx.response.forbidden({
+        success: false,
+        message: 'Only administrators can manage users',
+      })
     }
-    const companyId = (request.input('company_id') as string | undefined) ?? currentUser.companyId
+    const context = await requireCompanyContext(ctx)
+    if (!context) return
+
     const users = await SystemUser.query()
-      .where('company_id', companyId)
+      .where('company_id', context.companyId)
       .preload('company')
       .orderBy('last_name', 'asc')
-    return response.ok({ success: true, data: users.map(userJson) })
+    return ctx.response.ok({ success: true, data: users.map(userJson) })
   }
 
   async store({ auth, request, response }: HttpContext) {
@@ -33,9 +40,7 @@ export default class SystemUsersController {
     }
     const data = await request.validateUsing(createSystemUserValidator)
 
-    const existing = await SystemUser.query()
-      .where('email', data.email)
-      .first()
+    const existing = await SystemUser.query().where('email', data.email).first()
     if (existing) {
       return response.conflict({ success: false, message: 'Ya existe un usuario con ese email' })
     }
@@ -44,6 +49,14 @@ export default class SystemUsersController {
       ...data,
       isActive: data.isActive ?? true,
     })
+
+    await CompanyMembership.create({
+      systemUserId: user.id,
+      companyId: data.companyId,
+      role: data.role,
+      isDefault: true,
+    })
+
     await user.load('company')
     return response.created({ success: true, data: userJson(user) })
   }
@@ -57,6 +70,9 @@ export default class SystemUsersController {
       .where('id', params.id)
       .preload('company')
       .firstOrFail()
+    if (user.companyId && !(await canAccessCompany(currentUser, user.companyId))) {
+      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+    }
     return response.ok({ success: true, data: userJson(user) })
   }
 

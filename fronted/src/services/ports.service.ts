@@ -1,6 +1,11 @@
 import api from './api'
 import type { ApiResponse, Port } from '../types'
 
+export interface PortVlanAssignment {
+  vlanId: string
+  isTagged?: boolean
+}
+
 export interface CreatePortPayload {
   deviceId: string
   name: string
@@ -9,6 +14,7 @@ export interface CreatePortPayload {
   speed?: string | null
   status?: Port['status']
   description?: string | null
+  vlanAssignments?: PortVlanAssignment[]
 }
 
 /** Fields accepted by PUT /ports/:id (all optional in API; we send a full set from the edit form). */
@@ -20,6 +26,8 @@ export interface UpdatePortPayload {
   speed?: string | null
   status: Port['status']
   description?: string
+  /** Si se envía (aunque sea []), reemplaza las VLANs del puerto. */
+  vlanAssignments?: PortVlanAssignment[]
 }
 
 export const portsService = {

@@ -13,6 +13,8 @@ const DeviceTypesController = () => import('#controllers/device_types_controller
 const DeviceCredentialsController = () => import('#controllers/device_credentials_controller')
 const EmployeeCredentialsController = () => import('#controllers/employee_credentials_controller')
 const SystemUsersController = () => import('#controllers/system_users_controller')
+const MeController = () => import('#controllers/me_controller')
+const UserMembershipsController = () => import('#controllers/user_memberships_controller')
 
 // Health check
 router.get('/', async () => {
@@ -31,6 +33,7 @@ router
     // Auth
     router.post('/auth/logout', [AuthController, 'logout'])
     router.get('/auth/me', [AuthController, 'me'])
+    router.get('/me/companies', [MeController, 'companies'])
 
     // Companies
     router.get('/companies', [CompaniesController, 'index'])
@@ -110,6 +113,8 @@ router
     router.get('/system-users/:id', [SystemUsersController, 'show'])
     router.put('/system-users/:id', [SystemUsersController, 'update'])
     router.delete('/system-users/:id', [SystemUsersController, 'destroy'])
+    router.get('/system-users/:id/memberships', [UserMembershipsController, 'index'])
+    router.put('/system-users/:id/memberships', [UserMembershipsController, 'update'])
 
     // Employee Network Credentials
     router.get('/employee-credentials', [EmployeeCredentialsController, 'index'])

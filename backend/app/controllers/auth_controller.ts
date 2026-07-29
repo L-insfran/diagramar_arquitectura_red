@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { loginValidator, registerValidator } from '#validators/auth_validator'
 import AuthService from '#services/auth_service'
+import SystemUser from '#models/system_user'
 
 export default class AuthController {
   private authService = new AuthService()
@@ -42,11 +43,11 @@ export default class AuthController {
 
   async me({ auth, response }: HttpContext) {
     try {
-      const user = auth.getUserOrFail()
-      return response.ok({ success: true, data: user})
+      const user = auth.getUserOrFail() as SystemUser
+      const data = await this.authService.me(user)
+      return response.ok({ success: true, data })
     } catch {
       return response.unauthorized({ success: false, message: 'Not authenticated'})
     }
   }
 }
-

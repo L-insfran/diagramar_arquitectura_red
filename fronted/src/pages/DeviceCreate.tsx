@@ -7,6 +7,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Select } from '../components/Select'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { devicesService } from '../services/devices.service'
 import { deviceTypesService } from '../services/device-types.service'
@@ -56,6 +57,7 @@ export default function DeviceCreate() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
+  const { activeCompanyId } = useCompany()
   const { isViewer } = usePermissions()
   const isEditMode = Boolean(id)
   const { data: existingDevice, isLoading: isLoadingDevice } = useApi(
@@ -136,7 +138,7 @@ export default function DeviceCreate() {
         await devicesService.update(id, payload)
       } else {
         await devicesService.create({
-          companyId: user.companyId,
+          companyId: activeCompanyId || user!.companyId,
           ...payload,
         })
       }

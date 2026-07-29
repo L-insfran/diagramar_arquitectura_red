@@ -53,32 +53,45 @@ export interface UpdateConnectionPayload {
   metadata?: ConnectionMetadata | null
 }
 
+export type TopologyWorkAreaPayload = {
+  id: string
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  titleFontSize?: number
+}
+
 export type TopologyCanvasLayoutPayload = {
   nodePositions: Record<string, { x: number; y: number }>
   labelOffsets: Record<string, { x: number; y: number }>
+  workAreas?: TopologyWorkAreaPayload[]
+  nodeParents?: Record<string, string>
 }
 
 export const topologyService = {
-  async getCanvasLayout(companyId: string, layer: 'physical' | 'logical'): Promise<TopologyCanvasLayoutPayload> {
+  async getCanvasLayout(companyId: string): Promise<TopologyCanvasLayoutPayload> {
     const { data } = await api.get<ApiResponse<TopologyCanvasLayoutPayload>>(
-      `/topology/canvas-layout?company_id=${encodeURIComponent(companyId)}&layer=${layer}`
+      `/topology/canvas-layout?company_id=${encodeURIComponent(companyId)}`
     )
     return data.data
   },
 
   async saveCanvasLayout(payload: {
     companyId: string
-    layer: 'physical' | 'logical'
     nodePositions: Record<string, { x: number; y: number }>
     labelOffsets: Record<string, { x: number; y: number }>
+    workAreas?: TopologyWorkAreaPayload[]
+    nodeParents?: Record<string, string>
   }): Promise<TopologyCanvasLayoutPayload> {
     const { data } = await api.put<ApiResponse<TopologyCanvasLayoutPayload>>('/topology/canvas-layout', payload)
     return data.data
   },
 
-  async clearCanvasLayout(companyId: string, layer: 'physical' | 'logical'): Promise<void> {
+  async clearCanvasLayout(companyId: string): Promise<void> {
     await api.delete(
-      `/topology/canvas-layout?company_id=${encodeURIComponent(companyId)}&layer=${layer}`
+      `/topology/canvas-layout?company_id=${encodeURIComponent(companyId)}`
     )
   },
 

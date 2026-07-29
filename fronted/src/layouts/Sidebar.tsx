@@ -8,18 +8,21 @@ import {
   Users,
   Settings,
   Network,
+  Building2,
   X,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
+import { usePermissions } from '../hooks/usePermissions'
 
 const allNavItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard', viewerVisible: true },
-  { to: '/devices', icon: Server, label: 'Devices', viewerVisible: true },
-  { to: '/vlans', icon: Layers, label: 'VLANs', viewerVisible: true },
-  { to: '/networks', icon: Globe, label: 'Networks', viewerVisible: true },
-  { to: '/topology', icon: GitBranch, label: 'Topology', viewerVisible: true },
-  { to: '/employees', icon: Users, label: 'Employees', viewerVisible: true },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', viewerVisible: true, adminOnly: false },
+  { to: '/devices', icon: Server, label: 'Dispositivos', viewerVisible: true, adminOnly: false },
+  { to: '/vlans', icon: Layers, label: 'VLANs', viewerVisible: true, adminOnly: false },
+  { to: '/networks', icon: Globe, label: 'Redes', viewerVisible: true, adminOnly: false },
+  { to: '/topology', icon: GitBranch, label: 'Topología', viewerVisible: true, adminOnly: false },
+  { to: '/employees', icon: Users, label: 'Empleados', viewerVisible: true, adminOnly: false },
+  { to: '/clients', icon: Building2, label: 'Clientes', viewerVisible: false, adminOnly: true },
 ]
 
 interface SidebarProps {
@@ -31,8 +34,13 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, isCollapsed, isViewer, onToggleCollapsed, onClose }: SidebarProps) {
-  const navItems = allNavItems.filter((item) => !isViewer || item.viewerVisible)
-  const collapseButtonLabel = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
+  const { isGlobalAdmin } = usePermissions()
+  const navItems = allNavItems.filter((item) => {
+    if (item.adminOnly && !isGlobalAdmin) return false
+    if (isViewer && !item.viewerVisible) return false
+    return true
+  })
+  const collapseButtonLabel = isCollapsed ? 'Expandir barra' : 'Contraer barra'
 
   return (
     <>
@@ -90,7 +98,7 @@ export function Sidebar({ isOpen, isCollapsed, isViewer, onToggleCollapsed, onCl
                 type="button"
                 onClick={onClose}
                 className="lg:hidden p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                aria-label="Close menu"
+                aria-label="Cerrar menú"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -99,7 +107,7 @@ export function Sidebar({ isOpen, isCollapsed, isViewer, onToggleCollapsed, onCl
 
           <nav
             className={`flex-1 py-4 space-y-1 overflow-y-auto ${isCollapsed ? 'px-2' : 'px-3'}`}
-            aria-label="Primary navigation"
+            aria-label="Navegación principal"
           >
             {navItems.map((item) => (
               <NavLink
@@ -169,11 +177,11 @@ export function Sidebar({ isOpen, isCollapsed, isViewer, onToggleCollapsed, onCl
                   isCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'opacity-100'
                 }`}
               >
-                Settings
+                Configuración
               </span>
               {isCollapsed && (
                 <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 max-w-48 truncate whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs px-3 py-1.5 opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity duration-150 group-hover:opacity-100">
-                  Settings
+                  Configuración
                 </span>
               )}
             </NavLink>

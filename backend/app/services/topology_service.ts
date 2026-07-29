@@ -25,6 +25,29 @@ type MediumInfo = {
   cableLength: string | null
 }
 
+type NetworkSummary = {
+  id: string
+  name: string
+  subnet: string
+}
+
+type VlanSummary = {
+  id: string
+  vlanId: number
+  name: string
+  isTagged: boolean
+  networks: NetworkSummary[]
+}
+
+type PortSummary = {
+  id: string
+  name: string
+  portNumber: number
+  portType: Port['portType']
+  status: Port['status']
+  connected: boolean
+}
+
 type FlowTopologyNode = {
   id: string
   label: string
@@ -37,6 +60,12 @@ type FlowTopologyNode = {
     deviceType: string | null
     manufacturer: string | null
     model: string | null
+    vlanCount: number
+    vlans: VlanSummary[]
+    networks: NetworkSummary[]
+    portCount: number
+    portsInUse: number
+    ports: PortSummary[]
   }
 }
 
@@ -48,39 +77,31 @@ type FlowTopologyEdge = {
   targetPort: string
   sourcePortId: string
   targetPortId: string
+  sourcePortNumber: number
+  targetPortNumber: number
+  sourcePortStatus: Port['status']
+  targetPortStatus: Port['status']
   connectionType: 'physical' | 'logical'
   medium: MediumInfo
   connectionStatus: ConnectionStatus
   bandwidth: string | null
   description: string | null
   metadata: ConnectionMetadata | null
+  sourceVlans: VlanSummary[]
+  targetVlans: VlanSummary[]
+  vlans: VlanSummary[]
+  networks: NetworkSummary[]
+  portRole: 'trunk' | 'access'
+  linkStatus: 'active' | 'down'
 }
 
-type LogicalNetworkSummary = {
-  id: string
-  name: string
-  subnet: string
-}
-
-type LogicalVlanSummary = {
-  id: string
-  vlanId: number
-  name: string
-  isTagged: boolean
-  networks: LogicalNetworkSummary[]
-}
-
-type LogicalTopologyEdge = FlowTopologyEdge & {
-  connectionType: 'logical'
-  sourcePortNumber: number
-  targetPortNumber: number
-  sourcePortStatus: Port['status']
-  targetPortStatus: Port['status']
-  sourceVlans: LogicalVlanSummary[]
-  targetVlans: LogicalVlanSummary[]
-  vlans: LogicalVlanSummary[]
-  networks: LogicalNetworkSummary[]
-  status: 'active' | 'down'
+type TopologySummary = {
+  deviceCount: number
+  linkCount: number
+  vlanCount: number
+  networkCount: number
+  byMedium: Record<MediumType, number>
+  byStatus: Record<ConnectionStatus, number>
 }
 
 const uniqueBy = <T>(items: T[], keyFn: (item: T) => string): T[] => {
@@ -91,34 +112,7 @@ const uniqueBy = <T>(items: T[], keyFn: (item: T) => string): T[] => {
   return Array.from(map.values())
 }
 
-const buildDeviceNode = (device: Device): FlowTopologyNode => ({
-  id: device.id,
-  label: device.name,
-  type: 'device',
-  data: {
-    hostname: device.hostname,
-    ipAddress: device.ipAddress,
-    status: device.status,
-    location: device.location,
-    deviceType: device.deviceType?.name ?? null,
-    manufacturer: device.manufacturer,
-    model: device.model,
-  },
-})
-
-const buildMediumInfo = (conn: Connection): MediumInfo => ({
-  mediumType: conn.mediumType ?? 'utp',
-  cableCategory: conn.cableCategory ?? null,
-  fiberType: conn.fiberType ?? null,
-  fiberConnector: conn.fiberConnector ?? null,
-  wifiSsid: conn.wifiSsid ?? null,
-  wifiStandard: conn.wifiStandard ?? null,
-  wifiBand: conn.wifiBand ?? null,
-  wifiSecurity: conn.wifiSecurity ?? null,
-  cableLength: conn.cableLength ?? null,
-})
-
-const extractVlanSummaries = (port: Port): LogicalVlanSummary[] => {
+const extractVlanSummaries = (port: Port): VlanSummary[] => {
   if (!port.vlans?.length) return []
   return port.vlans.map((vlan) => ({
     id: vlan.id,
@@ -132,6 +126,66 @@ const extractVlanSummaries = (port: Port): LogicalVlanSummary[] => {
     })),
   }))
 }
+
+const resolvePortRole = (vlans: VlanSummary[]): 'trunk' | 'access' => {
+  if (vlans.length > 1) return 'trunk'
+  if (vlans.some((vlan) => vlan.isTagged)) return 'trunk'
+  return 'access'
+}
+
+const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopologyNode => {
+  const ports = device.ports ?? []
+  const allVlans = uniqueBy(
+    ports.flatMap((port) => extractVlanSummaries(port)),
+    (vlan) => vlan.id
+  )
+  const allNetworks = uniqueBy(
+    allVlans.flatMap((vlan) => vlan.networks),
+    (network) => network.id
+  )
+  const portsInUse = ports.filter((port) => portsInUseIds.has(port.id)).length
+  const sortedPorts = [...ports].sort((a, b) => a.portNumber - b.portNumber || a.name.localeCompare(b.name))
+
+  return {
+    id: device.id,
+    label: device.name,
+    type: 'device',
+    data: {
+      hostname: device.hostname,
+      ipAddress: device.ipAddress,
+      status: device.status,
+      location: device.location,
+      deviceType: device.deviceType?.name ?? null,
+      manufacturer: device.manufacturer,
+      model: device.model,
+      vlanCount: allVlans.length,
+      vlans: allVlans,
+      networks: allNetworks,
+      portCount: ports.length,
+      portsInUse,
+      ports: sortedPorts.map((port) => ({
+        id: port.id,
+        name: port.name,
+        portNumber: port.portNumber,
+        portType: port.portType,
+        status: port.status,
+        connected: portsInUseIds.has(port.id),
+      })),
+    },
+  }
+}
+
+const buildMediumInfo = (conn: Connection): MediumInfo => ({
+  mediumType: conn.mediumType ?? 'utp',
+  cableCategory: conn.cableCategory ?? null,
+  fiberType: conn.fiberType ?? null,
+  fiberConnector: conn.fiberConnector ?? null,
+  wifiSsid: conn.wifiSsid ?? null,
+  wifiStandard: conn.wifiStandard ?? null,
+  wifiBand: conn.wifiBand ?? null,
+  wifiSecurity: conn.wifiSecurity ?? null,
+  cableLength: conn.cableLength ?? null,
+})
 
 export default class TopologyService {
   private async assertValidPortPair(companyId: string, sourcePortId: string, targetPortId: string) {
@@ -151,98 +205,125 @@ export default class TopologyService {
     const connections = await Connection.query()
       .where('company_id', companyId)
       .preload('sourcePort', (query) => {
-        query.preload('device', (dq) => dq.preload('deviceType')).preload('vlans', (q) => q.preload('networks'))
+        query
+          .preload('device', (dq) => dq.preload('deviceType'))
+          .preload('vlans', (q) => q.preload('networks'))
       })
       .preload('targetPort', (query) => {
-        query.preload('device', (dq) => dq.preload('deviceType')).preload('vlans', (q) => q.preload('networks'))
+        query
+          .preload('device', (dq) => dq.preload('deviceType'))
+          .preload('vlans', (q) => q.preload('networks'))
       })
 
-    const physicalNodes = new Map<string, FlowTopologyNode>()
-    const logicalNodes = new Map<string, FlowTopologyNode>()
-    const physicalEdges: FlowTopologyEdge[] = []
-    const logicalEdges: LogicalTopologyEdge[] = []
+    const portsInUseIds = new Set<string>()
+    for (const conn of connections) {
+      portsInUseIds.add(conn.sourcePortId)
+      portsInUseIds.add(conn.targetPortId)
+    }
+
+    const allDevices = await Device.query()
+      .where('company_id', companyId)
+      .preload('deviceType')
+      .preload('ports', (p) => p.preload('vlans', (v) => v.preload('networks')))
+
+    const deviceNodes = new Map<string, FlowTopologyNode>()
+    for (const device of allDevices) {
+      deviceNodes.set(device.id, buildDeviceNode(device, portsInUseIds))
+    }
+
+    const graphNodes = new Map<string, FlowTopologyNode>()
+    const edges: FlowTopologyEdge[] = []
+    const allVlans = new Map<string, VlanSummary>()
+    const allNetworks = new Map<string, NetworkSummary>()
+    const byMedium: Record<MediumType, number> = { utp: 0, fiber: 0, wifi: 0 }
+    const byStatus: Record<ConnectionStatus, number> = {
+      planned: 0,
+      implemented: 0,
+      verified: 0,
+    }
 
     for (const conn of connections) {
       const sourceDevice = conn.sourcePort.device
       const targetDevice = conn.targetPort.device
       const medium = buildMediumInfo(conn)
 
-      if (conn.connectionType === 'physical') {
-        if (!physicalNodes.has(sourceDevice.id)) physicalNodes.set(sourceDevice.id, buildDeviceNode(sourceDevice))
-        if (!physicalNodes.has(targetDevice.id)) physicalNodes.set(targetDevice.id, buildDeviceNode(targetDevice))
-        physicalEdges.push({
-          id: conn.id,
-          source: sourceDevice.id,
-          target: targetDevice.id,
-          sourcePort: conn.sourcePort.name,
-          targetPort: conn.targetPort.name,
-          sourcePortId: conn.sourcePortId,
-          targetPortId: conn.targetPortId,
-          connectionType: conn.connectionType,
-          medium,
-          connectionStatus: conn.connectionStatus ?? 'implemented',
-          bandwidth: conn.bandwidth,
-          description: conn.description,
-          metadata: conn.metadata ?? null,
-        })
-      }
+      const sourceNode = deviceNodes.get(sourceDevice.id) ?? buildDeviceNode(sourceDevice, portsInUseIds)
+      const targetNode = deviceNodes.get(targetDevice.id) ?? buildDeviceNode(targetDevice, portsInUseIds)
+      graphNodes.set(sourceDevice.id, sourceNode)
+      graphNodes.set(targetDevice.id, targetNode)
 
-      if (conn.connectionType === 'logical') {
-        if (!logicalNodes.has(sourceDevice.id)) logicalNodes.set(sourceDevice.id, buildDeviceNode(sourceDevice))
-        if (!logicalNodes.has(targetDevice.id)) logicalNodes.set(targetDevice.id, buildDeviceNode(targetDevice))
-        const sourceVlans = extractVlanSummaries(conn.sourcePort)
-        const targetVlans = extractVlanSummaries(conn.targetPort)
-        const combinedVlans = uniqueBy<LogicalVlanSummary>(
-          [...sourceVlans, ...targetVlans],
-          (vlan) => vlan.id
-        )
-        const combinedNetworks = uniqueBy<LogicalNetworkSummary>(
-          combinedVlans.flatMap((vlan) => vlan.networks),
-          (network) => network.id
-        )
-        logicalEdges.push({
-          id: conn.id,
-          source: sourceDevice.id,
-          target: targetDevice.id,
-          sourcePort: conn.sourcePort.name,
-          targetPort: conn.targetPort.name,
-          sourcePortId: conn.sourcePortId,
-          targetPortId: conn.targetPortId,
-          connectionType: conn.connectionType,
-          medium,
-          connectionStatus: conn.connectionStatus ?? 'implemented',
-          bandwidth: conn.bandwidth,
-          description: conn.description,
-          metadata: conn.metadata ?? null,
-          sourcePortNumber: conn.sourcePort.portNumber,
-          targetPortNumber: conn.targetPort.portNumber,
-          sourcePortStatus: conn.sourcePort.status,
-          targetPortStatus: conn.targetPort.status,
-          sourceVlans,
-          targetVlans,
-          vlans: combinedVlans,
-          networks: combinedNetworks,
-          status: conn.sourcePort.status === 'up' && conn.targetPort.status === 'up' ? 'active' : 'down',
-        })
-      }
+      const sourceVlans = extractVlanSummaries(conn.sourcePort)
+      const targetVlans = extractVlanSummaries(conn.targetPort)
+      const combinedVlans = uniqueBy([...sourceVlans, ...targetVlans], (vlan) => vlan.id)
+      const combinedNetworks = uniqueBy(
+        combinedVlans.flatMap((vlan) => vlan.networks),
+        (network) => network.id
+      )
+
+      for (const vlan of combinedVlans) allVlans.set(vlan.id, vlan)
+      for (const network of combinedNetworks) allNetworks.set(network.id, network)
+
+      const mediumType = medium.mediumType ?? 'utp'
+      if (mediumType in byMedium) byMedium[mediumType]++
+      const status = conn.connectionStatus ?? 'implemented'
+      if (status in byStatus) byStatus[status]++
+
+      const sourceRole = resolvePortRole(sourceVlans)
+      const targetRole = resolvePortRole(targetVlans)
+      const portRole: 'trunk' | 'access' =
+        sourceRole === 'trunk' || targetRole === 'trunk' ? 'trunk' : 'access'
+
+      edges.push({
+        id: conn.id,
+        source: sourceDevice.id,
+        target: targetDevice.id,
+        sourcePort: conn.sourcePort.name,
+        targetPort: conn.targetPort.name,
+        sourcePortId: conn.sourcePortId,
+        targetPortId: conn.targetPortId,
+        sourcePortNumber: conn.sourcePort.portNumber,
+        targetPortNumber: conn.targetPort.portNumber,
+        sourcePortStatus: conn.sourcePort.status,
+        targetPortStatus: conn.targetPort.status,
+        connectionType: conn.connectionType,
+        medium,
+        connectionStatus: status,
+        bandwidth: conn.bandwidth,
+        description: conn.description,
+        metadata: conn.metadata ?? null,
+        sourceVlans,
+        targetVlans,
+        vlans: combinedVlans,
+        networks: combinedNetworks,
+        portRole,
+        linkStatus:
+          conn.sourcePort.status === 'up' && conn.targetPort.status === 'up' ? 'active' : 'down',
+      })
     }
 
-    const allDevices = await Device.query()
-      .where('company_id', companyId)
-      .preload('deviceType')
+    // Include device-level VLANs/networks in summary even if not on a connection
+    for (const node of deviceNodes.values()) {
+      for (const vlan of node.data.vlans) allVlans.set(vlan.id, vlan)
+      for (const network of node.data.networks) allNetworks.set(network.id, network)
+    }
 
-    const inventoryNodes: FlowTopologyNode[] = allDevices.map((d) => buildDeviceNode(d))
+    const inventoryNodes = Array.from(deviceNodes.values())
+    const summary: TopologySummary = {
+      deviceCount: graphNodes.size || inventoryNodes.length,
+      linkCount: edges.length,
+      vlanCount: allVlans.size,
+      networkCount: allNetworks.size,
+      byMedium,
+      byStatus,
+    }
 
     return {
-      physical: {
-        nodes: Array.from(physicalNodes.values()),
-        edges: physicalEdges,
-      },
-      logical: {
-        nodes: Array.from(logicalNodes.values()),
-        edges: logicalEdges,
+      graph: {
+        nodes: Array.from(graphNodes.values()),
+        edges,
       },
       inventory: inventoryNodes,
+      summary,
     }
   }
 

@@ -12,9 +12,11 @@ import { Input } from '../components/Input'
 import { Select } from '../components/Select'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
+import { useCompany } from '../contexts/CompanyContext'
 import { devicesService } from '../services/devices.service'
 import { portsService } from '../services/ports.service'
-import type { Port } from '../types'
+import { vlansService } from '../services/vlans.service'
+import type { Port, Vlan } from '../types'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
 
@@ -33,13 +35,23 @@ const portStatusOptions: { value: Port['status']; label: string }[] = [
   { value: 'disabled', label: 'Disabled' },
 ]
 
+type PortVlanFormRow = { vlanId: string; isTagged: boolean }
+
 export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { canMutate, isViewer } = usePermissions()
+  const { activeCompanyId } = useCompany()
   const { data: device, isLoading, refetch } = useApi(
     () => (id ? devicesService.getById(id) : Promise.reject(new Error('Missing device id'))),
     [id]
+  )
+  const { data: companyVlans } = useApi(
+    () => {
+      const companyId = device?.companyId || activeCompanyId
+      return companyId ? vlansService.getAll(companyId) : Promise.resolve([] as Vlan[])
+    },
+    [device?.companyId, activeCompanyId]
   )
 
   const [portModalOpen, setPortModalOpen] = useState(false)
@@ -52,12 +64,21 @@ export default function DeviceDetail() {
     status: 'down' as Port['status'],
     description: '',
   })
+  const [portVlanAssignments, setPortVlanAssignments] = useState<PortVlanFormRow[]>([])
   const [portSubmitting, setPortSubmitting] = useState(false)
   const [portFormError, setPortFormError] = useState<string | null>(null)
 
   const portsSorted = useMemo(
     () => [...(device?.ports ?? [])].sort((a, b) => a.portNumber - b.portNumber),
     [device?.ports]
+  )
+
+  const vlanOptions = useMemo(
+    () =>
+      [...(companyVlans ?? [])].sort(
+        (a, b) => a.vlanId - b.vlanId || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      ),
+    [companyVlans]
   )
 
   const resetPortForm = () => {
@@ -69,6 +90,7 @@ export default function DeviceDetail() {
       status: 'down',
       description: '',
     })
+    setPortVlanAssignments([])
     setPortFormError(null)
   }
 
@@ -94,8 +116,31 @@ export default function DeviceDetail() {
       status: port.status,
       description: port.description ?? '',
     })
+    setPortVlanAssignments(
+      (port.vlans ?? []).map((vlan) => ({
+        vlanId: vlan.id,
+        isTagged: !!vlan.isTagged,
+      }))
+    )
     setPortFormError(null)
     setPortModalOpen(true)
+  }
+
+  const togglePortVlan = (vlanId: string) => {
+    setPortVlanAssignments((prev) => {
+      const exists = prev.some((a) => a.vlanId === vlanId)
+      if (exists) return prev.filter((a) => a.vlanId !== vlanId)
+      const next = [...prev, { vlanId, isTagged: prev.length >= 1 }]
+      // Access (1 VLAN) = untagged; trunk (2+) = tagged by default
+      if (next.length === 1) return [{ vlanId: next[0].vlanId, isTagged: false }]
+      return next.map((a) => ({ ...a, isTagged: true }))
+    })
+  }
+
+  const togglePortVlanTagged = (vlanId: string) => {
+    setPortVlanAssignments((prev) =>
+      prev.map((a) => (a.vlanId === vlanId ? { ...a, isTagged: !a.isTagged } : a))
+    )
   }
 
   const handlePortSubmit = async (event: FormEvent) => {
@@ -108,6 +153,11 @@ export default function DeviceDetail() {
       return
     }
 
+    const vlanAssignments = portVlanAssignments.map((a) => ({
+      vlanId: a.vlanId,
+      isTagged: a.isTagged,
+    }))
+
     try {
       setPortSubmitting(true)
       setPortFormError(null)
@@ -119,6 +169,7 @@ export default function DeviceDetail() {
           speed: portForm.speed.trim() || null,
           status: portForm.status,
           description: portForm.description.trim() || undefined,
+          vlanAssignments,
         })
       } else {
         await portsService.create({
@@ -129,6 +180,7 @@ export default function DeviceDetail() {
           speed: portForm.speed.trim() || undefined,
           status: portForm.status,
           description: portForm.description.trim() || undefined,
+          vlanAssignments,
         })
       }
       closePortModal()
@@ -156,6 +208,27 @@ export default function DeviceDetail() {
     },
     { key: 'speed', header: 'Speed', render: (p) => p.speed || '—' },
     { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} /> },
+    {
+      key: 'vlans',
+      header: 'VLANs',
+      render: (p) =>
+        p.vlans?.length ? (
+          <div className="flex flex-wrap gap-1">
+            {p.vlans.map((vlan) => (
+              <span
+                key={vlan.id}
+                className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300"
+                title={vlan.isTagged ? 'Tagged (trunk)' : 'Untagged (access)'}
+              >
+                {vlan.name} · {vlan.vlanId}
+                {vlan.isTagged ? ' T' : ''}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400">—</span>
+        ),
+    },
     {
       key: 'description',
       header: 'Description',
@@ -243,7 +316,6 @@ export default function DeviceDetail() {
         )}
       </div>
 
-      {/* Header */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -280,14 +352,12 @@ export default function DeviceDetail() {
         </div>
       </div>
 
-      {/* Notes */}
       {device.notes && (
         <Card title="Notes">
           <p className="text-sm text-gray-600 dark:text-gray-300">{device.notes}</p>
         </Card>
       )}
 
-      {/* Ports */}
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -318,7 +388,7 @@ export default function DeviceDetail() {
         title={editingPortId ? 'Edit port' : 'Add port'}
         size="md"
       >
-        <form className="space-y-4" onSubmit={handlePortSubmit}>
+        <form className="space-y-4 max-h-[75vh] overflow-y-auto pr-1" onSubmit={handlePortSubmit}>
           {portFormError && (
             <p className="text-sm text-red-500 dark:text-red-400" role="alert">
               {portFormError}
@@ -376,6 +446,66 @@ export default function DeviceDetail() {
               placeholder="Optional"
             />
           </div>
+
+          <div className="rounded-xl border border-violet-200/80 bg-violet-50/40 p-4 dark:border-violet-900/50 dark:bg-violet-950/20 space-y-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                VLANs del puerto
+              </p>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                Estas VLANs se muestran en topología y en la tabla de conexiones. Access = 1 VLAN
+                untagged; Trunk = varias (tagged).
+              </p>
+            </div>
+            {vlanOptions.length === 0 ? (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                No hay VLANs en el inventario. Creá VLANs en el menú VLANs y volvé a editar el puerto.
+              </p>
+            ) : (
+              <ul className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                {vlanOptions.map((vlan) => {
+                  const selected = portVlanAssignments.find((a) => a.vlanId === vlan.id)
+                  return (
+                    <li
+                      key={vlan.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900"
+                    >
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm text-gray-800 dark:text-gray-100">
+                        <input
+                          type="checkbox"
+                          className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                          checked={!!selected}
+                          onChange={() => togglePortVlan(vlan.id)}
+                        />
+                        <span className="truncate">
+                          {vlan.name} <span className="text-gray-500">#{vlan.vlanId}</span>
+                        </span>
+                      </label>
+                      {selected ? (
+                        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-medium text-gray-600 dark:text-gray-300">
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                            checked={selected.isTagged}
+                            onChange={() => togglePortVlanTagged(vlan.id)}
+                          />
+                          Tagged
+                        </label>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {portVlanAssignments.length > 0 ? (
+              <p className="text-[11px] text-violet-700 dark:text-violet-300">
+                {portVlanAssignments.length === 1 && !portVlanAssignments[0].isTagged
+                  ? 'Modo access (1 VLAN untagged)'
+                  : `Modo trunk · ${portVlanAssignments.length} VLAN(s)`}
+              </p>
+            ) : null}
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={closePortModal} disabled={portSubmitting}>
               Cancel
@@ -387,7 +517,6 @@ export default function DeviceDetail() {
         </form>
       </Modal>
 
-      {/* Assigned Employees */}
       {device.employees && device.employees.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">

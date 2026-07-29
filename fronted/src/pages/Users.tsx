@@ -18,6 +18,7 @@ import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
 import { systemUsersService } from '../services/system-users.service'
 import type { SystemUser } from '../types'
 
@@ -52,7 +53,11 @@ function formatError(err: unknown): string {
 
 export default function Users() {
   const { user: currentUser } = useAuth()
-  const { data: users, isLoading, error, refetch } = useApi(() => systemUsersService.getAll())
+  const { activeCompanyId } = useCompany()
+  const { data: users, isLoading, error, refetch } = useApi(
+    () => systemUsersService.getAll(),
+    [activeCompanyId]
+  )
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -96,7 +101,7 @@ export default function Users() {
     event.preventDefault()
     setFormError(null)
 
-    if (!currentUser?.companyId) return
+    if (!activeCompanyId) return
 
     const firstName = form.firstName.trim()
     const lastName = form.lastName.trim()
@@ -135,7 +140,7 @@ export default function Users() {
         })
       } else {
         await systemUsersService.create({
-          companyId: currentUser.companyId,
+          companyId: activeCompanyId,
           firstName,
           lastName,
           email,

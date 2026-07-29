@@ -18,7 +18,8 @@ interface ExportOptions {
   companyName?: string
   authorName?: string
   date?: string
-  canvasElement: HTMLDivElement
+  /** Requerido solo si `content` es `full`. */
+  canvasElement?: HTMLDivElement
   topology: TopologyData
   /**
    * Si se define, se ejecuta antes de rasterizar: p. ej. ampliar el lienzo React Flow
@@ -27,6 +28,11 @@ interface ExportOptions {
   prepareHighResCanvas?: (orientation: PrintOrientation) => Promise<() => void>
   /** Orientación del PDF. Default: 'landscape'. */
   orientation?: PrintOrientation
+  /**
+   * `table` (default): solo tabla de conexiones, sin diagrama.
+   * `full`: portada + sectores del diagrama + tabla.
+   */
+  content?: 'table' | 'full'
 }
 
 function resolveNodeLabel(nodes: TopologyNode[], id: string): string {
@@ -39,12 +45,6 @@ function resolveNodeHostname(nodes: TopologyNode[], id: string): string | null {
   return s && s.length > 0 ? s : null
 }
 
-function resolveNodeLocation(nodes: TopologyNode[], id: string): string | null {
-  const raw = nodes.find((n) => n.id === id)?.data?.location
-  const s = typeof raw === 'string' ? raw.trim() : raw
-  return s && s.length > 0 ? s : null
-}
-
 function resolveNodeDisplay(nodes: TopologyNode[], id: string): string {
   const label = resolveNodeLabel(nodes, id)
   const host = resolveNodeHostname(nodes, id)
@@ -52,9 +52,89 @@ function resolveNodeDisplay(nodes: TopologyNode[], id: string): string {
 }
 
 export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
-  const { title, subtitle, companyName, authorName, canvasElement, topology, prepareHighResCanvas } = options
+  const { title, companyName, authorName, topology } = options
+  const content = options.content ?? 'table'
   const orientation: PrintOrientation = options.orientation ?? 'landscape'
   const dateStr = options.date ?? new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })
+
+  if (content === 'table') {
+    await exportConnectionsTablePdf({
+      title,
+      companyName,
+      authorName,
+      dateStr,
+      topology,
+      orientation,
+    })
+    return
+  }
+
+  await exportFullArchitecturePdf(options, dateStr, orientation)
+}
+
+async function exportConnectionsTablePdf(opts: {
+  title: string
+  companyName?: string
+  authorName?: string
+  dateStr: string
+  topology: TopologyData
+  orientation: PrintOrientation
+}): Promise<void> {
+  const { title, companyName, authorName, dateStr, topology, orientation } = opts
+  const edges = topology.edges
+  const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
+  const pageW = pdf.internal.pageSize.getWidth()
+  const pageH = pdf.internal.pageSize.getHeight()
+
+  if (!edges.length) {
+    drawHeader(pdf, pageW, 'Tabla de conexiones', companyName, 'Sin conexiones documentadas', authorName, dateStr)
+    drawFooter(pdf, pageW, pageH, 1, 1, dateStr, 'Tabla de conexiones')
+    const safeName = (companyName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
+    pdf.save(`${safeName}_Conexiones_${new Date().toISOString().slice(0, 10)}.pdf`)
+    return
+  }
+
+  const pages = paginateConnectionRows(pdf, pageW, pageH, topology.nodes, edges)
+  const totalPages = pages.length
+
+  for (let ci = 0; ci < pages.length; ci++) {
+    if (ci > 0) pdf.addPage('a4', orientation)
+    const pw = pdf.internal.pageSize.getWidth()
+    const ph = pdf.internal.pageSize.getHeight()
+    const pageLabel =
+      pages.length > 1 ? `Tabla de conexiones (${ci + 1}/${pages.length})` : 'Tabla de conexiones'
+    drawHeader(
+      pdf,
+      pw,
+      pageLabel,
+      companyName,
+      `${edges.length} conexiones documentadas`,
+      authorName,
+      dateStr
+    )
+    drawConnectionsTablePage(pdf, pw, ph, topology.nodes, pages[ci])
+
+    if (ci === pages.length - 1) {
+      drawSummary(pdf, pw, ph, topology)
+    }
+
+    drawFooter(pdf, pw, ph, ci + 1, totalPages, dateStr, pageLabel)
+  }
+
+  const safeName = (companyName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
+  pdf.save(`${safeName}_Conexiones_${new Date().toISOString().slice(0, 10)}.pdf`)
+}
+
+async function exportFullArchitecturePdf(
+  options: ExportOptions,
+  dateStr: string,
+  orientation: PrintOrientation
+): Promise<void> {
+  const { title, subtitle, companyName, authorName, topology, prepareHighResCanvas } = options
+  const canvasElement = options.canvasElement
+  if (!canvasElement) {
+    throw new Error('canvasElement es requerido para exportar el diagrama completo')
+  }
 
   let restoreCanvas: (() => void) | undefined
   if (prepareHighResCanvas) {
@@ -109,7 +189,9 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
   const { cols, rows } = computeTileGrid(imgW, imgH, usableW, usableH)
   const totalDiagramPages = cols * rows
   const hasTable = topology.edges.length > 0
-  const tablePages = hasTable ? Math.ceil(topology.edges.length / 25) : 0
+  const tablePages = hasTable
+    ? paginateConnectionRows(pdf, pageW, pageH, topology.nodes, topology.edges).length
+    : 0
   const totalPages = 1 + totalDiagramPages + tablePages
 
   // --- Page 1: Cover / overview ---
@@ -185,17 +267,16 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
 
   // --- Table pages ---
   if (hasTable) {
-    const rowsPerPage = 25
-    const edgeChunks = chunkArray(topology.edges, rowsPerPage)
-    for (let ci = 0; ci < edgeChunks.length; ci++) {
+    const pages = paginateConnectionRows(pdf, pageW, pageH, topology.nodes, topology.edges)
+    for (let ci = 0; ci < pages.length; ci++) {
       pdf.addPage('a4', orientation)
       const pw = pdf.internal.pageSize.getWidth()
       const ph = pdf.internal.pageSize.getHeight()
-      const pageLabel = edgeChunks.length > 1 ? `Tabla de conexiones (${ci + 1}/${edgeChunks.length})` : 'Tabla de conexiones'
+      const pageLabel = pages.length > 1 ? `Tabla de conexiones (${ci + 1}/${pages.length})` : 'Tabla de conexiones'
       drawHeader(pdf, pw, pageLabel, companyName, `${topology.edges.length} conexiones documentadas`, authorName, dateStr)
-      drawConnectionsTable(pdf, pw, ph, topology.nodes, edgeChunks[ci], ci === 0)
+      drawConnectionsTablePage(pdf, pw, ph, topology.nodes, pages[ci])
 
-      if (ci === edgeChunks.length - 1) {
+      if (ci === pages.length - 1) {
         drawSummary(pdf, pw, ph, topology)
       }
 
@@ -316,7 +397,11 @@ function drawLegend(pdf: jsPDF, _pageW: number, pageH: number) {
     x += 32
   }
 
-  x += 4
+  x += 2
+  pdf.setTextColor(80, 80, 80)
+  pdf.text('Trunk / Access', x, legendY)
+  x += 28
+
   const statusItems = [
     { color: [250, 204, 21] as [number, number, number], label: 'Planificada' },
     { color: [96, 165, 250] as [number, number, number], label: 'Implementada' },
@@ -347,69 +432,154 @@ function drawFooter(pdf: jsPDF, pageW: number, pageH: number, page: number, tota
   pdf.text(`Página ${page} de ${total}`, pageW - MARGIN, y, { align: 'right' })
 }
 
-function drawConnectionsTable(pdf: jsPDF, pageW: number, _pageH: number, nodes: TopologyNode[], edges: TopologyData['edges'], _isFirst: boolean) {
-  const startY = HEADER_H + 2
+function formatEdgeVlansForPdf(edge: TopologyData['edges'][number]): string {
+  if (edge.vlanLabel) return edge.vlanLabel
+  const vlans = edge.vlans ?? []
+  if (!vlans.length) return '—'
+  if (edge.portRole === 'trunk' && vlans.length > 1) return `Trunk · ${vlans.length} VLANs`
+  return vlans.map((v) => `VLAN ${v.vlanId}`).join(', ')
+}
+
+function formatEdgeNetworksForPdf(edge: TopologyData['edges'][number]): string {
+  if (edge.networkLabel) return edge.networkLabel
+  const networks = edge.networks ?? []
+  if (!networks.length) return '—'
+  return networks.map((n) => n.subnet || n.name).join(', ')
+}
+
+/** Columnas de documentación (sin Vel. ni Estado). Origen/Destino priorizan ancho. */
+const TABLE_HEADERS = ['Origen', 'Destino', 'Pto. Ori.', 'Pto. Dest.', 'Medio', 'VLANs', 'Red'] as const
+const TABLE_PROPORTIONS = [0.24, 0.24, 0.09, 0.09, 0.14, 0.10, 0.10]
+const TABLE_HEADER_H = 8
+const TABLE_LINE_H = 3.4
+const TABLE_PAD_Y = 1.6
+const TABLE_FONT_SIZE = 7
+
+type ConnectionRowCells = [string, string, string, string, string, string, string]
+
+function buildConnectionRow(nodes: TopologyNode[], edge: TopologyData['edges'][number]): ConnectionRowCells {
+  return [
+    resolveNodeDisplay(nodes, edge.source),
+    resolveNodeDisplay(nodes, edge.target),
+    edge.sourcePort || '—',
+    edge.targetPort || '—',
+    edge.medium ? formatMediumLabel(edge.medium) : '—',
+    formatEdgeVlansForPdf(edge),
+    formatEdgeNetworksForPdf(edge),
+  ]
+}
+
+function getTableLayout(pageW: number) {
   const availW = pageW - MARGIN * 2
-  const proportions = [0.16, 0.16, 0.1, 0.1, 0.18, 0.1, 0.08, 0.12]
-  const colWidths = proportions.map((p) => p * availW)
-  const headers = ['Origen', 'Destino', 'Pto. Origen', 'Pto. Destino', 'Medio', 'Velocidad', 'Estado', 'Ubicación']
+  const colWidths = TABLE_PROPORTIONS.map((p) => p * availW)
   const tableW = colWidths.reduce((a, b) => a + b, 0)
   const startX = MARGIN + (availW - tableW) / 2
+  return { colWidths, tableW, startX }
+}
+
+function wrapRowCells(pdf: jsPDF, row: ConnectionRowCells, colWidths: number[]): string[][] {
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(TABLE_FONT_SIZE)
+  return row.map((cell, i) => {
+    const maxW = Math.max(6, colWidths[i] - 3)
+    return pdf.splitTextToSize(cell, maxW) as string[]
+  })
+}
+
+function measureRowHeight(wrapped: string[][]): number {
+  const maxLines = Math.max(1, ...wrapped.map((lines) => lines.length))
+  return Math.max(6.5, maxLines * TABLE_LINE_H + TABLE_PAD_Y * 2)
+}
+
+function getTableBodyMaxY(pageH: number): number {
+  // Leave room for footer + resumen on the last page
+  return pageH - FOOTER_H - 22
+}
+
+function paginateConnectionRows(
+  pdf: jsPDF,
+  pageW: number,
+  pageH: number,
+  nodes: TopologyNode[],
+  edges: TopologyData['edges']
+): TopologyData['edges'][] {
+  const { colWidths } = getTableLayout(pageW)
+  const startY = HEADER_H + 2
+  const bodyStart = startY + TABLE_HEADER_H
+  const maxY = getTableBodyMaxY(pageH)
+  const pages: TopologyData['edges'][] = []
+  let current: TopologyData['edges'] = []
+  let y = bodyStart
+
+  for (const edge of edges) {
+    const wrapped = wrapRowCells(pdf, buildConnectionRow(nodes, edge), colWidths)
+    const rowH = measureRowHeight(wrapped)
+    if (current.length > 0 && y + rowH > maxY) {
+      pages.push(current)
+      current = []
+      y = bodyStart
+    }
+    current.push(edge)
+    y += rowH
+  }
+
+  if (current.length) pages.push(current)
+  return pages.length ? pages : [[]]
+}
+
+function drawConnectionsTablePage(
+  pdf: jsPDF,
+  pageW: number,
+  _pageH: number,
+  nodes: TopologyNode[],
+  edges: TopologyData['edges']
+) {
+  const startY = HEADER_H + 2
+  const { colWidths, tableW, startX } = getTableLayout(pageW)
 
   pdf.setFillColor(15, 23, 42)
-  pdf.rect(startX, startY, tableW, 7, 'F')
-  pdf.setFontSize(6)
+  pdf.rect(startX, startY, tableW, TABLE_HEADER_H, 'F')
+  pdf.setFontSize(7)
   pdf.setFont('helvetica', 'bold')
   pdf.setTextColor(255, 255, 255)
 
   let cx = startX
-  for (let i = 0; i < headers.length; i++) {
-    pdf.text(headers[i], cx + 2, startY + 4.6)
+  for (let i = 0; i < TABLE_HEADERS.length; i++) {
+    pdf.text(TABLE_HEADERS[i], cx + 1.5, startY + 5.2)
     cx += colWidths[i]
   }
 
-  let y = startY + 7
-  const rowH = 6
-  const maxChars = colWidths.map((w) => Math.max(8, Math.floor(w / 1.5)))
+  let y = startY + TABLE_HEADER_H
 
   for (let ei = 0; ei < edges.length; ei++) {
-    const edge = edges[ei]
-    const srcLoc = resolveNodeLocation(nodes, edge.source)
-    const tgtLoc = resolveNodeLocation(nodes, edge.target)
-    const location =
-      srcLoc && tgtLoc
-        ? (srcLoc === tgtLoc ? srcLoc : `${srcLoc} → ${tgtLoc}`)
-        : (srcLoc ?? tgtLoc ?? '—')
-    const row = [
-      resolveNodeDisplay(nodes, edge.source),
-      resolveNodeDisplay(nodes, edge.target),
-      edge.sourcePort,
-      edge.targetPort,
-      edge.medium ? formatMediumLabel(edge.medium) : 'N/A',
-      edge.bandwidth ?? '—',
-      CONNECTION_STATUS_LABELS[edge.connectionStatus] ?? edge.connectionStatus,
-      location,
-    ]
+    const row = buildConnectionRow(nodes, edges[ei])
+    const wrapped = wrapRowCells(pdf, row, colWidths)
+    const rowH = measureRowHeight(wrapped)
 
     if (ei % 2 === 0) {
-      pdf.setFillColor(248, 250, 252)
+      pdf.setFillColor(240, 247, 252)
       pdf.rect(startX, y, tableW, rowH, 'F')
     }
 
     cx = startX
-    pdf.setFontSize(5.5)
+    pdf.setFontSize(TABLE_FONT_SIZE)
     pdf.setFont('helvetica', 'normal')
-    pdf.setTextColor(30, 41, 59)
-    for (let i = 0; i < row.length; i++) {
-      const limit = maxChars[i]
-      const text = row[i].length > limit ? row[i].substring(0, limit - 1) + '…' : row[i]
-      pdf.text(text, cx + 2, y + 3.8)
+    pdf.setTextColor(15, 23, 42)
+
+    for (let i = 0; i < wrapped.length; i++) {
+      const lines = wrapped[i]
+      const textX = cx + 1.5
+      let textY = y + TABLE_PAD_Y + TABLE_LINE_H
+      for (const line of lines) {
+        pdf.text(line, textX, textY)
+        textY += TABLE_LINE_H
+      }
       cx += colWidths[i]
     }
     y += rowH
   }
 
-  pdf.setDrawColor(226, 232, 240)
+  pdf.setDrawColor(203, 213, 225)
   pdf.setLineWidth(0.2)
   pdf.rect(startX, startY, tableW, y - startY)
   cx = startX
@@ -450,12 +620,4 @@ function drawSummary(pdf: jsPDF, _pageW: number, pageH: number, topology: Topolo
     pdf.text(`${CONNECTION_STATUS_LABELS[st as keyof typeof CONNECTION_STATUS_LABELS] ?? st}: ${count}`, sx, summaryY + 5)
     sx += 28
   }
-}
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = []
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size))
-  }
-  return chunks
 }

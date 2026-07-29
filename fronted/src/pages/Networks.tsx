@@ -7,13 +7,18 @@ import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
+import { useCompany } from '../contexts/CompanyContext'
 import { networksService } from '../services/networks.service'
 import type { Network } from '../types'
 
 export default function Networks() {
   const navigate = useNavigate()
   const { canMutate, isAdmin } = usePermissions()
-  const { data: networks, isLoading, refetch } = useApi(() => networksService.getAll())
+  const { activeCompanyId } = useCompany()
+  const { data: networks, isLoading, refetch } = useApi(
+    () => networksService.getAll(),
+    [activeCompanyId]
+  )
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const handleDelete = useCallback(

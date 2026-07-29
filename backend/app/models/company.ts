@@ -7,6 +7,7 @@ import Employee from './employee.js'
 import Device from './device.js'
 import Vlan from './vlan.js'
 import Network from './network.js'
+import CompanyMembership from './company_membership.js'
 
 export default class Company extends BaseModel {
   @column({ isPrimary: true })
@@ -50,4 +51,7 @@ export default class Company extends BaseModel {
 
   @hasMany(() => Network)
   declare networks: HasMany<typeof Network>
+
+  @hasMany(() => CompanyMembership)
+  declare memberships: HasMany<typeof CompanyMembership>
 }

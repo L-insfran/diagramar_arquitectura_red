@@ -1,4 +1,33 @@
 import SystemUser from '#models/system_user'
+import CompanyMembership from '#models/company_membership'
+
+async function serializeUserWithMemberships(user: SystemUser) {
+  const memberships = await CompanyMembership.query()
+    .where('system_user_id', user.id)
+    .preload('company')
+    .orderBy('created_at', 'asc')
+
+  const serialized = user.serialize() as Record<string, unknown>
+  delete serialized.password
+
+  return {
+    ...serialized,
+    memberships: memberships.map((m) => ({
+      id: m.id,
+      companyId: m.companyId,
+      role: m.role,
+      isDefault: m.isDefault,
+      company: m.company
+        ? {
+            id: m.company.id,
+            name: m.company.name,
+            domain: m.company.domain,
+            isActive: m.company.isActive,
+          }
+        : null,
+    })),
+  }
+}
 
 export default class AuthService {
   async login(email: string, password: string) {
@@ -8,7 +37,7 @@ export default class AuthService {
       expiresIn: '7 days',
     })
 
-    return { user, token }
+    return { user: await serializeUserWithMemberships(user), token }
   }
 
   async register(data: {
@@ -19,17 +48,29 @@ export default class AuthService {
     companyId: string
     role?: string
   }) {
+    const role = (data.role as 'admin' | 'operator' | 'viewer') ?? 'viewer'
     const user = await SystemUser.create({
       ...data,
-      role: (data.role as 'admin' | 'operator' | 'viewer') ?? 'viewer',
+      role,
       isActive: true,
+    })
+
+    await CompanyMembership.create({
+      systemUserId: user.id,
+      companyId: data.companyId,
+      role,
+      isDefault: true,
     })
 
     const token = await SystemUser.accessTokens.create(user, ['*'], {
       expiresIn: '7 days',
     })
 
-    return { user, token }
+    return { user: await serializeUserWithMemberships(user), token }
+  }
+
+  async me(user: SystemUser) {
+    return serializeUserWithMemberships(user)
   }
 
   async logout(user: SystemUser) {

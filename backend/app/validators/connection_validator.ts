@@ -26,6 +26,7 @@ export const createConnectionValidator = vine.compile(
     companyId: vine.string().uuid(),
     sourcePortId: vine.string().uuid(),
     targetPortId: vine.string().uuid(),
+    // Kept optional for backwards compatibility; new UI always creates physical links
     connectionType: connectionType.optional(),
     mediumType: mediumType.optional(),
     cableCategory: cableCategory.optional().nullable(),
