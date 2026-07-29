@@ -1,6 +1,6 @@
 import dagre from 'dagre'
 import type { Edge, Node } from '@xyflow/react'
-import { TOPOLOGY_NODE_MIN_WIDTH, TOPOLOGY_HEADER_HEIGHT, TOPOLOGY_HEADER_HEIGHT_PATCH, computePortPanelLayout, getDiagramDisplayPorts, isCompactPortPanel, isStructuredCablingDeviceType } from './topologyPortPanel'
+import { TOPOLOGY_NODE_MIN_WIDTH, TOPOLOGY_HEADER_HEIGHT, TOPOLOGY_HEADER_HEIGHT_PATCH, computePortPanelLayout, isCompactPortPanel, isStructuredCablingDeviceType, partitionDiagramPorts } from './topologyPortPanel'
 import type { TopologyPortSummary } from '../types'
 
 /** @deprecated Use TOPOLOGY_NODE_MIN_WIDTH */
@@ -31,13 +31,20 @@ function nodeDimensions(node: Node): { width: number; height: number } {
     return { width: style.width, height: style.height }
   }
   const allPorts = Array.isArray(data?.ports) ? data.ports : []
-  const display = getDiagramDisplayPorts(allPorts)
+  const { physical, wireless } = partitionDiagramPorts(allPorts)
   const total = data?.totalPortCount ?? data?.portCount ?? allPorts.length
-  const compact = isCompactPortPanel(display.length, total)
+  const totalPhysical = Math.max(0, total - wireless.length)
+  const compact = isCompactPortPanel(physical.length, totalPhysical)
   const headerHeight = isStructuredCablingDeviceType(data?.deviceType)
     ? TOPOLOGY_HEADER_HEIGHT_PATCH
     : TOPOLOGY_HEADER_HEIGHT
-  const layout = computePortPanelLayout(display.length, compact, total, headerHeight)
+  const layout = computePortPanelLayout(
+    physical.length,
+    compact,
+    totalPhysical,
+    headerHeight,
+    wireless.length,
+  )
   return { width: layout.width, height: layout.height }
 }
 

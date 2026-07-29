@@ -1,4 +1,5 @@
 import { Handle, Position, useNodeId, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react'
+import { Wifi } from 'lucide-react'
 import { Fragment, useContext, useLayoutEffect } from 'react'
 import { TopologyCanvasInteractionContext } from './TopologyCanvasContext'
 import type { TopologyNetworkSummary, TopologyPortSummary, TopologyVlanSummary } from '../../types'
@@ -11,18 +12,23 @@ import {
   PORT_ROW_LABEL_HEIGHT,
   TOPOLOGY_HEADER_HEIGHT,
   TOPOLOGY_HEADER_HEIGHT_PATCH,
+  WIFI_GAP,
+  WIFI_PANEL_HEADER_HEIGHT,
+  WIFI_SECTION_GAP,
   computePortPanelLayout,
   computePortSourceAnchor,
   computePortTargetAnchor,
-  getDiagramDisplayPorts,
   isCompactPortPanel,
   isStructuredCablingDeviceType,
+  partitionDiagramPorts,
   portCellClasses,
   portGridSlot,
   portSourceHandleId,
   portTargetHandleId,
   sortTopologyPorts,
   usesPhysicalPortLayout,
+  wifiChipClasses,
+  type PortPanelSection,
 } from '../../utils/topologyPortPanel'
 
 export type DeviceNodeData = {
@@ -113,6 +119,52 @@ function PortCell({
   )
 }
 
+function WifiChip({
+  port,
+  cellW,
+  cellH,
+  selected,
+  onSelect,
+}: {
+  port: TopologyPortSummary
+  cellW: number
+  cellH: number
+  selected: boolean
+  onSelect: (portId: string) => void
+}) {
+  const displayName = port.name?.trim() || `SSID #${port.portNumber}`
+
+  return (
+    <button
+      type="button"
+      className={`nodrag nopan relative box-border flex items-center gap-1.5 rounded-full border px-2.5 leading-none transition ${wifiChipClasses(port)} ${
+        selected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900 z-20' : ''
+      } ${port.connected ? 'cursor-pointer hover:brightness-110' : 'cursor-default'}`}
+      style={{ width: cellW, height: cellH, minWidth: cellW, maxWidth: cellW, minHeight: cellH, maxHeight: cellH }}
+      title={
+        port.connected
+          ? `WiFi · ${displayName} · clic para resaltar enlace`
+          : `WiFi · ${displayName}`
+      }
+      onClick={(e) => {
+        e.stopPropagation()
+        if (port.connected) onSelect(port.id)
+      }}
+    >
+      <Wifi className="size-3.5 shrink-0 opacity-80" aria-hidden strokeWidth={2.25} />
+      <span className="min-w-0 flex-1 truncate text-left text-[10px] font-bold tracking-tight">
+        {displayName}
+      </span>
+      {port.connected && (
+        <span
+          className="absolute left-1/2 -translate-x-1/2 bottom-0 translate-y-1/2 size-1.5 rounded-full bg-sky-500 ring-1 ring-white dark:ring-gray-900"
+          aria-hidden
+        />
+      )}
+    </button>
+  )
+}
+
 export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
   const nodeId = useNodeId()
   const updateNodeInternals = useUpdateNodeInternals()
@@ -126,29 +178,54 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
   const headerHeight = isPatchPanel ? TOPOLOGY_HEADER_HEIGHT_PATCH : TOPOLOGY_HEADER_HEIGHT
 
   const allPorts = sortTopologyPorts(data.ports ?? [])
-  const displayPorts = getDiagramDisplayPorts(allPorts)
-  const totalPortCount = data.totalPortCount ?? data.portCount ?? allPorts.length
-  const compact = isCompactPortPanel(displayPorts.length, totalPortCount)
-  const hasPorts = displayPorts.length > 0
+  const { physical: physicalPorts, wireless: wirelessPorts } = partitionDiagramPorts(allPorts)
+  const totalPhysicalCount =
+    data.totalPortCount != null
+      ? Math.max(0, data.totalPortCount - wirelessPorts.length)
+      : physicalPorts.length
+  const compact = isCompactPortPanel(physicalPorts.length, totalPhysicalCount)
+  const hasPhysical = physicalPorts.length > 0
+  const hasWireless = wirelessPorts.length > 0
+  const hasPorts = hasPhysical || hasWireless
 
-  const layout = computePortPanelLayout(displayPorts.length, compact, totalPortCount, headerHeight)
+  const layout = computePortPanelLayout(
+    physicalPorts.length,
+    compact,
+    totalPhysicalCount,
+    headerHeight,
+    wirelessPorts.length,
+  )
   const physicalGrid = usesPhysicalPortLayout(layout)
 
   const vlanCount = data.vlanCount ?? data.vlans?.length ?? 0
   const primaryNetwork = data.networks?.[0]
-  const portsInUse = data.portsInUse ?? allPorts.filter((p) => p.connected).length
-  const freePortCount = Math.max(0, totalPortCount - portsInUse)
+  const physicalInUse = physicalPorts.filter((p) => p.connected).length
+  const wirelessInUse = wirelessPorts.filter((p) => p.connected).length
+  const freePhysicalCount = Math.max(0, totalPhysicalCount - physicalInUse)
 
   const nodeWidth = layout.width
   const nodeHeight = layout.height
 
-  const portLayoutKey = displayPorts
-    .map((p) => `${p.id}:${p.portNumber}:${p.connected ? 1 : 0}`)
+  const portLayoutKey = allPorts
+    .map((p) => `${p.id}:${p.portNumber}:${p.portType}:${p.connected ? 1 : 0}`)
     .join('|')
 
   useLayoutEffect(() => {
     if (nodeId) updateNodeInternals(nodeId)
-  }, [nodeId, updateNodeInternals, portLayoutKey, nodeWidth, nodeHeight, layout.cols, layout.rows, layout.gridTop, headerHeight])
+  }, [
+    nodeId,
+    updateNodeInternals,
+    portLayoutKey,
+    nodeWidth,
+    nodeHeight,
+    layout.cols,
+    layout.rows,
+    layout.gridTop,
+    layout.wifiCols,
+    layout.wifiRows,
+    layout.wifiGridTop,
+    headerHeight,
+  ])
 
   const statusDot =
     data.status === 'online'
@@ -158,6 +235,84 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
         : data.status === 'maintenance'
           ? 'bg-amber-500'
           : 'bg-gray-400'
+
+  const onPortSelect = (portId: string) => {
+    if (!selectPort) return
+    const already = selection?.kind === 'port' && selection.portId === portId
+    selectPort(already ? null : portId)
+  }
+
+  const renderHandles = (ports: TopologyPortSummary[], section: PortPanelSection) =>
+    ports.map((port, index) => {
+      const srcTop = computePortSourceAnchor(
+        port.portNumber,
+        layout,
+        nodeWidth,
+        nodeHeight,
+        index,
+        'top',
+        section,
+      )
+      const srcBottom = computePortSourceAnchor(
+        port.portNumber,
+        layout,
+        nodeWidth,
+        nodeHeight,
+        index,
+        'bottom',
+        section,
+      )
+      const tgtTop = computePortTargetAnchor(
+        port.portNumber,
+        layout,
+        nodeWidth,
+        nodeHeight,
+        index,
+        'top',
+        section,
+      )
+      const tgtBottom = computePortTargetAnchor(
+        port.portNumber,
+        layout,
+        nodeWidth,
+        nodeHeight,
+        index,
+        'bottom',
+        section,
+      )
+      return (
+        <Fragment key={`handles-${port.id}`}>
+          <Handle
+            id={portSourceHandleId(port.id, 'top')}
+            type="source"
+            position={Position.Top}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            style={{ position: 'absolute', left: srcTop.x, top: srcTop.y, transform: 'translate(-50%, -50%)' }}
+          />
+          <Handle
+            id={portSourceHandleId(port.id, 'bottom')}
+            type="source"
+            position={Position.Bottom}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            style={{ position: 'absolute', left: srcBottom.x, top: srcBottom.y, transform: 'translate(-50%, -50%)' }}
+          />
+          <Handle
+            id={portTargetHandleId(port.id, 'top')}
+            type="target"
+            position={Position.Top}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            style={{ position: 'absolute', left: tgtTop.x, top: tgtTop.y, transform: 'translate(-50%, -50%)' }}
+          />
+          <Handle
+            id={portTargetHandleId(port.id, 'bottom')}
+            type="target"
+            position={Position.Bottom}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            style={{ position: 'absolute', left: tgtBottom.x, top: tgtBottom.y, transform: 'translate(-50%, -50%)' }}
+          />
+        </Fragment>
+      )
+    })
 
   return (
     <div
@@ -246,9 +401,15 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
                 {primaryNetwork.subnet}
               </span>
             )}
-            {totalPortCount > 0 && (
+            {totalPhysicalCount > 0 && (
               <span className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[9px] text-gray-600 dark:border-gray-700 dark:bg-gray-900/50 dark:text-gray-300">
-                {portsInUse}/{totalPortCount} puertos
+                {physicalInUse}/{totalPhysicalCount} puerto{totalPhysicalCount === 1 ? '' : 's'}
+              </span>
+            )}
+            {wirelessPorts.length > 0 && (
+              <span className="inline-flex items-center gap-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-px text-[9px] font-semibold text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
+                <Wifi className="size-2.5" aria-hidden strokeWidth={2.5} />
+                {wirelessPorts.length} SSID
               </span>
             )}
           </div>
@@ -266,119 +427,135 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
             maxHeight: nodeHeight - headerHeight,
           }}
         >
-          {/* Fondo solo detrás de la grilla de puertos; la zona inferior queda transparente para ver los cables. */}
+          {/* Fondo solo detrás de la grilla; la zona inferior queda transparente para ver los cables. */}
           <div
             className="pointer-events-none absolute inset-x-0 top-0 rounded-b-[7px] bg-slate-50 dark:bg-gray-900/80"
             style={{ bottom: PORT_DOT_OVERFLOW }}
             aria-hidden
           />
-          <div
-            className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between gap-2"
-            style={{ height: PORT_PANEL_HEADER_HEIGHT, minHeight: PORT_PANEL_HEADER_HEIGHT }}
-          >
-            <span className="text-[8px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Puertos
-            </span>
-            {totalPortCount > 0 && (
-              <span className="text-[8px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                <span className="text-emerald-600 dark:text-emerald-400">{portsInUse} en uso</span>
-                {freePortCount > 0 && (
-                  <>
-                    {' · '}
-                    <span>{freePortCount} libre{freePortCount === 1 ? '' : 's'}</span>
-                  </>
+
+          {hasPhysical && (
+            <>
+              <div
+                className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between gap-2"
+                style={{ height: PORT_PANEL_HEADER_HEIGHT, minHeight: PORT_PANEL_HEADER_HEIGHT }}
+              >
+                <span className="text-[8px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Puertos
+                </span>
+                {totalPhysicalCount > 0 && (
+                  <span className="text-[8px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                    <span className="text-emerald-600 dark:text-emerald-400">{physicalInUse} en uso</span>
+                    {freePhysicalCount > 0 && (
+                      <>
+                        {' · '}
+                        <span>{freePhysicalCount} libre{freePhysicalCount === 1 ? '' : 's'}</span>
+                      </>
+                    )}
+                  </span>
                 )}
-              </span>
-            )}
-          </div>
+              </div>
 
-          {layout.rows > 1 && physicalGrid && (
-            <div
-              className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between text-[9px] font-semibold text-gray-500 dark:text-gray-400"
-              style={{ height: PORT_ROW_LABEL_HEIGHT, minHeight: PORT_ROW_LABEL_HEIGHT }}
-            >
-              <span>1 – 12</span>
-              <span>13 – 24</span>
-            </div>
-          )}
-
-          {layout.rows > 1 && !physicalGrid && layout.cols === PATCH_PANEL_COLS && (
-            <div className="relative z-[1] mb-1 flex w-full shrink-0 justify-between text-[8px] font-semibold text-gray-400 dark:text-gray-500">
-              <span>Fila sup.</span>
-              <span>Fila inf.</span>
-            </div>
-          )}
-
-          <div
-            className="relative z-[1] grid shrink-0"
-            style={{
-              width: layout.gridWidth,
-              gridTemplateColumns: `repeat(${layout.cols}, ${layout.cellW}px)`,
-              gridTemplateRows: layout.rows > 1 ? `repeat(${layout.rows}, ${layout.cellH}px)` : undefined,
-              gap: PORT_GAP,
-            }}
-          >
-            {displayPorts.map((port, index) => {
-              const { row, col } = portGridSlot(port.portNumber, layout.cols, index, physicalGrid)
-              return (
-                <div key={port.id} style={{ gridColumn: col + 1, gridRow: row + 1 }}>
-                  <PortCell
-                    port={port}
-                    cellW={layout.cellW}
-                    cellH={layout.cellH}
-                    compact={layout.compact}
-                    selected={highlightedPortIds?.has(port.id) ?? false}
-                    onSelect={(portId) => {
-                      if (!selectPort) return
-                      const already = selection?.kind === 'port' && selection.portId === portId
-                      selectPort(already ? null : portId)
-                    }}
-                  />
+              {layout.rows > 1 && physicalGrid && (
+                <div
+                  className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between text-[9px] font-semibold text-gray-500 dark:text-gray-400"
+                  style={{ height: PORT_ROW_LABEL_HEIGHT, minHeight: PORT_ROW_LABEL_HEIGHT }}
+                >
+                  <span>1 – 12</span>
+                  <span>13 – 24</span>
                 </div>
-              )
-            })}
-          </div>
+              )}
+
+              {layout.rows > 1 && !physicalGrid && layout.cols === PATCH_PANEL_COLS && (
+                <div className="relative z-[1] mb-1 flex w-full shrink-0 justify-between text-[8px] font-semibold text-gray-400 dark:text-gray-500">
+                  <span>Fila sup.</span>
+                  <span>Fila inf.</span>
+                </div>
+              )}
+
+              <div
+                className="relative z-[1] grid shrink-0"
+                style={{
+                  width: layout.gridWidth,
+                  gridTemplateColumns: `repeat(${layout.cols}, ${layout.cellW}px)`,
+                  gridTemplateRows: layout.rows > 1 ? `repeat(${layout.rows}, ${layout.cellH}px)` : undefined,
+                  gap: PORT_GAP,
+                }}
+              >
+                {physicalPorts.map((port, index) => {
+                  const { row, col } = portGridSlot(port.portNumber, layout.cols, index, physicalGrid)
+                  return (
+                    <div key={port.id} style={{ gridColumn: col + 1, gridRow: row + 1 }}>
+                      <PortCell
+                        port={port}
+                        cellW={layout.cellW}
+                        cellH={layout.cellH}
+                        compact={layout.compact}
+                        selected={highlightedPortIds?.has(port.id) ?? false}
+                        onSelect={onPortSelect}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          {hasPhysical && hasWireless && (
+            <div className="relative z-[1] w-full shrink-0" style={{ height: WIFI_SECTION_GAP }} aria-hidden />
+          )}
+
+          {hasWireless && (
+            <>
+              <div
+                className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between gap-2"
+                style={{ height: WIFI_PANEL_HEADER_HEIGHT, minHeight: WIFI_PANEL_HEADER_HEIGHT }}
+              >
+                <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                  <Wifi className="size-2.5" aria-hidden strokeWidth={2.5} />
+                  WiFi
+                </span>
+                <span className="text-[8px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                  <span className="text-sky-600 dark:text-sky-400">{wirelessInUse} en uso</span>
+                  {' · '}
+                  <span>
+                    {wirelessPorts.length} SSID{wirelessPorts.length === 1 ? '' : 's'}
+                  </span>
+                </span>
+              </div>
+
+              <div
+                className="relative z-[1] grid shrink-0"
+                style={{
+                  width: layout.wifiGridWidth,
+                  gridTemplateColumns: `repeat(${layout.wifiCols}, ${layout.wifiCellW}px)`,
+                  gridTemplateRows:
+                    layout.wifiRows > 1 ? `repeat(${layout.wifiRows}, ${layout.wifiCellH}px)` : undefined,
+                  gap: WIFI_GAP,
+                }}
+              >
+                {wirelessPorts.map((port, index) => {
+                  const { row, col } = portGridSlot(port.portNumber, layout.wifiCols, index, false)
+                  return (
+                    <div key={port.id} style={{ gridColumn: col + 1, gridRow: row + 1 }}>
+                      <WifiChip
+                        port={port}
+                        cellW={layout.wifiCellW}
+                        cellH={layout.wifiCellH}
+                        selected={highlightedPortIds?.has(port.id) ?? false}
+                        onSelect={onPortSelect}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {displayPorts.map((port, index) => {
-        const srcTop = computePortSourceAnchor(port.portNumber, layout, nodeWidth, nodeHeight, index, 'top')
-        const srcBottom = computePortSourceAnchor(port.portNumber, layout, nodeWidth, nodeHeight, index, 'bottom')
-        const tgtTop = computePortTargetAnchor(port.portNumber, layout, nodeWidth, nodeHeight, index, 'top')
-        const tgtBottom = computePortTargetAnchor(port.portNumber, layout, nodeWidth, nodeHeight, index, 'bottom')
-        return (
-          <Fragment key={`handles-${port.id}`}>
-            <Handle
-              id={portSourceHandleId(port.id, 'top')}
-              type="source"
-              position={Position.Top}
-              className="!opacity-0 !size-1 !border-0 !bg-transparent"
-              style={{ position: 'absolute', left: srcTop.x, top: srcTop.y, transform: 'translate(-50%, -50%)' }}
-            />
-            <Handle
-              id={portSourceHandleId(port.id, 'bottom')}
-              type="source"
-              position={Position.Bottom}
-              className="!opacity-0 !size-1 !border-0 !bg-transparent"
-              style={{ position: 'absolute', left: srcBottom.x, top: srcBottom.y, transform: 'translate(-50%, -50%)' }}
-            />
-            <Handle
-              id={portTargetHandleId(port.id, 'top')}
-              type="target"
-              position={Position.Top}
-              className="!opacity-0 !size-1 !border-0 !bg-transparent"
-              style={{ position: 'absolute', left: tgtTop.x, top: tgtTop.y, transform: 'translate(-50%, -50%)' }}
-            />
-            <Handle
-              id={portTargetHandleId(port.id, 'bottom')}
-              type="target"
-              position={Position.Bottom}
-              className="!opacity-0 !size-1 !border-0 !bg-transparent"
-              style={{ position: 'absolute', left: tgtBottom.x, top: tgtBottom.y, transform: 'translate(-50%, -50%)' }}
-            />
-          </Fragment>
-        )
-      })}
+      {renderHandles(physicalPorts, 'physical')}
+      {renderHandles(wirelessPorts, 'wireless')}
 
       {!hasPorts && (
         <Handle type="source" position={Position.Bottom} className="!size-2.5 !border-gray-400 !bg-gray-200 dark:!bg-gray-600" />

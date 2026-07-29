@@ -37,9 +37,9 @@ import { accentColorForNodeId } from '../../utils/topologyAccent'
 import { layoutTopologyNodes } from '../../utils/topologyLayout'
 import {
   computePortPanelLayout,
-  getDiagramDisplayPorts,
   isCompactPortPanel,
   isStructuredCablingDeviceType,
+  partitionDiagramPorts,
   portSourceHandleId,
   portSourceLaneOffsetX,
   portTargetHandleId,
@@ -47,6 +47,7 @@ import {
   TOPOLOGY_HEADER_HEIGHT,
   TOPOLOGY_HEADER_HEIGHT_PATCH,
   type PortPanelLayout,
+  type PortPanelSection,
 } from '../../utils/topologyPortPanel'
 import { DeviceFlowNode, type DeviceFlowNodeType } from './DeviceFlowNode'
 import { PortLinkEdge, type PortLinkEdgeType } from './PortLinkEdge'
@@ -122,6 +123,7 @@ function orientPortEdgeHandles(
   edges: PortLinkEdgeType[],
   layoutByNodeId: Map<string, PortPanelLayout>,
   portIndexByNode: Map<string, Map<string, number>>,
+  portSectionByNode: Map<string, Map<string, PortPanelSection>>,
 ): PortLinkEdgeType[] {
   const byId = new Map<string, Node>(nodes.map((n) => [n.id, n]))
 
@@ -148,14 +150,16 @@ function orientPortEdgeHandles(
     const targetLayout = layoutByNodeId.get(edge.target)
     const sourceSeq = portIndexByNode.get(edge.source)?.get(d.sourcePortId)
     const targetSeq = portIndexByNode.get(edge.target)?.get(d.targetPortId)
+    const sourceSection = portSectionByNode.get(edge.source)?.get(d.sourcePortId) ?? 'physical'
+    const targetSection = portSectionByNode.get(edge.target)?.get(d.targetPortId) ?? 'physical'
 
     const sourceLaneOffsetX =
       sourceLayout && d.sourcePortNumber != null
-        ? portSourceLaneOffsetX(d.sourcePortNumber, sourceLayout, sourceSeq, sourceSide)
+        ? portSourceLaneOffsetX(d.sourcePortNumber, sourceLayout, sourceSeq, sourceSide, sourceSection)
         : 0
     const targetLaneOffsetX =
       targetLayout && d.targetPortNumber != null
-        ? portTargetLaneOffsetX(d.targetPortNumber, targetLayout, targetSeq, targetSide)
+        ? portTargetLaneOffsetX(d.targetPortNumber, targetLayout, targetSeq, targetSide, targetSection)
         : 0
 
     return {
@@ -176,22 +180,39 @@ function orientPortEdgeHandles(
 function buildPortLayoutMaps(nodes: DeviceFlowNodeType[]): {
   layoutByNodeId: Map<string, PortPanelLayout>
   portIndexByNode: Map<string, Map<string, number>>
+  portSectionByNode: Map<string, Map<string, PortPanelSection>>
 } {
   const layoutByNodeId = new Map<string, PortPanelLayout>()
   const portIndexByNode = new Map<string, Map<string, number>>()
+  const portSectionByNode = new Map<string, Map<string, PortPanelSection>>()
   for (const n of nodes) {
-    const ports = getDiagramDisplayPorts(n.data.ports ?? [])
-    const total = n.data.totalPortCount ?? n.data.portCount ?? ports.length
-    const compact = isCompactPortPanel(ports.length, total)
+    const { physical, wireless } = partitionDiagramPorts(n.data.ports ?? [])
+    const totalPhysical =
+      n.data.totalPortCount != null
+        ? Math.max(0, n.data.totalPortCount - wireless.length)
+        : physical.length
+    const compact = isCompactPortPanel(physical.length, totalPhysical)
     const headerHeight = isStructuredCablingDeviceType(n.data.deviceType)
       ? TOPOLOGY_HEADER_HEIGHT_PATCH
       : TOPOLOGY_HEADER_HEIGHT
-    layoutByNodeId.set(n.id, computePortPanelLayout(ports.length, compact, total, headerHeight))
+    layoutByNodeId.set(
+      n.id,
+      computePortPanelLayout(physical.length, compact, totalPhysical, headerHeight, wireless.length),
+    )
     const byId = new Map<string, number>()
-    ports.forEach((p, i) => byId.set(p.id, i))
+    const sectionById = new Map<string, PortPanelSection>()
+    physical.forEach((p, i) => {
+      byId.set(p.id, i)
+      sectionById.set(p.id, 'physical')
+    })
+    wireless.forEach((p, i) => {
+      byId.set(p.id, i)
+      sectionById.set(p.id, 'wireless')
+    })
     portIndexByNode.set(n.id, byId)
+    portSectionByNode.set(n.id, sectionById)
   }
-  return { layoutByNodeId, portIndexByNode }
+  return { layoutByNodeId, portIndexByNode, portSectionByNode }
 }
 
 function withOrientedPortHandles(
@@ -199,8 +220,8 @@ function withOrientedPortHandles(
   edges: PortLinkEdgeType[],
 ): PortLinkEdgeType[] {
   const devices = nodes.filter((n): n is DeviceFlowNodeType => n.type === 'device')
-  const { layoutByNodeId, portIndexByNode } = buildPortLayoutMaps(devices)
-  return orientPortEdgeHandles(nodes, edges, layoutByNodeId, portIndexByNode)
+  const { layoutByNodeId, portIndexByNode, portSectionByNode } = buildPortLayoutMaps(devices)
+  return orientPortEdgeHandles(nodes, edges, layoutByNodeId, portIndexByNode, portSectionByNode)
 }
 
 function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType[]; edges: PortLinkEdgeType[] } {
@@ -221,13 +242,20 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
       connected: drawnPortIds.has(port.id),
     }))
     const portsInUse = allPorts.reduce((total, port) => (port.connected ? total + 1 : total), 0)
-    const displayPorts = getDiagramDisplayPorts(allPorts)
+    const { physical, wireless } = partitionDiagramPorts(allPorts)
     const totalPortCount = n.data.portCount ?? allPorts.length
-    const compact = isCompactPortPanel(displayPorts.length, totalPortCount)
+    const totalPhysicalCount = Math.max(0, totalPortCount - wireless.length)
+    const compact = isCompactPortPanel(physical.length, totalPhysicalCount)
     const headerHeight = isStructuredCablingDeviceType(n.data.deviceType)
       ? TOPOLOGY_HEADER_HEIGHT_PATCH
       : TOPOLOGY_HEADER_HEIGHT
-    const portLayout = computePortPanelLayout(displayPorts.length, compact, totalPortCount, headerHeight)
+    const portLayout = computePortPanelLayout(
+      physical.length,
+      compact,
+      totalPhysicalCount,
+      headerHeight,
+      wireless.length,
+    )
     const { width, height } = portLayout
     layoutByNodeId.set(n.id, portLayout)
     return {
@@ -261,11 +289,21 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
   const colorById = new Map(nodes.map((n) => [n.id, n.data.accentColor]))
   const portCountById = new Map(nodes.map((n) => [n.id, n.data.totalPortCount ?? 0]))
   const portIndexByNode = new Map<string, Map<string, number>>()
+  const portSectionByNode = new Map<string, Map<string, PortPanelSection>>()
   for (const n of nodes) {
-    const ports = getDiagramDisplayPorts(n.data.ports ?? [])
+    const { physical, wireless } = partitionDiagramPorts(n.data.ports ?? [])
     const byId = new Map<string, number>()
-    ports.forEach((p, i) => byId.set(p.id, i))
+    const sectionById = new Map<string, PortPanelSection>()
+    physical.forEach((p, i) => {
+      byId.set(p.id, i)
+      sectionById.set(p.id, 'physical')
+    })
+    wireless.forEach((p, i) => {
+      byId.set(p.id, i)
+      sectionById.set(p.id, 'wireless')
+    })
     portIndexByNode.set(n.id, byId)
+    portSectionByNode.set(n.id, sectionById)
   }
 
   const edges: PortLinkEdgeType[] = data.edges.map((e) => {
@@ -278,13 +316,19 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
     const targetLayout = layoutByNodeId.get(e.target)
     const sourceSeq = e.sourcePortId ? portIndexByNode.get(e.source)?.get(e.sourcePortId) : undefined
     const targetSeq = e.targetPortId ? portIndexByNode.get(e.target)?.get(e.targetPortId) : undefined
+    const sourceSection = e.sourcePortId
+      ? portSectionByNode.get(e.source)?.get(e.sourcePortId) ?? 'physical'
+      : 'physical'
+    const targetSection = e.targetPortId
+      ? portSectionByNode.get(e.target)?.get(e.targetPortId) ?? 'physical'
+      : 'physical'
     const sourceLaneOffsetX =
       usePortHandles && sourceLayout && e.sourcePortNumber != null
-        ? portSourceLaneOffsetX(e.sourcePortNumber, sourceLayout, sourceSeq)
+        ? portSourceLaneOffsetX(e.sourcePortNumber, sourceLayout, sourceSeq, 'bottom', sourceSection)
         : 0
     const targetLaneOffsetX =
       usePortHandles && targetLayout && e.targetPortNumber != null
-        ? portTargetLaneOffsetX(e.targetPortNumber, targetLayout, targetSeq)
+        ? portTargetLaneOffsetX(e.targetPortNumber, targetLayout, targetSeq, 'top', targetSection)
         : 0
 
     return {
@@ -336,6 +380,7 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
     edges,
     layoutByNodeId,
     portIndexByNode,
+    portSectionByNode,
   )
   return { nodes: layouted as DeviceFlowNodeType[], edges: oriented }
 }
