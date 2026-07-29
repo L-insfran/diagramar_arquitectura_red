@@ -65,7 +65,7 @@ export type TopologyWorkAreaPayload = {
 
 export type TopologyCanvasLayoutPayload = {
   nodePositions: Record<string, { x: number; y: number }>
-  labelOffsets: Record<string, { x: number; y: number }>
+  labelOffsets: Record<string, { x: number; y: number; bendX?: number; bendY?: number }>
   workAreas?: TopologyWorkAreaPayload[]
   nodeParents?: Record<string, string>
 }
@@ -81,7 +81,7 @@ export const topologyService = {
   async saveCanvasLayout(payload: {
     companyId: string
     nodePositions: Record<string, { x: number; y: number }>
-    labelOffsets: Record<string, { x: number; y: number }>
+    labelOffsets: Record<string, { x: number; y: number; bendX?: number; bendY?: number }>
     workAreas?: TopologyWorkAreaPayload[]
     nodeParents?: Record<string, string>
   }): Promise<TopologyCanvasLayoutPayload> {

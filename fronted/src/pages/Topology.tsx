@@ -546,13 +546,34 @@ export default function Topology() {
                 onPersistLayout={
                   companyId
                     ? async (payload) => {
-                        await topologyService.saveCanvasLayout({
-                          companyId,
-                          nodePositions: payload.nodePositions,
-                          labelOffsets: payload.labelOffsets,
-                          workAreas: payload.workAreas,
-                          nodeParents: payload.nodeParents,
-                        })
+                        try {
+                          const saved = await topologyService.saveCanvasLayout({
+                            companyId,
+                            nodePositions: payload.nodePositions,
+                            labelOffsets: payload.labelOffsets,
+                            workAreas: payload.workAreas,
+                            nodeParents: payload.nodeParents,
+                          })
+                          setServerLayout({
+                            nodePositions: saved.nodePositions ?? payload.nodePositions,
+                            labelOffsets: saved.labelOffsets ?? payload.labelOffsets,
+                            workAreas: saved.workAreas ?? payload.workAreas,
+                            nodeParents: saved.nodeParents ?? payload.nodeParents,
+                          })
+                        } catch (err: unknown) {
+                          const axiosErr = err as {
+                            response?: { data?: { message?: string; errors?: Array<{ message?: string; field?: string }> } }
+                            message?: string
+                          }
+                          const data = axiosErr.response?.data
+                          const fieldErrors = data?.errors
+                            ?.map((e) => (e.field ? `${e.field}: ${e.message}` : e.message))
+                            .filter(Boolean)
+                            .join('; ')
+                          const detail = fieldErrors || data?.message || axiosErr.message || 'Error desconocido'
+                          toast.error('Error al guardar posiciones', detail)
+                          throw err
+                        }
                       }
                     : undefined
                 }
@@ -560,6 +581,7 @@ export default function Topology() {
                   companyId
                     ? async () => {
                         await topologyService.clearCanvasLayout(companyId)
+                        setServerLayout({ nodePositions: {}, labelOffsets: {}, workAreas: [], nodeParents: {} })
                       }
                     : undefined
                 }

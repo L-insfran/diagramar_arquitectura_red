@@ -5,6 +5,14 @@ const pointSchema = vine.object({
   y: vine.number(),
 })
 
+/** Offsets de etiqueta + curvatura de cable (bendX/bendY opcionales). */
+const labelOffsetSchema = vine.object({
+  x: vine.number(),
+  y: vine.number(),
+  bendX: vine.number().optional(),
+  bendY: vine.number().optional(),
+})
+
 const workAreaSchema = vine.object({
   id: vine.string().trim().minLength(1),
   name: vine.string().trim().minLength(1).maxLength(120),
@@ -20,7 +28,7 @@ export const updateTopologyCanvasLayoutValidator = vine.compile(
     companyId: vine.string().uuid(),
     layer: vine.enum(['unified'] as const).optional(),
     nodePositions: vine.record(pointSchema),
-    labelOffsets: vine.record(pointSchema),
+    labelOffsets: vine.record(labelOffsetSchema),
     workAreas: vine.array(workAreaSchema).optional(),
     nodeParents: vine.record(vine.string().trim().minLength(1)).optional(),
   })

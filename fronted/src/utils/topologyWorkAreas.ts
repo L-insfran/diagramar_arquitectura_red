@@ -49,17 +49,19 @@ export function absoluteNodePosition(
   return { x, y }
 }
 
+/** React Flow a veces reporta measured.width/height = 0 antes de medir; 0 no debe ganar al fallback. */
+function positiveDimension(...candidates: Array<number | undefined>): number | undefined {
+  for (const value of candidates) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+  }
+  return undefined
+}
+
 export function nodeSize(node: Node): { width: number; height: number } {
-  const width =
-    node.measured?.width ??
-    node.width ??
-    (typeof node.style?.width === 'number' ? node.style.width : undefined) ??
-    160
-  const height =
-    node.measured?.height ??
-    node.height ??
-    (typeof node.style?.height === 'number' ? node.style.height : undefined) ??
-    80
+  const styleWidth = typeof node.style?.width === 'number' ? node.style.width : undefined
+  const styleHeight = typeof node.style?.height === 'number' ? node.style.height : undefined
+  const width = positiveDimension(node.measured?.width, node.width, styleWidth) ?? 160
+  const height = positiveDimension(node.measured?.height, node.height, styleHeight) ?? 80
   return { width, height }
 }
 
@@ -81,16 +83,23 @@ export function createWorkAreaNode(area: TopologyWorkAreaPersist): WorkAreaFlowN
   }
 }
 
+const MIN_WORK_AREA_SIZE = 40
+
+function finiteCoord(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
 export function snapshotWorkAreas(nodes: readonly Node[]): TopologyWorkAreaPersist[] {
   return nodes.filter(isWorkAreaNode).map((n) => {
     const { width, height } = nodeSize(n)
+    const name = (n.data.name ?? '').trim() || 'ÁREA'
     return {
       id: n.id,
-      name: n.data.name,
-      x: n.position.x,
-      y: n.position.y,
-      width,
-      height,
+      name: name.slice(0, 120),
+      x: finiteCoord(n.position.x),
+      y: finiteCoord(n.position.y),
+      width: Math.max(MIN_WORK_AREA_SIZE, width),
+      height: Math.max(MIN_WORK_AREA_SIZE, height),
       titleFontSize: clampWorkAreaTitleFontSize(n.data.titleFontSize ?? WORK_AREA_TITLE_FONT_DEFAULT),
     }
   })
@@ -100,7 +109,10 @@ export function snapshotDevicePositions(nodes: readonly Node[]): Record<string, 
   const out: Record<string, { x: number; y: number }> = {}
   for (const n of nodes) {
     if (isWorkAreaNode(n)) continue
-    out[n.id] = { x: n.position.x, y: n.position.y }
+    const x = finiteCoord(n.position.x, Number.NaN)
+    const y = finiteCoord(n.position.y, Number.NaN)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    out[n.id] = { x, y }
   }
   return out
 }

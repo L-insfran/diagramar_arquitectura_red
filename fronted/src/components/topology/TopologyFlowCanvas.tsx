@@ -443,6 +443,7 @@ function isValidWorkArea(v: unknown): v is TopologyWorkAreaPersist {
   if (
     typeof o.id !== 'string' ||
     typeof o.name !== 'string' ||
+    !o.name.trim() ||
     typeof o.x !== 'number' ||
     typeof o.y !== 'number' ||
     typeof o.width !== 'number' ||
@@ -1151,7 +1152,16 @@ function TopologyFlowInner({
         const nodePositions = snapshotDevicePositions(nds)
         const workAreas = snapshotWorkAreas(nds)
         const nodeParents = snapshotNodeParents(nds)
-        const edgeLayouts = { ...edgeLayoutsRef.current }
+        const edgeLayouts: Record<string, EdgeLayoutPersist> = {}
+        for (const [id, layout] of Object.entries(edgeLayoutsRef.current)) {
+          if (!isValidLayoutEntry(layout)) continue
+          edgeLayouts[id] = {
+            x: layout.x,
+            y: layout.y,
+            ...(layout.bendX !== undefined ? { bendX: layout.bendX } : {}),
+            ...(layout.bendY !== undefined ? { bendY: layout.bendY } : {}),
+          }
+        }
         await onPersistLayout({ nodePositions, labelOffsets: edgeLayouts, workAreas, nodeParents })
         persistCanvasLocal(persistenceKey, nds, edgeLayouts)
         setLayoutSaveState('saved')
@@ -1160,7 +1170,8 @@ function TopologyFlowInner({
           layoutSaveResetTimerRef.current = null
           setLayoutSaveState('idle')
         }, 2000)
-      } catch {
+      } catch (err) {
+        console.error('[topology] Error al guardar layout', err)
         setLayoutSaveState('error')
       }
     })()
