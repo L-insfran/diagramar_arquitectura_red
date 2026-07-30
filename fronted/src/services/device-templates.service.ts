@@ -2,7 +2,6 @@ import api from './api'
 import type { ApiResponse, DeviceTemplate, DeviceTemplatePort } from '../types'
 
 export type DeviceTemplatePayload = {
-  projectId: string
   deviceTypeId: string
   name: string
   manufacturer?: string | null
@@ -46,10 +45,7 @@ export const deviceTemplatesService = {
     return data.data
   },
 
-  async update(
-    id: string,
-    payload: Partial<Omit<DeviceTemplatePayload, 'projectId'>>
-  ): Promise<DeviceTemplate> {
+  async update(id: string, payload: Partial<DeviceTemplatePayload>): Promise<DeviceTemplate> {
     const { data } = await api.put<ApiResponse<DeviceTemplate>>(
       `/device-templates/${id}`,
       payload

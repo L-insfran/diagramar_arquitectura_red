@@ -60,12 +60,13 @@ Entregables:
 
 ## Fase 2 — Templates de dispositivo
 
-**Estado:** entregada (migración `0029_`).
+**Estado:** entregada (migración `0029_`; catálogo global en `0034_` / ADR 0004).
 
 - Tablas `device_templates` y `device_template_ports` (marca, modelo, U, imagen, consumo, peso, vistas, campos custom).
+- Catálogo **global** (sin `project_id`): reutilizable en todos los proyectos.
 - `devices` instancia un template (`device_template_id`); manufacturer/model denormalizados.
 - UI: Settings → Templates; alta de equipo elige template; solo campos de instancia editables.
-- Backfill: agrupar por project + type + manufacturer + model.
+- Backfill inicial (`0029_`): agrupar por project + type + manufacturer + model; luego unificados como globales.
 
 ---
 
@@ -122,4 +123,11 @@ Entregables:
 
 ## Más allá (no fechado)
 
-Monitoreo, SNMP/LLDP/CDP, importación desde switches, escaneo, mapa físico/lógico, Zabbix / PRTG / LibreNMS. La arquitectura de fases 1–7 debe permitir estos módulos sin reescritura.
+### Topología física por rack
+
+- **Fase 1:** racks como contenedores en el diagrama físico; equipos apilados por U con puertos visibles; conexiones puerto↔puerto; highlight al clic en puerto.
+- **Fase 2:** asistente **Imprimir reporte** con filtros Sitio → Área → Rack(s) → Cara → equipos sin rack; contenido diagrama / tabla / ambos; PDF client-side (`exportPdf` `table` | `diagram` | `full`).
+
+### Futuro
+
+Monitoreo, SNMP/LLDP/CDP, importación desde switches, escaneo, mapa de planta, Zabbix / PRTG / LibreNMS. La arquitectura de fases 1–7 debe permitir estos módulos sin reescritura.

@@ -13,10 +13,11 @@ import {
   type Ref,
   type SetStateAction,
 } from 'react'
-import { Download, Maximize2, Minimize2, Printer, Save, SquareDashedMousePointer } from 'lucide-react'
+import { Download, Maximize2, Minimize2, Printer, Save, Scaling, SquareDashedMousePointer } from 'lucide-react'
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   Controls,
   MiniMap,
   Panel,
@@ -28,15 +29,15 @@ import {
   useUpdateNodeInternals,
   ViewportPortal,
   type ColorMode,
+  type Connection,
   type Node,
   type NodeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useTheme } from '../../contexts/ThemeContext'
-import { accentColorForNodeId } from '../../utils/topologyAccent'
-import { layoutTopologyNodes } from '../../utils/topologyLayout'
 import {
   computePortPanelLayout,
+  computeRackMountedPortPanelLayout,
   isCompactPortPanel,
   isInternetCloudDeviceType,
   isStructuredCablingDeviceType,
@@ -45,8 +46,6 @@ import {
   portSourceLaneOffsetX,
   portTargetHandleId,
   portTargetLaneOffsetX,
-  CLOUD_NODE_HEIGHT,
-  CLOUD_NODE_WIDTH,
   TOPOLOGY_HEADER_HEIGHT,
   TOPOLOGY_HEADER_HEIGHT_PATCH,
   type PortPanelLayout,
@@ -54,20 +53,34 @@ import {
 } from '../../utils/topologyPortPanel'
 import { DeviceFlowNode, type DeviceFlowNodeType } from './DeviceFlowNode'
 import { CloudFlowNode, type CloudFlowNodeType } from './CloudFlowNode'
+import { RackFlowNode } from './RackFlowNode'
 import { PortLinkEdge, type PortLinkEdgeType } from './PortLinkEdge'
 import { WorkAreaFlowNode, WORK_AREA_TITLE_FONT_DEFAULT, clampWorkAreaTitleFontSize } from './WorkAreaFlowNode'
 import { TopologyCanvasInteractionContext, type TopologyLinkSelection } from './TopologyCanvasContext'
-import type { TopologyData, MediumType } from '../../types'
+import type { TopologyData, TopologyRackSummary, MediumType, RackFace } from '../../types'
 import { formatMediumLabel, MEDIUM_EDGE_STYLES } from '../../types'
-import { normalizeTopologyHostname } from '../../utils/topologyNodeData'
 import { compareTopologyPortPair } from '../../utils/topologyPortSort'
 import {
+  applyRackHierarchy,
+  buildDeviceFlowNodes,
+  isIntraRackEdge,
+} from '../../utils/topologyRackAssemble'
+import { isRackFlowNodeId, normalizeRackFace } from '../../utils/topologyRackLayout'
+import {
   computeExportCaptureRect,
+  computeTileGrid,
+  getA4DiagramUsableMm,
+  getExportCapturePixelSize,
   getExportShellCssDimensions,
   type PrintOrientation,
 } from '../../utils/printDiagramSectorGrid'
 import { PrintSectorBoundsOverlay } from './PrintSectorBoundsOverlay'
 import { PortNavigationBridge } from './PortNavigationBridge'
+import {
+  buildPortConnectLookup,
+  validatePortConnection,
+} from '../../utils/topologyDragConnect'
+import { fitTopologyNodesToA4Page1 } from '../../utils/topologyFitToA4'
 import {
   absoluteNodePosition,
   applyWorkAreaHierarchy,
@@ -89,7 +102,7 @@ import {
   withSyncedDeviceNodeScales,
 } from '../../utils/topologyNodeScale'
 
-const nodeTypes = { device: DeviceFlowNode, cloud: CloudFlowNode, workArea: WorkAreaFlowNode }
+const nodeTypes = { device: DeviceFlowNode, cloud: CloudFlowNode, workArea: WorkAreaFlowNode, rack: RackFlowNode }
 const edgeTypes = { portLink: PortLinkEdge }
 
 function assignPairLinkIndices(edges: PortLinkEdgeType[]): void {
@@ -227,7 +240,15 @@ function buildPortLayoutMaps(nodes: TopologyDeviceNode[]): {
       : TOPOLOGY_HEADER_HEIGHT
     layoutByNodeId.set(
       n.id,
-      computePortPanelLayout(physical.length, compact, totalPhysical, headerHeight, wireless.length),
+      n.data.rackMounted
+        ? computeRackMountedPortPanelLayout(
+            physical.length,
+            totalPhysical,
+            wireless.length,
+            n.width ?? n.data.nodeWidth ?? 380,
+            n.height ?? n.data.nodeHeight ?? 44,
+          )
+        : computePortPanelLayout(physical.length, compact, totalPhysical, headerHeight, wireless.length),
     )
     const byId = new Map<string, number>()
     const sectionById = new Map<string, PortPanelSection>()
@@ -261,98 +282,37 @@ function topologyToFlowElements(data: TopologyData): {
   edges: PortLinkEdgeType[]
 } {
   const layoutByNodeId = new Map<string, PortPanelLayout>()
+  const nodes = buildDeviceFlowNodes(data)
 
-  // Un puerto solo se marca "en uso" si su cable realmente se dibuja en este
-  // diagrama. Si no, un enlace filtrado (p. ej. lógico) dejaría el puerto en
-  // verde sin ningún cable que lo explique.
-  const drawnPortIds = new Set<string>()
-  for (const edge of data.edges) {
-    if (edge.sourcePortId) drawnPortIds.add(edge.sourcePortId)
-    if (edge.targetPortId) drawnPortIds.add(edge.targetPortId)
-  }
-
-  const nodes: TopologyDeviceNode[] = data.nodes.map((n) => {
-    const allPorts = (n.data.ports ?? []).map((port) => ({
-      ...port,
-      connected: drawnPortIds.has(port.id),
-    }))
-    const portsInUse = allPorts.reduce((total, port) => (port.connected ? total + 1 : total), 0)
-    const isCloud = isInternetCloudDeviceType(n.data.deviceType)
-
-    if (isCloud) {
-      const width = CLOUD_NODE_WIDTH
-      const height = CLOUD_NODE_HEIGHT
-      return {
-        id: n.id,
-        type: 'cloud' as const,
-        position: { x: 0, y: 0 },
-        width,
-        height,
-        style: { width, height },
-        data: {
-          label: n.label,
-          hostname: normalizeTopologyHostname(n.data),
-          ipAddress: n.data.ipAddress,
-          status: n.data.status,
-          accentColor: accentColorForNodeId(n.id),
-          location: n.data.location ?? null,
-          deviceType: n.data.deviceType ?? null,
-          vlanCount: n.data.vlanCount ?? n.data.vlans?.length ?? 0,
-          vlans: n.data.vlans ?? [],
-          networks: n.data.networks ?? [],
-          portCount: n.data.portCount ?? allPorts.length,
-          portsInUse,
-          ports: allPorts,
-          totalPortCount: n.data.portCount ?? allPorts.length,
-          nodeWidth: width,
-          nodeHeight: height,
-        },
-      } satisfies CloudFlowNodeType
-    }
-
+  for (const n of nodes) {
+    if (n.type === 'cloud') continue
+    const allPorts = n.data.ports ?? []
     const { physical, wireless } = partitionDiagramPorts(allPorts)
-    const totalPortCount = n.data.portCount ?? allPorts.length
+    const totalPortCount = n.data.totalPortCount ?? allPorts.length
     const totalPhysicalCount = Math.max(0, totalPortCount - wireless.length)
     const compact = isCompactPortPanel(physical.length, totalPhysicalCount)
     const headerHeight = isStructuredCablingDeviceType(n.data.deviceType)
       ? TOPOLOGY_HEADER_HEIGHT_PATCH
       : TOPOLOGY_HEADER_HEIGHT
-    const portLayout = computePortPanelLayout(
-      physical.length,
-      compact,
-      totalPhysicalCount,
-      headerHeight,
-      wireless.length,
+    layoutByNodeId.set(
+      n.id,
+      n.data.rackMounted
+        ? computeRackMountedPortPanelLayout(
+            physical.length,
+            totalPhysicalCount,
+            wireless.length,
+            n.data.nodeWidth ?? 380,
+            n.data.nodeHeight ?? 44,
+          )
+        : computePortPanelLayout(
+            physical.length,
+            compact,
+            totalPhysicalCount,
+            headerHeight,
+            wireless.length,
+          ),
     )
-    const { width, height } = portLayout
-    layoutByNodeId.set(n.id, portLayout)
-    return {
-      id: n.id,
-      type: 'device' as const,
-      position: { x: 0, y: 0 },
-      width,
-      height,
-      style: { width, height },
-      data: {
-        label: n.label,
-        hostname: normalizeTopologyHostname(n.data),
-        ipAddress: n.data.ipAddress,
-        status: n.data.status,
-        accentColor: accentColorForNodeId(n.id),
-        location: n.data.location ?? null,
-        deviceType: n.data.deviceType ?? null,
-        vlanCount: n.data.vlanCount ?? n.data.vlans?.length ?? 0,
-        vlans: n.data.vlans ?? [],
-        networks: n.data.networks ?? [],
-        portCount: n.data.portCount ?? allPorts.length,
-        portsInUse,
-        ports: allPorts,
-        totalPortCount: n.data.portCount ?? allPorts.length,
-        nodeWidth: width,
-        nodeHeight: height,
-      },
-    } satisfies DeviceFlowNodeType
-  })
+  }
 
   const colorById = new Map(nodes.map((n) => [n.id, n.data.accentColor]))
   const portCountById = new Map(nodes.map((n) => [n.id, n.data.totalPortCount ?? 0]))
@@ -475,15 +435,38 @@ function topologyToFlowElements(data: TopologyData): {
 
   assignPairLinkIndices(edges)
 
-  const { nodes: layouted } = layoutTopologyNodes(nodes, edges, { printFriendly: true })
+  // Sin dagre global: racks + sueltos se posicionan en applyRackHierarchy / posiciones guardadas.
   const oriented = orientPortEdgeHandles(
-    layouted as TopologyDeviceNode[],
+    nodes,
     edges,
     layoutByNodeId,
     portIndexByNode,
     portSectionByNode,
   )
-  return { nodes: layouted as TopologyDeviceNode[], edges: oriented }
+  return { nodes, edges: oriented }
+}
+
+function withIntraRackEdgeLegibility(
+  nodes: TopologyCanvasNode[],
+  edges: PortLinkEdgeType[],
+): PortLinkEdgeType[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  return edges.map((edge) => {
+    const source = byId.get(edge.source)
+    const target = byId.get(edge.target)
+    const hidden = !!(source?.hidden || target?.hidden)
+    const intra = isIntraRackEdge(edge, nodes)
+    const selected = !!edge.selected
+    return {
+      ...edge,
+      hidden,
+      zIndex: selected ? 1002 : intra ? 900 : 1000,
+      style: {
+        ...edge.style,
+        strokeWidth: selected ? 3 : intra ? 1.5 : (edge.style?.strokeWidth as number | undefined) ?? 2,
+      },
+    }
+  })
 }
 
 export type EdgeLayoutPersist = {
@@ -690,6 +673,8 @@ export type TopologyFlowCanvasHandle = {
   prepareExportCapture: (orientation?: PrintOrientation) => Promise<() => void>
   /** Orientación actualmente seleccionada por el usuario para impresión / exportación. */
   getPrintOrientation: () => PrintOrientation
+  /** Estima cuántos sectores A4 ocupará el diagrama con el layout actual. */
+  estimatePrintPages: () => number
 }
 
 function DrawWorkAreaSession({
@@ -843,10 +828,20 @@ function ExportCaptureBridge({
 
   const getPrintOrientation = useCallback(() => printOrientationRef.current, [printOrientationRef])
 
+  const estimatePrintPages = useCallback(() => {
+    const nodes = getNodesRef.current?.() ?? []
+    if (nodes.length === 0) return 1
+    const orientation = printOrientationRef.current
+    const { imgW, imgH } = getExportCapturePixelSize(nodes.length, orientation)
+    const { usableW, usableH } = getA4DiagramUsableMm(orientation)
+    const { cols, rows } = computeTileGrid(imgW, imgH, usableW, usableH)
+    return Math.max(1, cols * rows)
+  }, [getNodesRef, printOrientationRef])
+
   useImperativeHandle(
     exportHandleRef,
-    () => ({ prepareExportCapture, getPrintOrientation }),
-    [prepareExportCapture, getPrintOrientation]
+    () => ({ prepareExportCapture, getPrintOrientation, estimatePrintPages }),
+    [prepareExportCapture, getPrintOrientation, estimatePrintPages]
   )
 
   return null
@@ -877,7 +872,7 @@ function saveLayoutButtonLabel(state: LayoutSaveState): string {
 function TopologyFlowPanels({
   persistenceKey, topology, setNodes, setEdges, edgeLayoutsRef, fullscreen, onFullscreenChange, onExportPdf, exporting, readOnly,
   onPersistLayout, onClearServerLayout, layoutSaveState, onSaveLayout, showPrintBounds, onTogglePrintBounds, onShowPrintBounds,
-  printOrientation, onPrintOrientationChange, drawAreaMode, onToggleDrawAreaMode,
+  printOrientation, onPrintOrientationChange, drawAreaMode, onToggleDrawAreaMode, onResetGraph, persistLayoutLocalFromNodes,
 }: {
   persistenceKey: string | undefined
   topology: TopologyData
@@ -900,6 +895,8 @@ function TopologyFlowPanels({
   onPrintOrientationChange: (next: PrintOrientation) => void
   drawAreaMode: boolean
   onToggleDrawAreaMode: () => void
+  onResetGraph: () => void
+  persistLayoutLocalFromNodes: (nds: TopologyCanvasNode[]) => void
 }) {
   const { fitView, fitBounds, getNodes } = useReactFlow()
 
@@ -912,6 +909,29 @@ function TopologyFlowPanels({
     })
   }, [fitBounds, getNodes, onShowPrintBounds, printOrientation])
 
+  const handleFitToA4 = useCallback(() => {
+    const current = getNodes() as TopologyCanvasNode[]
+    const result = fitTopologyNodesToA4Page1(current, printOrientation)
+    if (!result) return
+    const next = result.nodes as TopologyCanvasNode[]
+    setNodes(next)
+    persistLayoutLocalFromNodes(next)
+    setEdges((prev) => withIntraRackEdgeLegibility(next, withOrientedPortHandles(next, prev)))
+    onShowPrintBounds()
+    requestAnimationFrame(() => {
+      const rect = computeExportCaptureRect(next, printOrientation)
+      if (rect) void fitBounds(rect, { padding: 0.04, duration: 300 })
+    })
+  }, [
+    getNodes,
+    printOrientation,
+    setNodes,
+    setEdges,
+    persistLayoutLocalFromNodes,
+    onShowPrintBounds,
+    fitBounds,
+  ])
+
   const handleReset = useCallback(async () => {
     if (!persistenceKey) return
     try {
@@ -923,11 +943,11 @@ function TopologyFlowPanels({
     clearWorkAreas(persistenceKey)
     clearNodeParents(persistenceKey)
     edgeLayoutsRef.current = {}
-    const { nodes: fresh, edges: freshEdges } = topologyToFlowElements(topology)
-    setNodes(fresh)
-    setEdges(freshEdges)
+    onResetGraph()
     requestAnimationFrame(() => fitView({ padding: 0.2 }))
-  }, [persistenceKey, topology, setNodes, setEdges, fitView, edgeLayoutsRef, onClearServerLayout])
+  }, [persistenceKey, onClearServerLayout, edgeLayoutsRef, onResetGraph, fitView])
+
+  void topology
 
   return (
     <Panel
@@ -994,9 +1014,19 @@ function TopologyFlowPanels({
               ? 'bg-orange-100 text-orange-900 ring-1 ring-orange-300 dark:bg-orange-950/60 dark:text-orange-100 dark:ring-orange-700'
               : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'
           }`}
-          title="Muestra líneas que coinciden con el recorte por sectores al exportar a PDF (mismo criterio automático que la exportación)">
+          title="Muestra la página 1 (A4) y los sectores extra si el diagrama desborda">
           {showPrintBounds ? 'Ocultar límites' : 'Mostrar límites'}
         </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={handleFitToA4}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-orange-900 transition hover:bg-orange-50 dark:text-orange-100 dark:hover:bg-orange-950/40"
+            title="Mueve y escala el diagrama para que entre en la página 1 A4">
+            <Scaling className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Ajustar a A4
+          </button>
+        )}
         {!readOnly && (
           <button
             type="button"
@@ -1041,6 +1071,16 @@ function TopologyFlowPanels({
             Arrastrá en el fondo para crear el recuadro. Esc cancela.
           </p>
         )}
+        {showPrintBounds && !drawAreaMode && (
+          <p className="px-2 pb-1 text-[10px] leading-snug text-orange-800 dark:text-orange-200">
+            Página 1 resaltada. Arrastrá equipos para que entren, o usá «Ajustar a A4».
+          </p>
+        )}
+        {!readOnly && !drawAreaMode && !showPrintBounds && (
+          <p className="px-2 pb-1 text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+            Arrastrá de un puerto libre a otro para crear un enlace.
+          </p>
+        )}
       </div>
     </Panel>
   )
@@ -1048,10 +1088,12 @@ function TopologyFlowPanels({
 
 interface InnerProps {
   topology: TopologyData
+  racks?: TopologyRackSummary[]
   persistenceKey?: string
   readOnly?: boolean
   onNavigateToDevice?: (deviceId: string) => void
   onNavigateToConnection?: (connectionId: string) => void
+  onConnectPorts?: (sourcePortId: string, targetPortId: string) => void | Promise<void>
   fullscreen: boolean
   onFullscreenChange: (next: boolean) => void
   canvasRef?: MutableRefObject<HTMLDivElement | null>
@@ -1065,7 +1107,7 @@ interface InnerProps {
 }
 
 function TopologyFlowInner({
-  topology, persistenceKey, readOnly, onNavigateToDevice, onNavigateToConnection, fullscreen, onFullscreenChange, canvasRef, onExportPdf, exporting,
+  topology, racks = [], persistenceKey, readOnly, onNavigateToDevice, onNavigateToConnection, onConnectPorts, fullscreen, onFullscreenChange, canvasRef, onExportPdf, exporting,
   serverLayout, onPersistLayout, onClearServerLayout, exportHandleRef,
 }: InnerProps) {
   const { theme } = useTheme()
@@ -1080,8 +1122,16 @@ function TopologyFlowInner({
   const [selection, setSelection] = useState<TopologyLinkSelection | null>(null)
   const [drawAreaMode, setDrawAreaMode] = useState(false)
   const [draftRect, setDraftRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [rackFaces, setRackFaces] = useState<Record<string, RackFace>>({})
   const printOrientationRef = useRef<PrintOrientation>('landscape')
   useEffect(() => { printOrientationRef.current = printOrientation }, [printOrientation])
+
+  const setRackFace = useCallback((rackNodeId: string, face: RackFace) => {
+    setRackFaces((prev) => {
+      if (normalizeRackFace(prev[rackNodeId]) === face) return prev
+      return { ...prev, [rackNodeId]: face }
+    })
+  }, [])
 
   const selectPort = useCallback((portId: string | null) => {
     setSelection(portId ? { kind: 'port', portId } : null)
@@ -1107,6 +1157,31 @@ function TopologyFlowInner({
       )
     },
     [],
+  )
+
+  const portLookup = useMemo(() => buildPortConnectLookup(topology), [topology])
+  const connectingRef = useRef(false)
+
+  const isValidConnection = useCallback(
+    (connection: Connection) => {
+      if (readOnly || drawAreaMode) return false
+      return validatePortConnection(portLookup, connection).ok
+    },
+    [readOnly, drawAreaMode, portLookup],
+  )
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      if (readOnly || drawAreaMode || !onConnectPorts) return
+      const result = validatePortConnection(portLookup, connection)
+      if (!result.ok) return
+      if (connectingRef.current) return
+      connectingRef.current = true
+      void Promise.resolve(onConnectPorts(result.sourcePortId, result.targetPortId)).finally(() => {
+        connectingRef.current = false
+      })
+    },
+    [readOnly, drawAreaMode, onConnectPorts, portLookup],
   )
 
   const resolveWorkAreasAndParents = useCallback((
@@ -1140,31 +1215,37 @@ function TopologyFlowInner({
     const hasServer = serverLayout !== undefined
     const serverPos = hasServer ? serverLayout.nodePositions : null
     const serverLayouts = hasServer ? serverLayout.labelOffsets : null
-    let devices = mergePersistedNodePositions(built.nodes, localPos)
-    devices = mergePersistedNodeScales(devices, localScales)
+    const mergedPos = { ...localPos, ...(serverPos ?? {}) }
+    let devices = mergePersistedNodeScales(built.nodes, localScales)
     let edges = mergePersistedEdgeLayout(built.edges, localLayouts)
-    if (serverPos !== null) devices = mergePersistedNodePositions(devices, serverPos)
     if (serverLayouts !== null) edges = mergePersistedEdgeLayout(edges, serverLayouts)
+    const racked = applyRackHierarchy(devices, racks, mergedPos, rackFaces)
     const workAreas = resolveStoredWorkAreas(serverLayout, localAreas)
     const parents = hasServer && Object.keys(serverLayout?.nodeParents ?? {}).length > 0
       ? serverLayout!.nodeParents
       : Object.keys(localParents).length > 0
         ? localParents
         : (serverLayout?.nodeParents ?? {})
-    const nodes = applyWorkAreaHierarchy(devices, workAreas, parents)
-    edges = withOrientedPortHandles(nodes, edges)
+    const deviceOnly = racked.filter(
+      (n): n is TopologyDeviceNode => n.type === 'device' || n.type === 'cloud',
+    )
+    const rackOnly = racked.filter((n) => n.type === 'rack')
+    const withAreas = applyWorkAreaHierarchy(deviceOnly, workAreas, parents)
+    const nodes = [...rackOnly, ...withAreas]
+    edges = withIntraRackEdgeLegibility(nodes, withOrientedPortHandles(nodes, edges))
     return { nodes, edges }
-  }, [topology, persistenceKey, serverLayout])
+  }, [topology, racks, rackFaces, persistenceKey, serverLayout])
 
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<TopologyCanvasNode>(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<PortLinkEdgeType>(initialEdges)
 
-  // Quitar extent:'parent' legado para poder arrastrar dispositivos fuera del área.
+  // Quitar extent:'parent' legado de work areas; conservar extent en hijos de rack.
   useEffect(() => {
     setNodes((prev) => {
       let changed = false
       const next = prev.map((n) => {
-        if (n.type === 'workArea' || n.extent === undefined) return n
+        if (n.type === 'workArea' || n.type === 'rack' || n.extent === undefined) return n
+        if (n.parentId && isRackFlowNodeId(n.parentId)) return n
         changed = true
         return { ...n, extent: undefined }
       })
@@ -1195,21 +1276,29 @@ function TopologyFlowInner({
 
   useEffect(() => {
     setEdges((eds) =>
-      eds.map((e) => {
-        const match =
-          selection?.kind === 'edge'
-            ? e.id === selection.edgeId
-            : selection?.kind === 'port'
-              ? e.data?.sourcePortId === selection.portId || e.data?.targetPortId === selection.portId
-              : false
-        return {
-          ...e,
-          selected: match,
-          zIndex: match ? 1002 : 1000,
-        }
-      }),
+      withIntraRackEdgeLegibility(
+        nodes,
+        eds.map((e) => {
+          const match =
+            selection?.kind === 'edge'
+              ? e.id === selection.edgeId
+              : selection?.kind === 'port'
+                ? e.data?.sourcePortId === selection.portId || e.data?.targetPortId === selection.portId
+                : false
+          return {
+            ...e,
+            selected: match,
+            zIndex: match ? 1002 : 1000,
+            style: {
+              ...e.style,
+              opacity: selection && !match ? 0.22 : 1,
+              strokeWidth: match ? 3 : (e.style?.strokeWidth as number | undefined),
+            },
+          }
+        }),
+      ),
     )
-  }, [selection, setEdges])
+  }, [selection, setEdges, nodes])
 
   useEffect(() => {
     const { nodes: nextDevices, edges: nextEdges } = topologyToFlowElements(topology)
@@ -1222,20 +1311,24 @@ function TopologyFlowInner({
     const hasServer = serverLayout !== undefined
     const serverPos = hasServer ? serverLayout.nodePositions : null
     const serverLayouts = hasServer ? serverLayout.labelOffsets : null
-    let devices = mergePersistedNodePositions(nextDevices, currentPositions)
-    devices = mergePersistedNodePositions(devices, localPos)
-    devices = mergePersistedNodeScales(devices, localScales)
+    const mergedPos = { ...localPos, ...(serverPos ?? {}), ...currentPositions }
+    let devices = mergePersistedNodeScales(nextDevices, localScales)
     devices = mergePersistedNodeScales(devices, currentScales)
     let e = mergePersistedEdgeLayout(nextEdges, localLayouts)
-    if (serverPos !== null) devices = mergePersistedNodePositions(devices, serverPos)
     if (serverLayouts !== null) e = mergePersistedEdgeLayout(e, serverLayouts)
     const { workAreas, parents } = resolveWorkAreasAndParents(live)
-    const n = applyWorkAreaHierarchy(devices, workAreas, parents)
-    e = withOrientedPortHandles(n, e)
+    const racked = applyRackHierarchy(devices, racks, mergedPos, rackFaces)
+    const deviceOnly = racked.filter(
+      (n): n is TopologyDeviceNode => n.type === 'device' || n.type === 'cloud',
+    )
+    const rackOnly = racked.filter((n) => n.type === 'rack')
+    const withAreas = applyWorkAreaHierarchy(deviceOnly, workAreas, parents)
+    const n = [...rackOnly, ...withAreas]
+    e = withIntraRackEdgeLegibility(n, withOrientedPortHandles(n, e))
     edgeLayoutsRef.current = hasServer ? { ...localLayouts, ...serverLayout!.labelOffsets } : localLayouts
     setNodes(n)
     setEdges(e)
-  }, [topology, persistenceKey, serverLayout, setNodes, setEdges, resolveWorkAreasAndParents])
+  }, [topology, racks, rackFaces, persistenceKey, serverLayout, setNodes, setEdges, resolveWorkAreasAndParents])
 
   const persistLayoutLocalFromNodes = useCallback((nds: TopologyCanvasNode[]) => {
     persistCanvasLocal(persistenceKey, nds, edgeLayoutsRef.current)
@@ -1245,12 +1338,12 @@ function TopologyFlowInner({
     const getNodes = getNodesRef.current
     if (!getNodes) return
     let nds = getNodes() as TopologyCanvasNode[]
-    if (dragged.type !== 'workArea') {
+    if (dragged.type !== 'workArea' && dragged.type !== 'rack') {
       nds = reparentDevicesAfterDrag(nds)
       setNodes(nds)
     }
     persistLayoutLocalFromNodes(nds)
-    setEdges((prev) => withOrientedPortHandles(nds, prev))
+    setEdges((prev) => withIntraRackEdgeLegibility(nds, withOrientedPortHandles(nds, prev)))
   }, [persistLayoutLocalFromNodes, setEdges, setNodes])
 
   const onNodesChange = useCallback((changes: NodeChange<TopologyCanvasNode>[]) => {
@@ -1411,6 +1504,20 @@ function TopologyFlowInner({
     updateEdgeLayout(edgeId, { bendX: x, bendY: y })
   }, [updateEdgeLayout])
 
+  const resetGraph = useCallback(() => {
+    setRackFaces({})
+    const built = topologyToFlowElements(topology)
+    const racked = applyRackHierarchy(built.nodes, racks, {}, {})
+    const deviceOnly = racked.filter(
+      (n): n is TopologyDeviceNode => n.type === 'device' || n.type === 'cloud',
+    )
+    const rackOnly = racked.filter((n) => n.type === 'rack')
+    const nodes = [...rackOnly, ...deviceOnly]
+    const edges = withIntraRackEdgeLegibility(nodes, withOrientedPortHandles(nodes, built.edges))
+    setNodes(nodes)
+    setEdges(edges)
+  }, [topology, racks, setNodes, setEdges])
+
   const interactionValue = useMemo(
     () => ({
       readOnly: readOnly ?? false,
@@ -1424,8 +1531,9 @@ function TopologyFlowInner({
       renameWorkArea,
       removeWorkArea,
       setWorkAreaTitleFontSize,
+      setRackFace,
     }),
-    [readOnly, commitLabelOffset, commitPathBend, onNavigateToDevice, onNavigateToConnection, selection, selectPort, highlightedPortIds, renameWorkArea, removeWorkArea, setWorkAreaTitleFontSize]
+    [readOnly, commitLabelOffset, commitPathBend, onNavigateToDevice, onNavigateToConnection, selection, selectPort, highlightedPortIds, renameWorkArea, removeWorkArea, setWorkAreaTitleFontSize, setRackFace]
   )
 
   const setShellRef = useCallback(
@@ -1504,12 +1612,16 @@ function TopologyFlowInner({
             nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             colorMode={colorMode}
             nodesDraggable={!drawAreaMode}
-            nodesConnectable={false}
+            nodesConnectable={!readOnly && !drawAreaMode}
             elementsSelectable={!drawAreaMode}
             panOnDrag={!drawAreaMode}
             panOnScroll zoomOnScroll
             elevateNodesOnSelect={false}
             elevateEdgesOnSelect
+            connectionMode={ConnectionMode.Loose}
+            isValidConnection={isValidConnection}
+            onConnect={handleConnect}
+            connectionLineStyle={{ stroke: '#3b82f6', strokeWidth: 2.5 }}
             minZoom={0.15} maxZoom={4}
             onInit={onInit} fitView
             defaultEdgeOptions={{ type: 'portLink', zIndex: 1000 }}
@@ -1539,6 +1651,8 @@ function TopologyFlowInner({
               onPrintOrientationChange={(o) => setPrintOrientation(o)}
               drawAreaMode={drawAreaMode}
               onToggleDrawAreaMode={() => setDrawAreaMode((v) => !v)}
+              onResetGraph={resetGraph}
+              persistLayoutLocalFromNodes={persistLayoutLocalFromNodes}
             />
             <PrintSectorBoundsOverlay enabled={showPrintBounds} orientation={printOrientation} />
             {!readOnly && (
@@ -1562,10 +1676,12 @@ function TopologyFlowInner({
 
 export interface TopologyFlowCanvasProps {
   topology: TopologyData
+  racks?: TopologyRackSummary[]
   persistenceKey?: string
   readOnly?: boolean
   onNavigateToDevice?: (deviceId: string) => void
   onNavigateToConnection?: (connectionId: string) => void
+  onConnectPorts?: (sourcePortId: string, targetPortId: string) => void | Promise<void>
   canvasRef?: MutableRefObject<HTMLDivElement | null>
   onExportPdf?: () => void
   exporting?: boolean
@@ -1576,18 +1692,19 @@ export interface TopologyFlowCanvasProps {
 
 export const TopologyFlowCanvas = forwardRef<TopologyFlowCanvasHandle, TopologyFlowCanvasProps>(function TopologyFlowCanvas(
   {
-    topology, persistenceKey, readOnly, onNavigateToDevice, onNavigateToConnection, canvasRef, onExportPdf, exporting,
+    topology, racks, persistenceKey, readOnly, onNavigateToDevice, onNavigateToConnection, onConnectPorts, canvasRef, onExportPdf, exporting,
     serverLayout, onPersistLayout, onClearServerLayout,
   },
   ref
 ) {
   const [fullscreen, setFullscreen] = useState(false)
+  const hasContent = topology.nodes.length > 0 || (racks?.length ?? 0) > 0
 
-  if (!topology.nodes.length) {
+  if (!hasContent) {
     return (
       <div className="h-80 flex flex-col items-center justify-center text-center px-6 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30">
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Aún no hay dispositivos en el diagrama. Crea conexiones para enlazar dispositivos y puertos.
+          Aún no hay dispositivos ni racks. Creá equipos (y montalos en racks si corresponde) para documentar la topología física.
         </p>
       </div>
     )
@@ -1596,11 +1713,21 @@ export const TopologyFlowCanvas = forwardRef<TopologyFlowCanvasHandle, TopologyF
   return (
     <ReactFlowProvider>
       <TopologyFlowInner
-        topology={topology} persistenceKey={persistenceKey} readOnly={readOnly}
-        onNavigateToDevice={onNavigateToDevice} onNavigateToConnection={onNavigateToConnection}
-        fullscreen={fullscreen} onFullscreenChange={setFullscreen} canvasRef={canvasRef}
-        onExportPdf={onExportPdf} exporting={exporting}
-        serverLayout={serverLayout} onPersistLayout={onPersistLayout} onClearServerLayout={onClearServerLayout}
+        topology={topology}
+        racks={racks}
+        persistenceKey={persistenceKey}
+        readOnly={readOnly}
+        onNavigateToDevice={onNavigateToDevice}
+        onNavigateToConnection={onNavigateToConnection}
+        onConnectPorts={onConnectPorts}
+        fullscreen={fullscreen}
+        onFullscreenChange={setFullscreen}
+        canvasRef={canvasRef}
+        onExportPdf={onExportPdf}
+        exporting={exporting}
+        serverLayout={serverLayout}
+        onPersistLayout={onPersistLayout}
+        onClearServerLayout={onClearServerLayout}
         exportHandleRef={ref}
       />
     </ReactFlowProvider>

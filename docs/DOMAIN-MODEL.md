@@ -12,7 +12,6 @@ erDiagram
     projects ||--o{ departments : has
     projects ||--o{ employees : has
     projects ||--o{ devices : has
-    projects ||--o{ device_templates : has
     projects ||--o{ sites : has
     projects ||--o{ vlans : has
     projects ||--o{ networks : has
@@ -53,7 +52,7 @@ erDiagram
 | `system_users` | Auth + rol global |
 | `departments`, `employees` | RRHH / asignaciones |
 | `device_types` | Catálogo nombre/icono — **no** es Device Template |
-| `device_templates` | SKU por proyecto (marca, modelo, U, imagen, custom…); soft delete |
+| `device_templates` | Catálogo global de SKU (marca, modelo, U, imagen, custom…); soft delete — ADR 0004 |
 | `device_template_ports` | Definición de puertos del template (clonados a la instancia) |
 | `sites` | Inventario físico por proyecto; soft delete |
 | `areas` | Bajo un sitio (planta/sala…); soft delete — **no** es `work_areas` del canvas |
@@ -66,8 +65,10 @@ erDiagram
 | `secrets` | Secretos cifrados polimórficos (reveal con mutate) |
 | `vlans`, `networks`, `port_vlans` | Capa L2/L3 |
 | `connections` | Entidad de primera clase; `cable_type_id` opcional; 1 física activa / puerto |
-| `topology_canvas_layouts` | Layout visual + work_areas JSON |
+| `topology_canvas_layouts` | Layout visual + work_areas JSON; posiciones de racks (`rack:{id}`) |
 | `device_credentials`, `employee_credentials` | Secretos legacy de device/employee |
+
+**Topología física (canvas):** `GET /topology` expone en cada device `siteId`/`areaId`/`rackId`/`rackUnitStart`/`rackFace`/`rackUnits` y una lista `racks[]`. El canvas proyecta racks como contenedores con elevación por U; los equipos montados son hijos posicionados por U (no se persisten coords relativas U). `work_areas` del canvas ≠ `areas` de inventario. Impresión: filtros de inventario (sitio/área/rack/cara) en cliente → PDF tabla y/o diagrama.
 
 ### Ausentes respecto a la visión
 
@@ -86,8 +87,9 @@ flowchart TB
     Project --> Sites[Sitios]
     Sites --> Areas[Areas]
     Areas --> Racks[Racks]
-    Project --> Templates[Device Templates]
-    Templates --> Devices[Instancias de equipo]
+    GlobalTemplates[Device Templates globales]
+    GlobalTemplates --> Devices[Instancias de equipo]
+    Project --> Devices
     Racks --> Devices
     Devices --> Ports[Puertos]
     Ports --> Connections[Conexiones]

@@ -8,7 +8,6 @@ import { Input } from '../components/Input'
 import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
 import { useApi } from '../hooks/useApi'
-import { useProject } from '../contexts/ProjectContext'
 import { deviceTemplatesService } from '../services/device-templates.service'
 import { deviceTypesService } from '../services/device-types.service'
 import { portTypesService } from '../services/port-types.service'
@@ -32,18 +31,30 @@ const initialPortForm = {
 }
 
 function formatError(err: unknown): string {
-  const ax = err as { response?: { data?: { message?: string } } }
-  return ax?.response?.data?.message || 'Ocurrió un error inesperado.'
+  const ax = err as {
+    response?: {
+      data?: {
+        message?: string
+        errors?: Array<{ message?: string; field?: string }>
+      }
+    }
+  }
+  const data = ax?.response?.data
+  if (data?.message) return data.message
+  const first = data?.errors?.[0]
+  if (first?.message) {
+    return first.field ? `${first.field}: ${first.message}` : first.message
+  }
+  return 'Ocurrió un error inesperado.'
 }
 
 export default function DeviceTemplates() {
-  const { activeProjectId } = useProject()
   const {
     data: templates,
     isLoading,
     error,
     refetch,
-  } = useApi(() => deviceTemplatesService.getAll(), [activeProjectId])
+  } = useApi(() => deviceTemplatesService.getAll(), [])
   const { data: deviceTypes } = useApi(() => deviceTypesService.getAll(), [])
   const { data: portTypes } = useApi(() => portTypesService.getAll(), [])
 
@@ -108,10 +119,6 @@ export default function DeviceTemplates() {
       setFormError('Nombre y tipo de dispositivo son obligatorios.')
       return
     }
-    if (!activeProjectId) {
-      setFormError('Selecciona un proyecto activo.')
-      return
-    }
 
     const rackUnits = form.rackUnits.trim()
       ? Number.parseInt(form.rackUnits.trim(), 10)
@@ -134,10 +141,7 @@ export default function DeviceTemplates() {
       if (editingId) {
         await deviceTemplatesService.update(editingId, payload)
       } else {
-        await deviceTemplatesService.create({
-          projectId: activeProjectId,
-          ...payload,
-        })
+        await deviceTemplatesService.create(payload)
       }
       refetch()
       closeModal()
@@ -350,7 +354,7 @@ export default function DeviceTemplates() {
     <div className="space-y-6">
       <PageHeader
         title="Templates de dispositivo"
-        subtitle={`${templates?.length || 0} templates en el proyecto`}
+        subtitle={`${templates?.length || 0} templates en el catálogo compartido`}
         actions={
           <Button type="button" icon={<Plus className="w-4 h-4" />} onClick={openCreateModal}>
             Nuevo template
@@ -366,7 +370,7 @@ export default function DeviceTemplates() {
         columns={columns}
         data={templates || []}
         isLoading={isLoading}
-        emptyMessage="No hay templates. Crea uno para poder instanciar dispositivos."
+        emptyMessage="No hay templates. Crea uno para poder instanciar dispositivos en cualquier proyecto."
       />
 
       <Modal

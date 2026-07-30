@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
-import Project from './project.js'
 import DeviceType from './device_type.js'
 import DeviceTemplatePort from './device_template_port.js'
 import Device from './device.js'
@@ -10,9 +9,6 @@ import SystemUser from './system_user.js'
 export default class DeviceTemplate extends BaseModel {
   @column({ isPrimary: true })
   declare id: string
-
-  @column()
-  declare projectId: string
 
   @column()
   declare deviceTypeId: string
@@ -80,9 +76,6 @@ export default class DeviceTemplate extends BaseModel {
 
   @column.dateTime()
   declare deletedAt: DateTime | null
-
-  @belongsTo(() => Project)
-  declare project: BelongsTo<typeof Project>
 
   @belongsTo(() => DeviceType)
   declare deviceType: BelongsTo<typeof DeviceType>

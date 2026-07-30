@@ -77,7 +77,7 @@ export default function DeviceCreate() {
   )
   const { data: allTemplates, isLoading: templatesLoading } = useApi<DeviceTemplate[]>(
     () => deviceTemplatesService.getAll(),
-    [activeProjectId]
+    []
   )
   const { data: sites } = useApi<Site[]>(() => sitesService.getAll(), [activeProjectId])
   const { data: racks } = useApi<Rack[]>(() => racksService.getAll(), [activeProjectId])

@@ -127,7 +127,7 @@ export default function SettingsPage() {
                     Catálogo de templates
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Marca, modelo, U y puertos reutilizables por proyecto
+                    Catálogo global: marca, modelo, U y puertos reutilizables en todos los proyectos
                   </p>
                 </div>
               </div>

@@ -12,8 +12,8 @@ import type {
 export default class DeviceTemplateService {
   private templates = new DeviceTemplateRepository()
 
-  async getAllByProject(projectId: string, filters?: DeviceTemplateFilters) {
-    return this.templates.findAllByProject(projectId, filters)
+  async getAll(filters?: DeviceTemplateFilters) {
+    return this.templates.findAll(filters)
   }
 
   async getById(id: string) {

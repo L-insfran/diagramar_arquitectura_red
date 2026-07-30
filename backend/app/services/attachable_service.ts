@@ -92,13 +92,11 @@ export async function assertAttachableInProject(
       return
     }
     case 'device_template': {
-      const tpl = await DeviceTemplate.query()
+      // Global catalog: template is not scoped to a project; attachment still has project_id.
+      await DeviceTemplate.query()
         .where('id', attachableId)
         .whereNull('deleted_at')
         .firstOrFail()
-      if (tpl.projectId !== projectId) {
-        throw new Exception('El template no pertenece al proyecto', { status: 422 })
-      }
       return
     }
     default: {

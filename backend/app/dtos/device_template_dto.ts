@@ -4,7 +4,6 @@ export type DeviceTemplateFilters = {
 }
 
 export type CreateDeviceTemplateInput = {
-  projectId: string
   deviceTypeId: string
   name: string
   manufacturer?: string | null

@@ -1,11 +1,13 @@
 import type { Node } from '@xyflow/react'
 import type { DeviceFlowNodeType } from '../components/topology/DeviceFlowNode'
 import type { CloudFlowNodeType } from '../components/topology/CloudFlowNode'
+import type { RackFlowNodeType } from '../components/topology/RackFlowNode'
 import {
   clampWorkAreaTitleFontSize,
   WORK_AREA_TITLE_FONT_DEFAULT,
   type WorkAreaFlowNodeType,
 } from '../components/topology/WorkAreaFlowNode'
+import { isRackFlowNodeId } from './topologyRackLayout'
 
 export type TopologyWorkAreaPersist = {
   id: string
@@ -20,7 +22,7 @@ export type TopologyWorkAreaPersist = {
 /** Dispositivos del diagrama (tarjeta o nube Internet). */
 export type TopologyDeviceNode = DeviceFlowNodeType | CloudFlowNodeType
 
-export type TopologyCanvasNode = TopologyDeviceNode | WorkAreaFlowNodeType
+export type TopologyCanvasNode = TopologyDeviceNode | WorkAreaFlowNodeType | RackFlowNodeType
 
 function isValidWorkAreaPersist(v: unknown): v is TopologyWorkAreaPersist {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
@@ -65,6 +67,10 @@ export function coerceWorkAreasArray(value: unknown): TopologyWorkAreaPersist[] 
 
 export function isWorkAreaNode(node: Node): node is WorkAreaFlowNodeType {
   return node.type === 'workArea'
+}
+
+export function isRackNode(node: Node): node is RackFlowNodeType {
+  return node.type === 'rack'
 }
 
 export function isDeviceNode(node: Node): node is TopologyDeviceNode {
@@ -154,6 +160,8 @@ export function snapshotDevicePositions(nodes: readonly Node[]): Record<string, 
   const out: Record<string, { x: number; y: number }> = {}
   for (const n of nodes) {
     if (isWorkAreaNode(n)) continue
+    // Posiciones U de equipos montados se recalculan desde dominio; no persistir relativas.
+    if (isDeviceNode(n) && n.parentId && isRackFlowNodeId(n.parentId)) continue
     const x = finiteCoord(n.position.x, Number.NaN)
     const y = finiteCoord(n.position.y, Number.NaN)
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue
@@ -165,14 +173,17 @@ export function snapshotDevicePositions(nodes: readonly Node[]): Record<string, 
 export function snapshotNodeParents(nodes: readonly Node[]): Record<string, string> {
   const out: Record<string, string> = {}
   for (const n of nodes) {
-    if (isWorkAreaNode(n) || !n.parentId) continue
+    if (isWorkAreaNode(n) || isRackNode(n) || !n.parentId) continue
+    // Jerarquía rack←device es de dominio, no de work areas.
+    if (isRackFlowNodeId(n.parentId)) continue
     out[n.id] = n.parentId
   }
   return out
 }
 
 /** Antepone nodos área y asigna parentId. Las posiciones de dispositivos deben
- *  estar ya en coords relativas si tienen padre (tal como se persistieron). */
+ *  estar ya en coords relativas si tienen padre (tal como se persistieron).
+ *  No toca hijos de rack (parentId rack:*). */
 export function applyWorkAreaHierarchy(
   devices: TopologyDeviceNode[],
   workAreas: unknown,
@@ -184,6 +195,9 @@ export function applyWorkAreaHierarchy(
 
   // No usar extent:'parent': bloquearía sacar el dispositivo del área al arrastrar.
   const nextDevices: TopologyDeviceNode[] = devices.map((device) => {
+    if (device.parentId && isRackFlowNodeId(device.parentId)) {
+      return device
+    }
     const parentId = parents[device.id]
     if (!parentId || !areaIds.has(parentId)) {
       return { ...device, parentId: undefined, extent: undefined }
@@ -197,13 +211,15 @@ export function applyWorkAreaHierarchy(
 /**
  * Tras soltar un dispositivo: si su centro cae dentro de un área, lo anida;
  * si no, lo desanida. Las áreas se mueven con sus hijos (React Flow).
+ * Equipos montados en rack no se reparentan a work areas.
  */
 export function reparentDevicesAfterDrag(nodes: TopologyCanvasNode[]): TopologyCanvasNode[] {
   const byId = new Map<string, Node>(nodes.map((n) => [n.id, n]))
   const areas = nodes.filter(isWorkAreaNode)
 
   return nodes.map((node) => {
-    if (isWorkAreaNode(node)) return node
+    if (isWorkAreaNode(node) || isRackNode(node)) return node
+    if (node.parentId && isRackFlowNodeId(node.parentId)) return node
 
     const abs = absoluteNodePosition(node, byId)
     const { width, height } = nodeSize(node)

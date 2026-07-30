@@ -12,9 +12,8 @@ import type {
 } from '#dtos/device_template_dto'
 
 export default class DeviceTemplateRepository {
-  async findAllByProject(projectId: string, filters?: DeviceTemplateFilters) {
+  async findAll(filters?: DeviceTemplateFilters) {
     const query = DeviceTemplate.query()
-      .where('project_id', projectId)
       .whereNull('deleted_at')
       .preload('deviceType')
       .preload('ports', (q) => q.orderBy('port_number', 'asc'))
@@ -62,7 +61,6 @@ export default class DeviceTemplateRepository {
 
   async create(data: CreateDeviceTemplateInput & { createdBy: string; updatedBy: string }) {
     return DeviceTemplate.create({
-      projectId: data.projectId,
       deviceTypeId: data.deviceTypeId,
       name: data.name,
       manufacturer: data.manufacturer ?? null,

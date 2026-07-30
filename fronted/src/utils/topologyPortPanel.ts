@@ -97,9 +97,18 @@ export function portTargetHandleId(portId: string, side: 'top' | 'bottom' = 'top
   return `port-${portId}--in-${side}`
 }
 
+/** Handle interactivo centrado en la celda (drag-to-connect). */
+export function portConnectSourceHandleId(portId: string): string {
+  return `port-${portId}--out-connect`
+}
+
+export function portConnectTargetHandleId(portId: string): string {
+  return `port-${portId}--in-connect`
+}
+
 export function parsePortIdFromHandle(handleId: string | null | undefined): string | null {
   if (!handleId) return null
-  const match = /^port-(.+)--(?:out|in)-(?:top|bottom)$/.exec(handleId)
+  const match = /^port-(.+)--(?:out|in)-(?:top|bottom|connect)$/.exec(handleId)
   return match?.[1] ?? null
 }
 
@@ -187,6 +196,10 @@ export type PortPanelLayout = {
   wifiGridTop: number
   hasPhysical: boolean
   hasWireless: boolean
+  /** Gap horizontal/vertical entre celdas físicas (default PORT_GAP). */
+  portGap?: number
+  /** Gap entre chips WiFi (default WIFI_GAP). */
+  wifiGap?: number
 }
 
 function cellMetrics(compact: boolean): { cellW: number; cellH: number } {
@@ -328,6 +341,114 @@ export function computePortPanelLayout(
   }
 }
 
+/** Cabecera compacta de equipo montado en rack. */
+export const RACK_MOUNTED_HEADER_HEIGHT = 22
+const RACK_PORT_GAP = 3
+const RACK_PORT_PAD = 4
+const RACK_PORT_CELL_W = 18
+const RACK_PORT_CELL_H = 14
+const RACK_PORT_HEADER_H = 12
+const RACK_DOT_OVERFLOW = 10
+
+/**
+ * Layout denso para equipos dentro de un rack: celdas pequeñas y poco padding
+ * para que quepan muchos puertos en el alto de U.
+ */
+export function computeRackMountedPortPanelLayout(
+  physicalCount: number,
+  totalPhysicalPortCount = physicalCount,
+  wirelessCount = 0,
+  targetWidth: number,
+  targetHeight: number,
+): PortPanelLayout {
+  const headerHeight = RACK_MOUNTED_HEADER_HEIGHT
+  const hasPhysical = physicalCount > 0
+  const hasWireless = wirelessCount > 0
+
+  if (!hasPhysical && !hasWireless) {
+    return {
+      compact: true,
+      cols: 0,
+      rows: 0,
+      cellW: 0,
+      cellH: 0,
+      width: Math.max(80, targetWidth),
+      height: Math.max(headerHeight, targetHeight),
+      gridWidth: 0,
+      gridHeight: 0,
+      gridTop: headerHeight,
+      totalPortCount: totalPhysicalPortCount,
+      headerHeight,
+      ...emptyWifiMetrics(),
+    }
+  }
+
+  const availableW = Math.max(40, targetWidth - RACK_PORT_PAD * 2)
+  const availableH = Math.max(
+    16,
+    targetHeight - headerHeight - RACK_PORT_PAD * 2 - RACK_DOT_OVERFLOW - (hasPhysical ? RACK_PORT_HEADER_H : 0),
+  )
+
+  let cols = hasPhysical
+    ? Math.max(1, Math.min(24, Math.floor((availableW + RACK_PORT_GAP) / (RACK_PORT_CELL_W + RACK_PORT_GAP))))
+    : 0
+  if (hasPhysical && totalPhysicalPortCount > 12) {
+    cols = Math.min(cols, PATCH_PANEL_COLS) || PATCH_PANEL_COLS
+  }
+  const rows = hasPhysical ? Math.max(1, Math.ceil(physicalCount / cols)) : 0
+  const cellW = hasPhysical
+    ? Math.max(12, Math.floor((availableW - (cols - 1) * RACK_PORT_GAP) / cols))
+    : 0
+  const cellH = hasPhysical
+    ? Math.max(10, Math.min(RACK_PORT_CELL_H, Math.floor((availableH - (rows - 1) * RACK_PORT_GAP) / rows)))
+    : 0
+  const gridWidth = hasPhysical ? cols * cellW + (cols - 1) * RACK_PORT_GAP : 0
+  const gridHeight = hasPhysical ? rows * cellH + (rows - 1) * RACK_PORT_GAP : 0
+
+  const { cols: wifiCols, rows: wifiRows } = computeWifiGrid(wirelessCount)
+  const wifiCellW = Math.min(WIFI_CHIP_WIDTH, Math.max(48, Math.floor(availableW / Math.max(1, wifiCols)) - 4))
+  const wifiCellH = 18
+  const wifiGridWidth = hasWireless ? wifiCols * wifiCellW + (wifiCols - 1) * RACK_PORT_GAP : 0
+  const wifiGridHeight = hasWireless ? wifiRows * wifiCellH + (wifiRows - 1) * RACK_PORT_GAP : 0
+
+  const gridTop = hasPhysical
+    ? headerHeight + RACK_PORT_PAD + RACK_PORT_HEADER_H
+    : headerHeight
+  const wifiGridTop = hasWireless
+    ? hasPhysical
+      ? gridTop + gridHeight + 4 + RACK_PORT_HEADER_H
+      : headerHeight + RACK_PORT_PAD + RACK_PORT_HEADER_H
+    : 0
+
+  return {
+    compact: true,
+    cols,
+    rows,
+    cellW,
+    cellH,
+    width: Math.max(80, targetWidth),
+    height: Math.max(headerHeight, targetHeight),
+    gridWidth,
+    gridHeight,
+    gridTop,
+    totalPortCount: totalPhysicalPortCount,
+    headerHeight,
+    physicalCount,
+    wirelessCount,
+    wifiCols,
+    wifiRows,
+    wifiCellW,
+    wifiCellH,
+    wifiGridWidth,
+    wifiGridHeight,
+    wifiGridTop,
+    hasPhysical,
+    hasWireless,
+    portGap: RACK_PORT_GAP,
+    wifiGap: RACK_PORT_GAP,
+  }
+}
+
 export function computeNodeDimensions(
   physicalCount: number,
   compact = false,
@@ -354,21 +475,44 @@ function portGridMetrics(
 ) {
   if (section === 'wireless') {
     const cols = Math.max(1, layout.wifiCols)
+    const gap = layout.wifiGap ?? WIFI_GAP
     const { row, col } = portGridSlot(portNumber, cols, sequentialIndex, false)
     const gridStartX = (nodeWidth - layout.wifiGridWidth) / 2
-    const cellLeft = gridStartX + col * (layout.wifiCellW + WIFI_GAP)
-    const cellTop = layout.wifiGridTop + row * (layout.wifiCellH + WIFI_GAP)
+    const cellLeft = gridStartX + col * (layout.wifiCellW + gap)
+    const cellTop = layout.wifiGridTop + row * (layout.wifiCellH + gap)
     const centerX = cellLeft + layout.wifiCellW / 2
     return { cellLeft, cellTop, centerX, cellH: layout.wifiCellH, row, col }
   }
 
   const physical = usesPhysicalPortLayout(layout)
+  const gap = layout.portGap ?? PORT_GAP
   const { row, col } = portGridSlot(portNumber, layout.cols, sequentialIndex, physical)
   const gridStartX = (nodeWidth - layout.gridWidth) / 2
-  const cellLeft = gridStartX + col * (layout.cellW + PORT_GAP)
-  const cellTop = layout.gridTop + row * (layout.cellH + PORT_GAP)
+  const cellLeft = gridStartX + col * (layout.cellW + gap)
+  const cellTop = layout.gridTop + row * (layout.cellH + gap)
   const centerX = cellLeft + layout.cellW / 2
   return { cellLeft, cellTop, centerX, cellH: layout.cellH, row, col }
+}
+
+/**
+ * Centro de la celda del puerto (hit-area para drag-to-connect).
+ */
+export function computePortConnectAnchor(
+  portNumber: number,
+  layout: PortPanelLayout,
+  nodeWidth: number,
+  _nodeHeight: number,
+  sequentialIndex?: number,
+  section: PortPanelSection = 'physical',
+): { x: number; y: number; cellW: number; cellH: number } {
+  const m = portGridMetrics(portNumber, layout, nodeWidth, sequentialIndex, section)
+  const cellW = section === 'wireless' ? layout.wifiCellW : layout.cellW
+  return {
+    x: m.centerX,
+    y: m.cellTop + m.cellH / 2,
+    cellW,
+    cellH: m.cellH,
+  }
 }
 
 /**
@@ -418,7 +562,7 @@ export function computePortTargetAnchor(
 
 /** Canal libre entre dos columnas de puertos. */
 function laneGutter(layout: PortPanelLayout): number {
-  return -(layout.cellW + PORT_GAP) / 2
+  return -(layout.cellW + (layout.portGap ?? PORT_GAP)) / 2
 }
 
 /**

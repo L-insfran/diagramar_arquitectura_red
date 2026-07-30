@@ -9,6 +9,7 @@ import type {
 } from '#models/connection'
 import CableType from '#models/cable_type'
 import Device from '#models/device'
+import Rack from '#models/rack'
 import type Port from '#models/port'
 import ConnectionRepository from '#repositories/connection_repository'
 import type {
@@ -72,6 +73,12 @@ type FlowTopologyNode = {
     deviceType: string | null
     manufacturer: string | null
     model: string | null
+    siteId: string | null
+    areaId: string | null
+    rackId: string | null
+    rackUnitStart: number | null
+    rackFace: 'front' | 'rear' | null
+    rackUnits: number
     vlanCount: number
     vlans: VlanSummary[]
     networks: NetworkSummary[]
@@ -79,6 +86,17 @@ type FlowTopologyNode = {
     portsInUse: number
     ports: PortSummary[]
   }
+}
+
+type TopologyRackSummary = {
+  id: string
+  name: string
+  code: string | null
+  heightU: number
+  areaId: string
+  siteId: string | null
+  areaName: string | null
+  siteName: string | null
 }
 
 type FlowTopologyEdge = {
@@ -160,6 +178,8 @@ const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopolo
     (a, b) => a.portNumber - b.portNumber || a.name.localeCompare(b.name)
   )
 
+  const rackUnits = Math.max(1, device.deviceTemplate?.rackUnits ?? 1)
+
   return {
     id: device.id,
     label: device.name,
@@ -172,6 +192,12 @@ const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopolo
       deviceType: device.deviceType?.name ?? null,
       manufacturer: device.manufacturer,
       model: device.model,
+      siteId: device.siteId ?? null,
+      areaId: device.areaId ?? null,
+      rackId: device.rackId ?? null,
+      rackUnitStart: device.rackUnitStart ?? null,
+      rackFace: device.rackFace ?? null,
+      rackUnits,
       vlanCount: allVlans.length,
       vlans: allVlans,
       networks: allNetworks,
@@ -304,12 +330,30 @@ export default class TopologyService {
       .where('project_id', projectId)
       .whereNull('deleted_at')
       .preload('deviceType')
+      .preload('deviceTemplate')
       .preload('ports', (p) => p.preload('vlans', (v) => v.preload('networks')))
 
     const deviceNodes = new Map<string, FlowTopologyNode>()
     for (const device of allDevices) {
       deviceNodes.set(device.id, buildDeviceNode(device, portsInUseIds))
     }
+
+    const allRacks = await Rack.query()
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
+      .preload('area', (a) => a.preload('site'))
+      .orderBy('name', 'asc')
+
+    const racks: TopologyRackSummary[] = allRacks.map((rack) => ({
+      id: rack.id,
+      name: rack.name,
+      code: rack.code,
+      heightU: rack.heightU,
+      areaId: rack.areaId,
+      siteId: rack.area?.siteId ?? null,
+      areaName: rack.area?.name ?? null,
+      siteName: rack.area?.site?.name ?? null,
+    }))
 
     const graphNodes = new Map<string, FlowTopologyNode>()
     const edges: FlowTopologyEdge[] = []
@@ -404,6 +448,7 @@ export default class TopologyService {
         edges,
       },
       inventory: inventoryNodes,
+      racks,
       summary,
     }
   }

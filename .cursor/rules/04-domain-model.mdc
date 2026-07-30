@@ -13,7 +13,7 @@ Proyecto → Sitios → Áreas → Racks → Equipos (desde Template) → Puerto
 
 - `projects`, `project_memberships`, `system_users`, `departments`, `employees`
 - `device_types` (catálogo icono/nombre — **no** es Device Template)
-- `device_templates`, `device_template_ports` (SKU por proyecto; soft delete en templates)
+- `device_templates`, `device_template_ports` (catálogo global de SKU; soft delete en templates — ADR 0004)
 - `sites`, `areas`, `racks` (inventario físico; soft delete) — **distinto** de `work_areas` del canvas
 - `devices` (template + `site_id`/`area_id`/`rack_id` + `rack_unit_start`/`rack_face`; `location` legacy), `ports`, `port_types` (speed/color/icon/direction)
 - `cable_types` (catálogo; FK opcional en connections)

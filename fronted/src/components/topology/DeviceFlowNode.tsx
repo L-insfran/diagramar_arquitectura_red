@@ -24,12 +24,16 @@ import {
   WIFI_PANEL_HEADER_HEIGHT,
   WIFI_SECTION_GAP,
   computePortPanelLayout,
+  computeRackMountedPortPanelLayout,
+  computePortConnectAnchor,
   computePortSourceAnchor,
   computePortTargetAnchor,
   isCompactPortPanel,
   isStructuredCablingDeviceType,
   partitionDiagramPorts,
   portCellClasses,
+  portConnectSourceHandleId,
+  portConnectTargetHandleId,
   portGridSlot,
   portSourceHandleId,
   portTargetHandleId,
@@ -48,6 +52,16 @@ export type DeviceNodeData = {
   accentColor: string
   location: string | null
   deviceType: string | null
+  manufacturer?: string | null
+  model?: string | null
+  siteId?: string | null
+  areaId?: string | null
+  rackId?: string | null
+  rackUnitStart?: number | null
+  rackFace?: 'front' | 'rear' | null
+  rackUnits?: number
+  /** Equipo montado dentro de un rack del canvas (variante compacta). */
+  rackMounted?: boolean
   vlanCount?: number
   vlans?: TopologyVlanSummary[]
   networks?: TopologyNetworkSummary[]
@@ -70,6 +84,10 @@ function formatVlanTooltip(vlans: TopologyVlanSummary[] | undefined): string {
     .join('\n')
 }
 
+function portIsConnectable(port: TopologyPortSummary, readOnly: boolean): boolean {
+  return !readOnly && !port.connected && port.status === 'up'
+}
+
 function PortCell({
   port,
   cellW,
@@ -77,6 +95,7 @@ function PortCell({
   compact,
   selected,
   onSelect,
+  connectable,
 }: {
   port: TopologyPortSummary
   cellW: number
@@ -84,6 +103,7 @@ function PortCell({
   compact: boolean
   selected: boolean
   onSelect: (portId: string) => void
+  connectable: boolean
 }) {
   const displayName = port.name?.trim() || String(port.portNumber)
 
@@ -93,13 +113,19 @@ function PortCell({
       className={`nodrag nopan relative box-border flex flex-col items-center justify-center rounded border leading-none transition ${portCellClasses(port)} ${
         compact ? 'gap-0.5 px-1 py-1' : 'px-0.5'
       } ${selected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900 z-20' : ''} ${
-        port.connected ? 'cursor-pointer hover:brightness-110' : 'cursor-default'
+        port.connected
+          ? 'cursor-pointer hover:brightness-110'
+          : connectable
+            ? 'pointer-events-none cursor-crosshair'
+            : 'cursor-default'
       }`}
       style={{ width: cellW, height: cellH, minWidth: cellW, maxWidth: cellW, minHeight: cellH, maxHeight: cellH }}
       title={
         port.connected
           ? `Puerto ${port.portNumber} · ${displayName} · clic para ir al dispositivo conectado`
-          : `Puerto ${port.portNumber} · ${displayName}`
+          : connectable
+            ? `Puerto ${port.portNumber} · ${displayName} · arrastrá a otro puerto libre para enlazar`
+            : `Puerto ${port.portNumber} · ${displayName}`
       }
       onClick={(e) => {
         e.stopPropagation()
@@ -136,12 +162,14 @@ function WifiChip({
   cellH,
   selected,
   onSelect,
+  connectable,
 }: {
   port: TopologyPortSummary
   cellW: number
   cellH: number
   selected: boolean
   onSelect: (portId: string) => void
+  connectable: boolean
 }) {
   const displayName = port.name?.trim() || `SSID #${port.portNumber}`
 
@@ -150,12 +178,20 @@ function WifiChip({
       type="button"
       className={`nodrag nopan relative box-border flex items-center gap-1.5 rounded-full border px-2.5 leading-none transition ${wifiChipClasses(port)} ${
         selected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900 z-20' : ''
-      } ${port.connected ? 'cursor-pointer hover:brightness-110' : 'cursor-default'}`}
+      } ${
+        port.connected
+          ? 'cursor-pointer hover:brightness-110'
+          : connectable
+            ? 'pointer-events-none cursor-crosshair'
+            : 'cursor-default'
+      }`}
       style={{ width: cellW, height: cellH, minWidth: cellW, maxWidth: cellW, minHeight: cellH, maxHeight: cellH }}
       title={
         port.connected
           ? `WiFi · ${displayName} · clic para ir al dispositivo conectado`
-          : `WiFi · ${displayName}`
+          : connectable
+            ? `WiFi · ${displayName} · arrastrá a otro puerto libre para enlazar`
+            : `WiFi · ${displayName}`
       }
       onClick={(e) => {
         e.stopPropagation()
@@ -186,8 +222,9 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
   const highlightedPortIds = interaction?.highlightedPortIds
   const selectPort = interaction?.selectPort
 
+  const rackMounted = !!data.rackMounted
   const isPatchPanel = isStructuredCablingDeviceType(data.deviceType)
-  const headerHeight = isPatchPanel ? TOPOLOGY_HEADER_HEIGHT_PATCH : TOPOLOGY_HEADER_HEIGHT
+  const freeHeaderHeight = isPatchPanel ? TOPOLOGY_HEADER_HEIGHT_PATCH : TOPOLOGY_HEADER_HEIGHT
 
   const allPorts = sortTopologyPorts(data.ports ?? [])
   const { physical: physicalPorts, wireless: wirelessPorts } = partitionDiagramPorts(allPorts)
@@ -200,28 +237,53 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
   const hasWireless = wirelessPorts.length > 0
   const hasPorts = hasPhysical || hasWireless
 
-  const layout = computePortPanelLayout(
-    physicalPorts.length,
-    compact,
-    totalPhysicalCount,
-    headerHeight,
-    wirelessPorts.length,
-  )
+  const slotW = typeof width === 'number' && width > 0 ? width : data.nodeWidth ?? 380
+  const slotH = typeof height === 'number' && height > 0 ? height : data.nodeHeight ?? 44
+
+  const layout = rackMounted
+    ? computeRackMountedPortPanelLayout(
+        physicalPorts.length,
+        totalPhysicalCount,
+        wirelessPorts.length,
+        slotW,
+        slotH,
+      )
+    : computePortPanelLayout(
+        physicalPorts.length,
+        compact,
+        totalPhysicalCount,
+        freeHeaderHeight,
+        wirelessPorts.length,
+      )
+  const headerHeight = layout.headerHeight
   const physicalGrid = usesPhysicalPortLayout(layout)
+  const portGap = rackMounted ? 3 : PORT_GAP
+  const panelPad = rackMounted ? 4 : PORT_PANEL_PADDING
+  const panelHeaderH = rackMounted ? 12 : PORT_PANEL_HEADER_HEIGHT
+  const dotOverflow = rackMounted ? 10 : PORT_DOT_OVERFLOW
 
   const vlanCount = data.vlanCount ?? data.vlans?.length ?? 0
   const primaryNetwork = data.networks?.[0]
   const physicalInUse = physicalPorts.filter((p) => p.connected).length
   const wirelessInUse = wirelessPorts.filter((p) => p.connected).length
   const freePhysicalCount = Math.max(0, totalPhysicalCount - physicalInUse)
+  const manufacturerModel = [data.manufacturer, data.model].filter(Boolean).join(' ')
 
   const baseWidth = layout.width
   const baseHeight = layout.height
   const scaleFromData = clampNodeScale(data.nodeScale ?? 1)
   const displayWidth =
-    typeof width === 'number' && width > 0 ? width : Math.round(baseWidth * scaleFromData)
+    typeof width === 'number' && width > 0
+      ? width
+      : rackMounted
+        ? baseWidth
+        : Math.round(baseWidth * scaleFromData)
   const displayHeight =
-    typeof height === 'number' && height > 0 ? height : Math.round(baseHeight * scaleFromData)
+    typeof height === 'number' && height > 0
+      ? height
+      : rackMounted
+        ? baseHeight
+        : Math.round(baseHeight * scaleFromData)
   const scaleX = displayWidth / baseWidth
   const scaleY = displayHeight / baseHeight
 
@@ -250,6 +312,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
     layout.wifiRows,
     layout.wifiGridTop,
     headerHeight,
+    rackMounted,
   ])
 
   const statusDot =
@@ -305,36 +368,85 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
         'bottom',
         section,
       )
+      const connect = computePortConnectAnchor(
+        port.portNumber,
+        layout,
+        nodeWidth,
+        nodeHeight,
+        index,
+        section,
+      )
+      const canConnect = portIsConnectable(port, readOnly)
       return (
         <Fragment key={`handles-${port.id}`}>
           <Handle
             id={portSourceHandleId(port.id, 'top')}
             type="source"
             position={Position.Top}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            isConnectable={false}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
             style={{ position: 'absolute', left: srcTop.x, top: srcTop.y, transform: 'translate(-50%, -50%)' }}
           />
           <Handle
             id={portSourceHandleId(port.id, 'bottom')}
             type="source"
             position={Position.Bottom}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            isConnectable={false}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
             style={{ position: 'absolute', left: srcBottom.x, top: srcBottom.y, transform: 'translate(-50%, -50%)' }}
           />
           <Handle
             id={portTargetHandleId(port.id, 'top')}
             type="target"
             position={Position.Top}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            isConnectable={false}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
             style={{ position: 'absolute', left: tgtTop.x, top: tgtTop.y, transform: 'translate(-50%, -50%)' }}
           />
           <Handle
             id={portTargetHandleId(port.id, 'bottom')}
             type="target"
             position={Position.Bottom}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent"
+            isConnectable={false}
+            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
             style={{ position: 'absolute', left: tgtBottom.x, top: tgtBottom.y, transform: 'translate(-50%, -50%)' }}
           />
+          {canConnect && (
+            <>
+              <Handle
+                id={portConnectTargetHandleId(port.id)}
+                type="target"
+                position={Position.Top}
+                isConnectable
+                className="!z-30 !rounded-sm !border-0 !bg-transparent"
+                style={{
+                  position: 'absolute',
+                  left: connect.x,
+                  top: connect.y,
+                  width: connect.cellW,
+                  height: connect.cellH,
+                  transform: 'translate(-50%, -50%)',
+                  cursor: 'crosshair',
+                }}
+              />
+              <Handle
+                id={portConnectSourceHandleId(port.id)}
+                type="source"
+                position={Position.Bottom}
+                isConnectable
+                className="!z-30 !rounded-sm !border !border-emerald-400/0 !bg-emerald-400/0 hover:!border-emerald-400/60 hover:!bg-emerald-400/20"
+                style={{
+                  position: 'absolute',
+                  left: connect.x,
+                  top: connect.y,
+                  width: connect.cellW,
+                  height: connect.cellH,
+                  transform: 'translate(-50%, -50%)',
+                  cursor: 'crosshair',
+                }}
+              />
+            </>
+          )}
         </Fragment>
       )
     })
@@ -350,7 +462,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
         overflow: 'visible',
       }}
     >
-      {!readOnly && (
+      {!readOnly && !rackMounted && (
         <NodeResizer
           keepAspectRatio
           isVisible={!!selected}
@@ -364,8 +476,12 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       )}
 
       <div
-        className={`relative box-border flex flex-col rounded-lg border border-gray-300 dark:border-gray-600 shadow-md print:shadow-none ${
-          hasPorts ? 'bg-transparent' : 'bg-white dark:bg-gray-800'
+        className={`relative box-border flex flex-col ${
+          rackMounted
+            ? 'rounded-sm border border-slate-500/80 bg-slate-800 shadow-sm'
+            : `rounded-lg border border-gray-300 dark:border-gray-600 shadow-md print:shadow-none ${
+                hasPorts ? 'bg-transparent' : 'bg-white dark:bg-gray-800'
+              }`
         } ${
           selected
             ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900'
@@ -381,122 +497,166 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       >
       {/* Marca de color del dispositivo */}
       <div
-        className="pointer-events-none absolute inset-y-px left-px z-10 w-2.5 rounded-l-[7px] print:shadow-none"
+        className={`pointer-events-none absolute inset-y-px left-px z-10 print:shadow-none ${
+          rackMounted ? 'w-1.5 rounded-l-[2px]' : 'w-2.5 rounded-l-[7px]'
+        }`}
         style={{
           background: `linear-gradient(180deg, ${data.accentColor} 0%, ${data.accentColor}e6 50%, ${data.accentColor}b3 100%)`,
-          boxShadow: `0 0 12px 2px ${data.accentColor}73, 3px 0 8px ${data.accentColor}55`,
+          boxShadow: rackMounted
+            ? undefined
+            : `0 0 12px 2px ${data.accentColor}73, 3px 0 8px ${data.accentColor}55`,
         }}
         aria-hidden
       />
-      <div
-        className="pointer-events-none absolute inset-y-0 left-2.5 z-[1] w-4 rounded-l-sm print:hidden"
-        style={{
-          background: `linear-gradient(90deg, ${data.accentColor}33 0%, ${data.accentColor}14 45%, transparent 100%)`,
-        }}
-        aria-hidden
-      />
+      {!rackMounted && (
+        <div
+          className="pointer-events-none absolute inset-y-0 left-2.5 z-[1] w-4 rounded-l-sm print:hidden"
+          style={{
+            background: `linear-gradient(90deg, ${data.accentColor}33 0%, ${data.accentColor}14 45%, transparent 100%)`,
+          }}
+          aria-hidden
+        />
+      )}
 
       {!hasPorts && (
         <Handle type="target" position={Position.Top} className="!size-2.5 !border-gray-400 !bg-gray-200 dark:!bg-gray-600" />
       )}
 
       <div
-        className="relative z-[2] flex shrink-0 items-start gap-2.5 min-w-0 pl-[1.125rem] pr-3.5 py-2.5 rounded-t-[7px] bg-white dark:bg-gray-800"
+        className={`relative z-[2] flex shrink-0 min-w-0 ${
+          rackMounted
+            ? 'items-center gap-1.5 pl-2.5 pr-1.5 py-0.5 bg-slate-800'
+            : 'items-start gap-2.5 pl-[1.125rem] pr-3.5 py-2.5 rounded-t-[7px] bg-white dark:bg-gray-800'
+        }`}
         style={{ height: headerHeight, minHeight: headerHeight, maxHeight: headerHeight }}
       >
-        <span className={`size-2.5 rounded-full shrink-0 mt-1.5 ${statusDot}`} title={data.status} />
-        <div className="min-w-0 flex-1 space-y-0.5 overflow-hidden">
+        <span
+          className={`rounded-full shrink-0 ${rackMounted ? 'size-1.5' : 'size-2.5 mt-1.5'} ${statusDot}`}
+          title={data.status}
+        />
+        <div className={`min-w-0 flex-1 overflow-hidden ${rackMounted ? '' : 'space-y-0.5'}`}>
           {goDevice && nodeId ? (
             <button
               type="button"
-              className="nodrag nopan text-base font-extrabold leading-tight tracking-tight text-gray-950 dark:text-white truncate text-left w-full hover:text-blue-600 dark:hover:text-blue-300 focus:outline-none rounded"
+              className={`nodrag nopan truncate text-left w-full focus:outline-none rounded ${
+                rackMounted
+                  ? 'text-[10px] font-bold leading-tight text-white hover:text-sky-300'
+                  : 'text-base font-extrabold leading-tight tracking-tight text-gray-950 dark:text-white hover:text-blue-600 dark:hover:text-blue-300'
+              }`}
               title={`Ver dispositivo: ${data.label}`}
               onClick={(e) => { e.stopPropagation(); goDevice(nodeId) }}
             >
               {data.label}
             </button>
           ) : (
-            <p className="text-base font-extrabold leading-tight tracking-tight text-gray-950 dark:text-white truncate">
+            <p
+              className={`truncate font-bold ${
+                rackMounted
+                  ? 'text-[10px] text-white'
+                  : 'text-base font-extrabold leading-tight tracking-tight text-gray-950 dark:text-white'
+              }`}
+            >
               {data.label}
             </p>
           )}
 
-          {data.deviceType && (
-            <p className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 truncate">{data.deviceType}</p>
-          )}
+          {rackMounted ? (
+            <p className="truncate text-[8px] leading-none text-slate-400">
+              {manufacturerModel || data.deviceType || `${data.rackUnits ?? 1}U`}
+              {data.ipAddress ? ` · ${data.ipAddress}` : ''}
+            </p>
+          ) : (
+            <>
+              {data.deviceType && (
+                <p className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 truncate">{data.deviceType}</p>
+              )}
 
-          {data.hostname && (
-            <p className="text-[11px] font-mono font-medium text-gray-700 dark:text-gray-200 truncate">{data.hostname}</p>
-          )}
+              {data.hostname && (
+                <p className="text-[11px] font-mono font-medium text-gray-700 dark:text-gray-200 truncate">{data.hostname}</p>
+              )}
 
-          {!isPatchPanel && (
-            data.ipAddress ? (
-              <p className="text-xs font-mono font-semibold text-blue-700 dark:text-blue-300 truncate">{data.ipAddress}</p>
-            ) : (
-              <p className="text-[10px] text-gray-400">Sin IP</p>
-            )
-          )}
+              {!isPatchPanel && (
+                data.ipAddress ? (
+                  <p className="text-xs font-mono font-semibold text-blue-700 dark:text-blue-300 truncate">{data.ipAddress}</p>
+                ) : (
+                  <p className="text-[10px] text-gray-400">Sin IP</p>
+                )
+              )}
 
-          <div className="flex flex-wrap items-center gap-1 pt-0.5">
-            {!isPatchPanel && (
-              <span
-                className="inline-flex items-center rounded border border-violet-200 bg-violet-50 px-1.5 py-px text-[9px] font-semibold text-violet-700 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300"
-                title={formatVlanTooltip(data.vlans)}
-              >
-                {vlanCount === 0 ? 'Sin VLANs' : `${vlanCount} VLAN${vlanCount === 1 ? '' : 's'}`}
-              </span>
-            )}
-            {!isPatchPanel && primaryNetwork && (
-              <span className="inline-flex max-w-[8rem] truncate rounded border border-slate-200 bg-slate-50 px-1.5 py-px text-[9px] text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
-                {primaryNetwork.subnet}
-              </span>
-            )}
-            {totalPhysicalCount > 0 && (
-              <span className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[9px] text-gray-600 dark:border-gray-700 dark:bg-gray-900/50 dark:text-gray-300">
-                {physicalInUse}/{totalPhysicalCount} puerto{totalPhysicalCount === 1 ? '' : 's'}
-              </span>
-            )}
-            {wirelessPorts.length > 0 && (
-              <span className="inline-flex items-center gap-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-px text-[9px] font-semibold text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
-                <Wifi className="size-2.5" aria-hidden strokeWidth={2.5} />
-                {wirelessPorts.length} SSID
-              </span>
-            )}
-          </div>
+              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                {!isPatchPanel && (
+                  <span
+                    className="inline-flex items-center rounded border border-violet-200 bg-violet-50 px-1.5 py-px text-[9px] font-semibold text-violet-700 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300"
+                    title={formatVlanTooltip(data.vlans)}
+                  >
+                    {vlanCount === 0 ? 'Sin VLANs' : `${vlanCount} VLAN${vlanCount === 1 ? '' : 's'}`}
+                  </span>
+                )}
+                {!isPatchPanel && primaryNetwork && (
+                  <span className="inline-flex max-w-[8rem] truncate rounded border border-slate-200 bg-slate-50 px-1.5 py-px text-[9px] text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                    {primaryNetwork.subnet}
+                  </span>
+                )}
+                {totalPhysicalCount > 0 && (
+                  <span className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[9px] text-gray-600 dark:border-gray-700 dark:bg-gray-900/50 dark:text-gray-300">
+                    {physicalInUse}/{totalPhysicalCount} puerto{totalPhysicalCount === 1 ? '' : 's'}
+                  </span>
+                )}
+                {wirelessPorts.length > 0 && (
+                  <span className="inline-flex items-center gap-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-px text-[9px] font-semibold text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
+                    <Wifi className="size-2.5" aria-hidden strokeWidth={2.5} />
+                    {wirelessPorts.length} SSID
+                  </span>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {hasPorts && (
         <div
-          className="relative box-border flex shrink-0 flex-col items-center border-t border-gray-200 dark:border-gray-700"
+          className={`relative box-border flex shrink-0 flex-col items-center ${
+            rackMounted ? 'border-t border-slate-600/80' : 'border-t border-gray-200 dark:border-gray-700'
+          }`}
           style={{
             width: nodeWidth,
-            padding: PORT_PANEL_PADDING,
+            padding: panelPad,
             height: nodeHeight - headerHeight,
             minHeight: nodeHeight - headerHeight,
             maxHeight: nodeHeight - headerHeight,
           }}
         >
-          {/* Fondo solo detrás de la grilla; la zona inferior queda transparente para ver los cables. */}
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 rounded-b-[7px] bg-slate-50 dark:bg-gray-900/80"
-            style={{ bottom: PORT_DOT_OVERFLOW }}
+            className={`pointer-events-none absolute inset-x-0 top-0 ${
+              rackMounted ? 'bg-slate-900/90' : 'rounded-b-[7px] bg-slate-50 dark:bg-gray-900/80'
+            }`}
+            style={{ bottom: dotOverflow }}
             aria-hidden
           />
 
           {hasPhysical && (
             <>
               <div
-                className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between gap-2"
-                style={{ height: PORT_PANEL_HEADER_HEIGHT, minHeight: PORT_PANEL_HEADER_HEIGHT }}
+                className="relative z-[1] mb-0.5 flex w-full shrink-0 items-center justify-between gap-1"
+                style={{ height: panelHeaderH, minHeight: panelHeaderH }}
               >
-                <span className="text-[8px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                <span
+                  className={`font-bold uppercase tracking-wider ${
+                    rackMounted ? 'text-[7px] text-slate-400' : 'text-[8px] text-gray-500 dark:text-gray-400'
+                  }`}
+                >
                   Puertos
                 </span>
                 {totalPhysicalCount > 0 && (
-                  <span className="text-[8px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                    <span className="text-emerald-600 dark:text-emerald-400">{physicalInUse} en uso</span>
-                    {freePhysicalCount > 0 && (
+                  <span
+                    className={`whitespace-nowrap ${
+                      rackMounted ? 'text-[7px] text-slate-500' : 'text-[8px] text-gray-400 dark:text-gray-500'
+                    }`}
+                  >
+                    <span className="text-emerald-400">{physicalInUse}</span>
+                    {`/${totalPhysicalCount}`}
+                    {!rackMounted && freePhysicalCount > 0 && (
                       <>
                         {' · '}
                         <span>{freePhysicalCount} libre{freePhysicalCount === 1 ? '' : 's'}</span>
@@ -506,7 +666,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                 )}
               </div>
 
-              {layout.rows > 1 && physicalGrid && (
+              {!rackMounted && layout.rows > 1 && physicalGrid && (
                 <div
                   className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between text-[9px] font-semibold text-gray-500 dark:text-gray-400"
                   style={{ height: PORT_ROW_LABEL_HEIGHT, minHeight: PORT_ROW_LABEL_HEIGHT }}
@@ -516,7 +676,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                 </div>
               )}
 
-              {layout.rows > 1 && !physicalGrid && layout.cols === PATCH_PANEL_COLS && (
+              {!rackMounted && layout.rows > 1 && !physicalGrid && layout.cols === PATCH_PANEL_COLS && (
                 <div className="relative z-[1] mb-1 flex w-full shrink-0 justify-between text-[8px] font-semibold text-gray-400 dark:text-gray-500">
                   <span>Fila sup.</span>
                   <span>Fila inf.</span>
@@ -529,7 +689,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                   width: layout.gridWidth,
                   gridTemplateColumns: `repeat(${layout.cols}, ${layout.cellW}px)`,
                   gridTemplateRows: layout.rows > 1 ? `repeat(${layout.rows}, ${layout.cellH}px)` : undefined,
-                  gap: PORT_GAP,
+                  gap: portGap,
                 }}
               >
                 {physicalPorts.map((port, index) => {
@@ -540,9 +700,10 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                         port={port}
                         cellW={layout.cellW}
                         cellH={layout.cellH}
-                        compact={layout.compact}
+                        compact={layout.compact && !rackMounted}
                         selected={highlightedPortIds?.has(port.id) ?? false}
                         onSelect={onPortSelect}
+                        connectable={portIsConnectable(port, readOnly)}
                       />
                     </div>
                   )
@@ -552,25 +713,36 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           )}
 
           {hasPhysical && hasWireless && (
-            <div className="relative z-[1] w-full shrink-0" style={{ height: WIFI_SECTION_GAP }} aria-hidden />
+            <div
+              className="relative z-[1] w-full shrink-0"
+              style={{ height: rackMounted ? 4 : WIFI_SECTION_GAP }}
+              aria-hidden
+            />
           )}
 
           {hasWireless && (
             <>
               <div
-                className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between gap-2"
-                style={{ height: WIFI_PANEL_HEADER_HEIGHT, minHeight: WIFI_PANEL_HEADER_HEIGHT }}
+                className="relative z-[1] mb-0.5 flex w-full shrink-0 items-center justify-between gap-1"
+                style={{
+                  height: rackMounted ? panelHeaderH : WIFI_PANEL_HEADER_HEIGHT,
+                  minHeight: rackMounted ? panelHeaderH : WIFI_PANEL_HEADER_HEIGHT,
+                }}
               >
-                <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                <span
+                  className={`inline-flex items-center gap-0.5 font-bold uppercase tracking-wider text-sky-400 ${
+                    rackMounted ? 'text-[7px]' : 'text-[8px]'
+                  }`}
+                >
                   <Wifi className="size-2.5" aria-hidden strokeWidth={2.5} />
                   WiFi
                 </span>
-                <span className="text-[8px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                  <span className="text-sky-600 dark:text-sky-400">{wirelessInUse} en uso</span>
-                  {' · '}
-                  <span>
-                    {wirelessPorts.length} SSID{wirelessPorts.length === 1 ? '' : 's'}
-                  </span>
+                <span
+                  className={`whitespace-nowrap ${
+                    rackMounted ? 'text-[7px] text-slate-500' : 'text-[8px] text-gray-400 dark:text-gray-500'
+                  }`}
+                >
+                  {wirelessInUse}/{wirelessPorts.length}
                 </span>
               </div>
 
@@ -581,7 +753,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                   gridTemplateColumns: `repeat(${layout.wifiCols}, ${layout.wifiCellW}px)`,
                   gridTemplateRows:
                     layout.wifiRows > 1 ? `repeat(${layout.wifiRows}, ${layout.wifiCellH}px)` : undefined,
-                  gap: WIFI_GAP,
+                  gap: rackMounted ? portGap : WIFI_GAP,
                 }}
               >
                 {wirelessPorts.map((port, index) => {
@@ -594,6 +766,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                         cellH={layout.wifiCellH}
                         selected={highlightedPortIds?.has(port.id) ?? false}
                         onSelect={onPortSelect}
+                        connectable={portIsConnectable(port, readOnly)}
                       />
                     </div>
                   )

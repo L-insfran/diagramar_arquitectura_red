@@ -49,12 +49,6 @@ export default class DevicesController {
     }
 
     const template = await this.templateService.getActiveSummary(data.deviceTemplateId)
-    if (template.projectId !== data.projectId) {
-      return ctx.response.unprocessableEntity({
-        success: false,
-        message: 'El template no pertenece al proyecto indicado',
-      })
-    }
 
     if (context.role === 'viewer') {
       const notebook = await isNotebookType(template.deviceTypeId)

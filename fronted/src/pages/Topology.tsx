@@ -19,6 +19,7 @@ import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { Select } from '../components/Select'
 import { ConnectionModal } from '../components/topology/ConnectionModal'
+import { PrintReportModal } from '../components/topology/PrintReportModal'
 import {
   TopologyFlowCanvas,
   type TopologyFlowCanvasHandle,
@@ -29,12 +30,16 @@ import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { topologyService } from '../services/topology.service'
+import { sitesService } from '../services/sites.service'
 import { coerceWorkAreasArray } from '../utils/topologyWorkAreas'
 import { exportTopologyPdf } from '../utils/exportPdf'
 import type {
+  Area,
+  Site,
   TopologyData,
   TopologyEdge,
   TopologyNode,
+  TopologyRackSummary,
   MediumType,
 } from '../types'
 import {
@@ -45,6 +50,10 @@ import {
 } from '../types'
 import { mergeHostnamesFromInventory, normalizeTopologyHostname } from '../utils/topologyNodeData'
 import { useToast } from '../contexts/ToastContext'
+import {
+  buildPortConnectLookup,
+  inferDragConnectMedium,
+} from '../utils/topologyDragConnect'
 
 function formatDeviceFilterOptionLabel(node: TopologyNode): string {
   const host = normalizeTopologyHostname(node.data)
@@ -80,16 +89,15 @@ function formatEdgeVlanLabel(edge: TopologyEdge): string | undefined {
   return labels.length ? labels.join(' · ') : undefined
 }
 
-/** Solo enlaces de capa física para el diagrama (oculta conexiones lógicas duplicadas). */
-function filterPhysicalTopology(topology: TopologyData): TopologyData {
+/** Solo enlaces de capa física; incluye todos los dispositivos del inventario (no solo los conectados). */
+function filterPhysicalTopology(
+  topology: TopologyData,
+  inventory?: TopologyNode[],
+): TopologyData {
   const edges = topology.edges.filter((edge) => edge.connectionType !== 'logical')
-  const nodeIds = new Set<string>()
-  for (const edge of edges) {
-    nodeIds.add(edge.source)
-    nodeIds.add(edge.target)
-  }
+  const inventoryNodes = inventory?.length ? inventory : topology.nodes
   return {
-    nodes: topology.nodes.filter((node) => nodeIds.has(node.id)),
+    nodes: inventoryNodes,
     edges,
   }
 }
@@ -119,7 +127,8 @@ export default function Topology() {
 
   const graphTopology: TopologyData = useMemo(() => {
     const base = topology?.graph ?? { nodes: [], edges: [] }
-    const nodes = mergeHostnamesFromInventory(base.nodes, topology?.inventory)
+    const sourceNodes = topology?.inventory?.length ? topology.inventory : base.nodes
+    const nodes = mergeHostnamesFromInventory(sourceNodes, topology?.inventory)
     return {
       nodes,
       edges: base.edges.map((edge) => ({
@@ -132,9 +141,50 @@ export default function Topology() {
   }, [topology?.graph, topology?.inventory])
 
   const physicalDiagram = useMemo(
-    () => filterPhysicalTopology(graphTopology),
-    [graphTopology]
+    () => filterPhysicalTopology(graphTopology, topology?.inventory),
+    [graphTopology, topology?.inventory]
   )
+
+  const topologyRacks = topology?.racks ?? []
+
+  const { data: sitesData } = useApi<Site[]>(
+    () => (projectId ? sitesService.getAll() : Promise.resolve([])),
+    [projectId]
+  )
+  const sites = sitesData ?? []
+
+  const areasBySiteId = useMemo(() => {
+    const map: Record<string, Area[]> = {}
+    for (const site of sites) {
+      map[site.id] = site.areas ?? []
+    }
+    // Completar áreas conocidas solo por racks si el listado de sitios no trae areas
+    for (const rack of topologyRacks) {
+      if (!rack.siteId || !rack.areaId) continue
+      const list = map[rack.siteId] ?? []
+      if (!list.some((a) => a.id === rack.areaId)) {
+        list.push({
+          id: rack.areaId,
+          siteId: rack.siteId,
+          name: rack.areaName ?? 'Área',
+          notes: null,
+          createdAt: '',
+          updatedAt: '',
+        })
+        map[rack.siteId] = list
+      }
+    }
+    return map
+  }, [sites, topologyRacks])
+
+  const [printOverride, setPrintOverride] = useState<{
+    topology: TopologyData
+    racks: TopologyRackSummary[]
+  } | null>(null)
+  const [printModalOpen, setPrintModalOpen] = useState(false)
+
+  const canvasTopology = printOverride?.topology ?? physicalDiagram
+  const canvasRacks = printOverride?.racks ?? topologyRacks
 
   const summary = topology?.summary
 
@@ -273,6 +323,50 @@ export default function Topology() {
     [graphTopology.edges, openEdit]
   )
 
+  const handleConnectPorts = useCallback(
+    async (sourcePortId: string, targetPortId: string) => {
+      if (!projectId || !canMutate) return
+      const lookup = buildPortConnectLookup(physicalDiagram)
+      const source = lookup.get(sourcePortId)
+      const target = lookup.get(targetPortId)
+      if (!source || !target) {
+        toast.error('No se pudo crear el enlace', 'Puerto no encontrado en el diagrama.')
+        return
+      }
+      try {
+        await topologyService.createConnection({
+          projectId,
+          sourcePortId,
+          targetPortId,
+          connectionType: 'physical',
+          mediumType: inferDragConnectMedium(source, target),
+          connectionStatus: 'implemented',
+        })
+        toast.success('Enlace creado', 'Doble clic en el cable para editar detalles.')
+        refetch()
+      } catch (err: unknown) {
+        const axiosErr = err as {
+          response?: {
+            data?: {
+              message?: string
+              errors?: Array<{ message?: string; field?: string; rule?: string }>
+            }
+          }
+        }
+        const fieldErrors = axiosErr.response?.data?.errors
+          ?.map((e) => (e.field ? `${e.field}: ${e.message}` : e.message))
+          .filter(Boolean)
+          .join('; ')
+        const message =
+          fieldErrors ||
+          axiosErr.response?.data?.message ||
+          'No se pudo crear la conexión.'
+        toast.error('No se pudo crear el enlace', message)
+      }
+    },
+    [projectId, canMutate, physicalDiagram, toast, refetch],
+  )
+
   const closeModal = useCallback(() => { setModalOpen(false); setEditingEdge(null) }, [])
 
   const resolveNodeLabel = useCallback(
@@ -298,25 +392,90 @@ export default function Topology() {
     [refetch, resolveNodeLabel, toast]
   )
 
-  const handleExportPdf = useCallback(async () => {
-    if (!topology) return
-    setExporting(true)
-    try {
-      await exportTopologyPdf({
-        title: 'Arquitectura de Red',
-        subtitle: `${physicalDiagram.nodes.length} dispositivos · ${physicalDiagram.edges.length} conexiones físicas`,
-        projectName: projectName ?? undefined,
-        authorName: user?.firstName ? `${user.firstName} ${user.lastName}` : undefined,
-        topology: physicalDiagram,
-        orientation: 'landscape',
-        content: 'table',
-      })
-      toast.success('PDF exportado', 'Se descargó la tabla de conexiones (sin diagrama).')
-    } catch (err) {
-      console.error('Error exporting PDF:', err)
-      toast.error('Error al exportar el PDF', 'Intenta de nuevo.')
-    } finally { setExporting(false) }
-  }, [topology, physicalDiagram, user, projectName, toast])
+  const handleExportPdf = useCallback(() => {
+    const pages = topologyFlowRef.current?.estimatePrintPages()
+    if (pages != null && pages > 1) {
+      toast.info(
+        `El diagrama ocupa ${pages} páginas`,
+        'Usá «Ajustar a A4» o mové nodos con «Mostrar límites» antes de exportar.',
+      )
+    }
+    setPrintModalOpen(true)
+  }, [toast])
+
+  const waitFrames = (n = 2) =>
+    new Promise<void>((resolve) => {
+      const step = (left: number) => {
+        if (left <= 0) {
+          resolve()
+          return
+        }
+        requestAnimationFrame(() => step(left - 1))
+      }
+      step(n)
+    })
+
+  const handleConfirmPrintReport = useCallback(
+    async (payload: {
+      filters: import('../utils/topologyPrintFilter').TopologyPrintFilters
+      filteredTopology: TopologyData
+      filteredRacks: TopologyRackSummary[]
+      subtitle: string
+    }) => {
+      const { filters, filteredTopology, filteredRacks, subtitle } = payload
+      setExporting(true)
+      try {
+        const authorName = user?.firstName ? `${user.firstName} ${user.lastName}` : undefined
+        const baseOpts = {
+          title: 'Arquitectura de Red',
+          subtitle: `${subtitle} · ${filteredTopology.nodes.length} equipos · ${filteredTopology.edges.length} enlaces`,
+          projectName: projectName ?? undefined,
+          authorName,
+          topology: filteredTopology,
+          orientation: filters.orientation,
+        }
+
+        if (filters.content === 'table') {
+          await exportTopologyPdf({ ...baseOpts, content: 'table' })
+          toast.success('PDF exportado', 'Se descargó la tabla de conexiones filtrada.')
+          setPrintModalOpen(false)
+          return
+        }
+
+        setPrintOverride({ topology: filteredTopology, racks: filteredRacks })
+        await waitFrames(3)
+        // Pequeña pausa para que React Flow mida nodos filtrados
+        await new Promise((r) => setTimeout(r, 120))
+
+        const canvasEl = canvasRef.current
+        if (!canvasEl) {
+          throw new Error('No se encontró el lienzo del diagrama')
+        }
+
+        await exportTopologyPdf({
+          ...baseOpts,
+          content: filters.content === 'diagram' ? 'diagram' : 'full',
+          canvasElement: canvasEl,
+          prepareHighResCanvas: (orientation) =>
+            topologyFlowRef.current?.prepareExportCapture(orientation) ?? Promise.resolve(() => {}),
+        })
+        toast.success(
+          'PDF exportado',
+          filters.content === 'diagram'
+            ? 'Se descargó el diagrama filtrado.'
+            : 'Se descargó el reporte (diagrama + tabla).',
+        )
+        setPrintModalOpen(false)
+      } catch (err) {
+        console.error('Error exporting PDF:', err)
+        toast.error('Error al exportar el PDF', 'Intenta de nuevo.')
+      } finally {
+        setPrintOverride(null)
+        setExporting(false)
+      }
+    },
+    [user, projectName, toast],
+  )
 
   const deviceFilterOptions = useMemo(() => {
     if (!graphTopology.nodes.length) return [{ value: '', label: 'Todos' }]
@@ -458,9 +617,9 @@ export default function Topology() {
             {canMutate && projectId && (
               <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>Nueva conexión</Button>
             )}
-            {physicalDiagram.edges.length > 0 && (
+            {(physicalDiagram.nodes.length > 0 || topologyRacks.length > 0 || physicalDiagram.edges.length > 0) && (
               <Button variant="secondary" icon={<Download className="w-4 h-4" />} onClick={handleExportPdf} isLoading={exporting} disabled={exporting}>
-                Exportar tabla PDF
+                Imprimir reporte
               </Button>
             )}
           </div>
@@ -518,17 +677,17 @@ export default function Topology() {
             <div className="mb-2 px-1">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Diagrama de topología (capa física)</h3>
               <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400 mt-0.5">
-                Solo se dibujan enlaces físicos entre puertos. Clic en un nodo para redimensionarlo (proporcional);
-                clic en un puerto conectado para resaltar su enlace; doble clic en el cable para editarlo.
+                Los racks aparecen como gabinetes con equipos por U y puertos visibles. Clic en un puerto conectado
+                para resaltar su enlace; doble clic en el cable para editarlo. Equipos sin rack quedan como nodos sueltos.
                 Los enlaces lógicos quedan en la tabla inferior
                 {logicalLinkCount > 0 ? ` (${logicalLinkCount} oculto${logicalLinkCount === 1 ? '' : 's'} en el diagrama)` : ''}.
               </p>
             </div>
-            {physicalDiagram.nodes.length === 0 ? (
+            {physicalDiagram.nodes.length === 0 && topologyRacks.length === 0 ? (
               <div className="px-6 py-16 text-center">
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Aún no hay topología documentada</p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Crea dispositivos, asigna puertos y VLANs, y luego documenta las conexiones entre ellos.
+                  Creá dispositivos (y racks si corresponde), asigná puertos y documentá las conexiones entre ellos.
                 </p>
                 {canMutate && projectId && (
                   <div className="mt-4">
@@ -539,11 +698,13 @@ export default function Topology() {
             ) : (
               <TopologyFlowCanvas
                 ref={topologyFlowRef}
-                topology={physicalDiagram}
+                topology={canvasTopology}
+                racks={canvasRacks}
                 persistenceKey={flowPersistenceKey}
                 readOnly={!canMutate}
                 onNavigateToDevice={handleNavigateToDevice}
                 onNavigateToConnection={handleNavigateToConnection}
+                onConnectPorts={canMutate ? handleConnectPorts : undefined}
                 canvasRef={canvasRef}
                 onExportPdf={handleExportPdf}
                 exporting={exporting}
@@ -792,6 +953,19 @@ export default function Topology() {
           </div>
         </div>
       )}
+
+      <PrintReportModal
+        isOpen={printModalOpen}
+        onClose={() => {
+          if (!exporting) setPrintModalOpen(false)
+        }}
+        topology={physicalDiagram}
+        racks={topologyRacks}
+        sites={sites}
+        areasBySiteId={areasBySiteId}
+        exporting={exporting}
+        onConfirm={handleConfirmPrintReport}
+      />
 
       {canMutate && projectId && (
         <ConnectionModal isOpen={modalOpen} onClose={closeModal} projectId={projectId}

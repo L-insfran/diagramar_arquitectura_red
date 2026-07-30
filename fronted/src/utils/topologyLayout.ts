@@ -54,7 +54,8 @@ function nodeDimensions(node: Node): { width: number; height: number } {
   return { width: Math.round(layout.width * scale), height: Math.round(layout.height * scale) }
 }
 
-function maxIncidentDegree(edges: Edge[]): number {
+function maxIncidentDegree(edges: Edge[] | null | undefined): number {
+  if (!edges?.length) return 0
   const deg = new Map<string, number>()
   for (const e of edges) {
     deg.set(e.source, (deg.get(e.source) ?? 0) + 1)
@@ -83,21 +84,22 @@ function inDegree(nodeId: string, edges: Edge[]): number {
  */
 export function layoutTopologyNodes(
   nodes: Node[],
-  edges: Edge[],
+  edges: Edge[] = [],
   options: LayoutOptions = {},
 ) {
-  if (nodes.length === 0) return { nodes, edges }
+  if (nodes.length === 0) return { nodes, edges: Array.isArray(edges) ? edges : [] }
 
+  const safeEdges = Array.isArray(edges) ? edges : []
   const direction = options.direction ?? 'TB'
   const printFriendly = options.printFriendly !== false
-  const maxDeg = maxIncidentDegree(edges)
+  const maxDeg = maxIncidentDegree(safeEdges)
   const avgHeight =
     nodes.reduce((sum, n) => sum + nodeDimensions(n).height, 0) / Math.max(nodes.length, 1)
   const maxWidth = maxNodeWidth(nodes)
 
   const ranksep = printFriendly
-    ? Math.min(560, Math.max(280, Math.floor(avgHeight * 0.85 + maxDeg * 16 + edges.length * 5)))
-    : Math.min(320, 100 + Math.floor(edges.length * 1.2))
+    ? Math.min(560, Math.max(280, Math.floor(avgHeight * 0.85 + maxDeg * 16 + safeEdges.length * 5)))
+    : Math.min(320, 100 + Math.floor(safeEdges.length * 1.2))
 
   const nodesep = printFriendly
     ? Math.min(440, Math.max(180, Math.floor(maxWidth * 0.2 + maxDeg * 18)))
@@ -120,9 +122,9 @@ export function layoutTopologyNodes(
     g.setNode(node.id, { width, height })
   }
 
-  for (const edge of edges) {
-    const srcIn = inDegree(edge.source, edges)
-    const tgtIn = inDegree(edge.target, edges)
+  for (const edge of safeEdges) {
+    const srcIn = inDegree(edge.source, safeEdges)
+    const tgtIn = inDegree(edge.target, safeEdges)
     const weight = tgtIn >= srcIn ? 1 : 2
     g.setEdge(edge.source, edge.target, { weight, minlen: printFriendly ? (maxDeg > 6 ? 3 : 2) : 1 })
   }
@@ -141,5 +143,5 @@ export function layoutTopologyNodes(
     }
   })
 
-  return { nodes: layoutedNodes, edges }
+  return { nodes: layoutedNodes, edges: safeEdges }
 }

@@ -86,7 +86,6 @@ export interface DeviceTemplatePort {
 
 export interface DeviceTemplate {
   id: string
-  projectId: string
   deviceTypeId: string
   name: string
   manufacturer: string | null
@@ -467,6 +466,17 @@ export interface TopologyPortSummary {
   connected: boolean
 }
 
+export interface TopologyRackSummary {
+  id: string
+  name: string
+  code: string | null
+  heightU: number
+  areaId: string
+  siteId: string | null
+  areaName: string | null
+  siteName: string | null
+}
+
 export interface TopologyNode {
   id: string
   label: string
@@ -479,6 +489,12 @@ export interface TopologyNode {
     deviceType: string | null
     manufacturer: string | null
     model: string | null
+    siteId?: string | null
+    areaId?: string | null
+    rackId?: string | null
+    rackUnitStart?: number | null
+    rackFace?: RackFace | null
+    rackUnits?: number
     vlanCount?: number
     vlans?: TopologyVlanSummary[]
     networks?: TopologyNetworkSummary[]
@@ -528,6 +544,7 @@ export interface TopologySummary {
 export interface TopologyPayload {
   graph: TopologyData
   inventory?: TopologyNode[]
+  racks?: TopologyRackSummary[]
   summary: TopologySummary
 }
 

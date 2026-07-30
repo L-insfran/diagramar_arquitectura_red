@@ -52,9 +52,6 @@ export default class DeviceService {
 
   async create(data: CreateDeviceInput, actorId: string) {
     const template = await this.templates.getActiveWithPorts(data.deviceTemplateId)
-    if (template.projectId !== data.projectId) {
-      throw new Exception('El template no pertenece al proyecto indicado', { status: 422 })
-    }
 
     const heightU = Math.max(1, template.rackUnits ?? 1)
     let siteId = data.siteId ?? null

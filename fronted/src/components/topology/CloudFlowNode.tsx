@@ -10,7 +10,7 @@ import {
 import { Fragment, useContext, useLayoutEffect } from 'react'
 import { TopologyCanvasInteractionContext } from './TopologyCanvasContext'
 import type { DeviceNodeData } from './DeviceFlowNode'
-import { CLOUD_NODE_HEIGHT, CLOUD_NODE_WIDTH, portSourceHandleId, portTargetHandleId } from '../../utils/topologyPortPanel'
+import { CLOUD_NODE_HEIGHT, CLOUD_NODE_WIDTH, portConnectSourceHandleId, portConnectTargetHandleId, portSourceHandleId, portTargetHandleId } from '../../utils/topologyPortPanel'
 import { clampNodeScale, CLOUD_NODE_SCALE_MAX, NODE_SCALE_MIN } from '../../utils/topologyNodeScale'
 
 export type CloudFlowNodeType = Node<DeviceNodeData, 'cloud'>
@@ -130,42 +130,66 @@ export function CloudFlowNode({ data, selected, width, height }: NodeProps<Cloud
 
         {/* Puerto(s) general(es): handles invisibles centrados para anclar cables. */}
         {ports.length > 0 ? (
-          ports.map((port) => (
-            <Fragment key={port.id}>
-              <Handle
-                id={portTargetHandleId(port.id, 'top')}
-                type="target"
-                position={Position.Top}
-                className="!opacity-0 !size-1 !border-0 !bg-transparent"
-                style={{ left: '50%', top: '42%', transform: 'translate(-50%, -50%)' }}
-                isConnectable={false}
-              />
-              <Handle
-                id={portSourceHandleId(port.id, 'top')}
-                type="source"
-                position={Position.Top}
-                className="!opacity-0 !size-1 !border-0 !bg-transparent"
-                style={{ left: '50%', top: '42%', transform: 'translate(-50%, -50%)' }}
-                isConnectable={false}
-              />
-              <Handle
-                id={portTargetHandleId(port.id, 'bottom')}
-                type="target"
-                position={Position.Bottom}
-                className="!opacity-0 !size-1 !border-0 !bg-transparent"
-                style={{ left: '50%', top: '72%', transform: 'translate(-50%, -50%)' }}
-                isConnectable={false}
-              />
-              <Handle
-                id={portSourceHandleId(port.id, 'bottom')}
-                type="source"
-                position={Position.Bottom}
-                className="!opacity-0 !size-1 !border-0 !bg-transparent"
-                style={{ left: '50%', top: '72%', transform: 'translate(-50%, -50%)' }}
-                isConnectable={false}
-              />
-            </Fragment>
-          ))
+          ports.map((port) => {
+            const canConnect = !readOnly && !port.connected && port.status === 'up'
+            return (
+              <Fragment key={port.id}>
+                <Handle
+                  id={portTargetHandleId(port.id, 'top')}
+                  type="target"
+                  position={Position.Top}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{ left: '50%', top: '42%', transform: 'translate(-50%, -50%)' }}
+                  isConnectable={false}
+                />
+                <Handle
+                  id={portSourceHandleId(port.id, 'top')}
+                  type="source"
+                  position={Position.Top}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{ left: '50%', top: '42%', transform: 'translate(-50%, -50%)' }}
+                  isConnectable={false}
+                />
+                <Handle
+                  id={portTargetHandleId(port.id, 'bottom')}
+                  type="target"
+                  position={Position.Bottom}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{ left: '50%', top: '72%', transform: 'translate(-50%, -50%)' }}
+                  isConnectable={false}
+                />
+                <Handle
+                  id={portSourceHandleId(port.id, 'bottom')}
+                  type="source"
+                  position={Position.Bottom}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{ left: '50%', top: '72%', transform: 'translate(-50%, -50%)' }}
+                  isConnectable={false}
+                />
+                {canConnect && (
+                  <>
+                    <Handle
+                      id={portConnectTargetHandleId(port.id)}
+                      type="target"
+                      position={Position.Top}
+                      isConnectable
+                      className="!z-30 !rounded-full !border-0 !bg-transparent !opacity-0"
+                      style={{ left: '50%', top: '58%', width: 36, height: 36, transform: 'translate(-50%, -50%)' }}
+                    />
+                    <Handle
+                      id={portConnectSourceHandleId(port.id)}
+                      type="source"
+                      position={Position.Bottom}
+                      isConnectable
+                      className="!z-30 !rounded-full !border-2 !border-emerald-400/80 !bg-emerald-400/20"
+                      style={{ left: '50%', top: '58%', width: 28, height: 28, transform: 'translate(-50%, -50%)' }}
+                      title="Arrastrá a otro puerto libre para enlazar"
+                    />
+                  </>
+                )}
+              </Fragment>
+            )
+          })
         ) : (
           <>
             <Handle

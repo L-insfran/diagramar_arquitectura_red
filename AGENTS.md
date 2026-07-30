@@ -39,12 +39,12 @@ Reglas Cursor (contexto persistente): [.cursor/rules/](.cursor/rules/)
 
 - Scope **actual** en DB/código: **`projects`** (`project_id`, `X-Project-Id`, `project_memberships`). ADR aceptado: [docs/adr/0001-project-como-scope-raiz.md](docs/adr/0001-project-como-scope-raiz.md) (opción A).
 - Jerarquía física: **sites → areas → racks → devices** (Fases 3–4). `work_areas` del canvas es solo visual.
-- **Sí** existen `device_templates` + puertos de template; devices nacen de template.
+- **Sí** existen `device_templates` + puertos de template (catálogo **global**, ADR 0004); devices nacen de template.
 - Soft delete / auditoría by-user: piloto en devices, connections, templates, sites, areas, racks, attachments, secrets.
 - **Sí** existen conexiones como entidad, topología React Flow, VLANs, networks, ports, `port_types` enriquecidos, `cable_types`, roles admin/operator/viewer.
 - **Sí** existen `attachments` + `secrets` polimórficos (Fase 6); archivos en disco local (ADR 0003).
 - **Sí** existe `GET /api/dashboard` con métricas agregadas del proyecto (Fase 7).
 - Regla: un puerto = una conexión física activa (índices parciales + service).
 - Frontend vive en la carpeta **`fronted/`** (typo histórico).
-- Siguiente migración tras `0033_`: **`0034_`** (Fase 7 no requirió migración).
+- Siguiente migración tras `0034_`: **`0035_`**.
 - Capas: Controller → Service → Repository → DTO → Validator (ADR 0002).

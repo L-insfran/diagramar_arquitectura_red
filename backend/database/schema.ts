@@ -246,7 +246,7 @@ export class DeviceTemplatePortSchema extends BaseModel {
 }
 
 export class DeviceTemplateSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdBy', 'customFields', 'deletedAt', 'deletedBy', 'deviceTypeId', 'frontViewUrl', 'id', 'imageUrl', 'manufacturer', 'model', 'name', 'notes', 'powerConsumptionW', 'projectId', 'rackUnits', 'rearViewUrl', 'updatedAt', 'updatedBy', 'weightKg'] as const
+  static $columns = ['createdAt', 'createdBy', 'customFields', 'deletedAt', 'deletedBy', 'deviceTypeId', 'frontViewUrl', 'id', 'imageUrl', 'manufacturer', 'model', 'name', 'notes', 'powerConsumptionW', 'rackUnits', 'rearViewUrl', 'updatedAt', 'updatedBy', 'weightKg'] as const
   $columns = DeviceTemplateSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -276,8 +276,6 @@ export class DeviceTemplateSchema extends BaseModel {
   declare notes: string | null
   @column()
   declare powerConsumptionW: string | null
-  @column()
-  declare projectId: string
   @column()
   declare rackUnits: number | null
   @column()

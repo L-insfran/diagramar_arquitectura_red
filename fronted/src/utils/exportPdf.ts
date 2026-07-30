@@ -30,9 +30,10 @@ interface ExportOptions {
   orientation?: PrintOrientation
   /**
    * `table` (default): solo tabla de conexiones, sin diagrama.
+   * `diagram`: portada + sectores del diagrama, sin tabla.
    * `full`: portada + sectores del diagrama + tabla.
    */
-  content?: 'table' | 'full'
+  content?: 'table' | 'diagram' | 'full'
 }
 
 function resolveNodeLabel(nodes: TopologyNode[], id: string): string {
@@ -69,7 +70,7 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
     return
   }
 
-  await exportFullArchitecturePdf(options, dateStr, orientation)
+  await exportFullArchitecturePdf(options, dateStr, orientation, content === 'diagram' ? 'diagram' : 'full')
 }
 
 async function exportConnectionsTablePdf(opts: {
@@ -128,7 +129,8 @@ async function exportConnectionsTablePdf(opts: {
 async function exportFullArchitecturePdf(
   options: ExportOptions,
   dateStr: string,
-  orientation: PrintOrientation
+  orientation: PrintOrientation,
+  mode: 'diagram' | 'full' = 'full',
 ): Promise<void> {
   const { title, subtitle, projectName, authorName, topology, prepareHighResCanvas } = options
   const canvasElement = options.canvasElement
@@ -188,8 +190,8 @@ async function exportFullArchitecturePdf(
 
   const { cols, rows } = computeTileGrid(imgW, imgH, usableW, usableH)
   const totalDiagramPages = cols * rows
-  const hasTable = topology.edges.length > 0
-  const tablePages = hasTable
+  const includeTable = mode === 'full' && topology.edges.length > 0
+  const tablePages = includeTable
     ? paginateConnectionRows(pdf, pageW, pageH, topology.nodes, topology.edges).length
     : 0
   const totalPages = 1 + totalDiagramPages + tablePages
@@ -266,7 +268,7 @@ async function exportFullArchitecturePdf(
   }
 
   // --- Table pages ---
-  if (hasTable) {
+  if (includeTable) {
     const pages = paginateConnectionRows(pdf, pageW, pageH, topology.nodes, topology.edges)
     for (let ci = 0; ci < pages.length; ci++) {
       pdf.addPage('a4', orientation)
@@ -285,7 +287,8 @@ async function exportFullArchitecturePdf(
   }
 
   const safeName = (projectName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
-  pdf.save(`${safeName}_Arquitectura_${new Date().toISOString().slice(0, 10)}.pdf`)
+  const suffix = mode === 'diagram' ? 'Diagrama' : 'Arquitectura'
+  pdf.save(`${safeName}_${suffix}_${new Date().toISOString().slice(0, 10)}.pdf`)
 }
 
 function drawHeader(pdf: jsPDF, pageW: number, title: string, projectName: string | undefined, subtitle: string | undefined, authorName: string | undefined, dateStr: string) {
