@@ -42,6 +42,10 @@ $RECYCLE.BIN/
 # Adonis / compiled outputs
 **/build/
 
+# Local attachment binaries (ADR 0003)
+backend/storage/attachments/**
+!backend/storage/attachments/.gitkeep
+
 # Vite / frontend
 public/dist/
 **/public/dist/

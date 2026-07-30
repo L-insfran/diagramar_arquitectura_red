@@ -38,18 +38,22 @@ import { layoutTopologyNodes } from '../../utils/topologyLayout'
 import {
   computePortPanelLayout,
   isCompactPortPanel,
+  isInternetCloudDeviceType,
   isStructuredCablingDeviceType,
   partitionDiagramPorts,
   portSourceHandleId,
   portSourceLaneOffsetX,
   portTargetHandleId,
   portTargetLaneOffsetX,
+  CLOUD_NODE_HEIGHT,
+  CLOUD_NODE_WIDTH,
   TOPOLOGY_HEADER_HEIGHT,
   TOPOLOGY_HEADER_HEIGHT_PATCH,
   type PortPanelLayout,
   type PortPanelSection,
 } from '../../utils/topologyPortPanel'
 import { DeviceFlowNode, type DeviceFlowNodeType } from './DeviceFlowNode'
+import { CloudFlowNode, type CloudFlowNodeType } from './CloudFlowNode'
 import { PortLinkEdge, type PortLinkEdgeType } from './PortLinkEdge'
 import { WorkAreaFlowNode, WORK_AREA_TITLE_FONT_DEFAULT, clampWorkAreaTitleFontSize } from './WorkAreaFlowNode'
 import { TopologyCanvasInteractionContext, type TopologyLinkSelection } from './TopologyCanvasContext'
@@ -67,6 +71,7 @@ import { PortNavigationBridge } from './PortNavigationBridge'
 import {
   absoluteNodePosition,
   applyWorkAreaHierarchy,
+  coerceWorkAreasArray,
   createWorkAreaNode,
   detachChildrenFromWorkArea,
   newWorkAreaId,
@@ -75,10 +80,16 @@ import {
   snapshotNodeParents,
   snapshotWorkAreas,
   type TopologyCanvasNode,
+  type TopologyDeviceNode,
   type TopologyWorkAreaPersist,
 } from '../../utils/topologyWorkAreas'
+import {
+  mergePersistedNodeScales,
+  snapshotDeviceScales,
+  withSyncedDeviceNodeScales,
+} from '../../utils/topologyNodeScale'
 
-const nodeTypes = { device: DeviceFlowNode, workArea: WorkAreaFlowNode }
+const nodeTypes = { device: DeviceFlowNode, cloud: CloudFlowNode, workArea: WorkAreaFlowNode }
 const edgeTypes = { portLink: PortLinkEdge }
 
 function assignPairLinkIndices(edges: PortLinkEdgeType[]): void {
@@ -136,6 +147,9 @@ function orientPortEdgeHandles(
     const targetNode = byId.get(edge.target)
     if (!sourceNode || !targetNode) return edge
 
+    const sourceIsCloud = sourceNode.type === 'cloud'
+    const targetIsCloud = targetNode.type === 'cloud'
+
     const sourceH = sourceNode.height ?? (sourceNode.style?.height as number | undefined) ?? 0
     const targetH = targetNode.height ?? (targetNode.style?.height as number | undefined) ?? 0
     const sourceAbs = absoluteNodePosition(sourceNode, byId)
@@ -155,13 +169,17 @@ function orientPortEdgeHandles(
     const targetSection = portSectionByNode.get(edge.target)?.get(d.targetPortId) ?? 'physical'
 
     const sourceLaneOffsetX =
-      sourceLayout && d.sourcePortNumber != null
-        ? portSourceLaneOffsetX(d.sourcePortNumber, sourceLayout, sourceSeq, sourceSide, sourceSection)
-        : 0
+      sourceIsCloud
+        ? 0
+        : sourceLayout && d.sourcePortNumber != null
+          ? portSourceLaneOffsetX(d.sourcePortNumber, sourceLayout, sourceSeq, sourceSide, sourceSection)
+          : 0
     const targetLaneOffsetX =
-      targetLayout && d.targetPortNumber != null
-        ? portTargetLaneOffsetX(d.targetPortNumber, targetLayout, targetSeq, targetSide, targetSection)
-        : 0
+      targetIsCloud
+        ? 0
+        : targetLayout && d.targetPortNumber != null
+          ? portTargetLaneOffsetX(d.targetPortNumber, targetLayout, targetSeq, targetSide, targetSection)
+          : 0
 
     return {
       ...edge,
@@ -178,7 +196,7 @@ function orientPortEdgeHandles(
   })
 }
 
-function buildPortLayoutMaps(nodes: DeviceFlowNodeType[]): {
+function buildPortLayoutMaps(nodes: TopologyDeviceNode[]): {
   layoutByNodeId: Map<string, PortPanelLayout>
   portIndexByNode: Map<string, Map<string, number>>
   portSectionByNode: Map<string, Map<string, PortPanelSection>>
@@ -187,6 +205,17 @@ function buildPortLayoutMaps(nodes: DeviceFlowNodeType[]): {
   const portIndexByNode = new Map<string, Map<string, number>>()
   const portSectionByNode = new Map<string, Map<string, PortPanelSection>>()
   for (const n of nodes) {
+    if (n.type === 'cloud' || isInternetCloudDeviceType(n.data.deviceType)) {
+      const byId = new Map<string, number>()
+      const sectionById = new Map<string, PortPanelSection>()
+      ;(n.data.ports ?? []).forEach((p, i) => {
+        byId.set(p.id, i)
+        sectionById.set(p.id, 'physical')
+      })
+      portIndexByNode.set(n.id, byId)
+      portSectionByNode.set(n.id, sectionById)
+      continue
+    }
     const { physical, wireless } = partitionDiagramPorts(n.data.ports ?? [])
     const totalPhysical =
       n.data.totalPortCount != null
@@ -220,12 +249,17 @@ function withOrientedPortHandles(
   nodes: TopologyCanvasNode[],
   edges: PortLinkEdgeType[],
 ): PortLinkEdgeType[] {
-  const devices = nodes.filter((n): n is DeviceFlowNodeType => n.type === 'device')
+  const devices = nodes.filter(
+    (n): n is TopologyDeviceNode => n.type === 'device' || n.type === 'cloud',
+  )
   const { layoutByNodeId, portIndexByNode, portSectionByNode } = buildPortLayoutMaps(devices)
   return orientPortEdgeHandles(nodes, edges, layoutByNodeId, portIndexByNode, portSectionByNode)
 }
 
-function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType[]; edges: PortLinkEdgeType[] } {
+function topologyToFlowElements(data: TopologyData): {
+  nodes: TopologyDeviceNode[]
+  edges: PortLinkEdgeType[]
+} {
   const layoutByNodeId = new Map<string, PortPanelLayout>()
 
   // Un puerto solo se marca "en uso" si su cable realmente se dibuja en este
@@ -237,12 +271,45 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
     if (edge.targetPortId) drawnPortIds.add(edge.targetPortId)
   }
 
-  const nodes: DeviceFlowNodeType[] = data.nodes.map((n) => {
+  const nodes: TopologyDeviceNode[] = data.nodes.map((n) => {
     const allPorts = (n.data.ports ?? []).map((port) => ({
       ...port,
       connected: drawnPortIds.has(port.id),
     }))
     const portsInUse = allPorts.reduce((total, port) => (port.connected ? total + 1 : total), 0)
+    const isCloud = isInternetCloudDeviceType(n.data.deviceType)
+
+    if (isCloud) {
+      const width = CLOUD_NODE_WIDTH
+      const height = CLOUD_NODE_HEIGHT
+      return {
+        id: n.id,
+        type: 'cloud' as const,
+        position: { x: 0, y: 0 },
+        width,
+        height,
+        style: { width, height },
+        data: {
+          label: n.label,
+          hostname: normalizeTopologyHostname(n.data),
+          ipAddress: n.data.ipAddress,
+          status: n.data.status,
+          accentColor: accentColorForNodeId(n.id),
+          location: n.data.location ?? null,
+          deviceType: n.data.deviceType ?? null,
+          vlanCount: n.data.vlanCount ?? n.data.vlans?.length ?? 0,
+          vlans: n.data.vlans ?? [],
+          networks: n.data.networks ?? [],
+          portCount: n.data.portCount ?? allPorts.length,
+          portsInUse,
+          ports: allPorts,
+          totalPortCount: n.data.portCount ?? allPorts.length,
+          nodeWidth: width,
+          nodeHeight: height,
+        },
+      } satisfies CloudFlowNodeType
+    }
+
     const { physical, wireless } = partitionDiagramPorts(allPorts)
     const totalPortCount = n.data.portCount ?? allPorts.length
     const totalPhysicalCount = Math.max(0, totalPortCount - wireless.length)
@@ -284,33 +351,55 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
         nodeWidth: width,
         nodeHeight: height,
       },
-    }
+    } satisfies DeviceFlowNodeType
   })
 
   const colorById = new Map(nodes.map((n) => [n.id, n.data.accentColor]))
   const portCountById = new Map(nodes.map((n) => [n.id, n.data.totalPortCount ?? 0]))
+  const cloudNodeIds = new Set(nodes.filter((n) => n.type === 'cloud').map((n) => n.id))
   const portIndexByNode = new Map<string, Map<string, number>>()
   const portSectionByNode = new Map<string, Map<string, PortPanelSection>>()
   for (const n of nodes) {
     const { physical, wireless } = partitionDiagramPorts(n.data.ports ?? [])
     const byId = new Map<string, number>()
     const sectionById = new Map<string, PortPanelSection>()
-    physical.forEach((p, i) => {
-      byId.set(p.id, i)
-      sectionById.set(p.id, 'physical')
-    })
-    wireless.forEach((p, i) => {
-      byId.set(p.id, i)
-      sectionById.set(p.id, 'wireless')
-    })
+    if (n.type === 'cloud') {
+      ;(n.data.ports ?? []).forEach((p, i) => {
+        byId.set(p.id, i)
+        sectionById.set(p.id, 'physical')
+      })
+    } else {
+      physical.forEach((p, i) => {
+        byId.set(p.id, i)
+        sectionById.set(p.id, 'physical')
+      })
+      wireless.forEach((p, i) => {
+        byId.set(p.id, i)
+        sectionById.set(p.id, 'wireless')
+      })
+    }
     portIndexByNode.set(n.id, byId)
     portSectionByNode.set(n.id, sectionById)
   }
 
   const edges: PortLinkEdgeType[] = data.edges.map((e) => {
-    const medium = e.medium ?? { mediumType: 'utp' as MediumType, cableCategory: null, fiberType: null, fiberConnector: null, wifiSsid: null, wifiStandard: null, wifiBand: null, wifiSecurity: null, cableLength: null }
-    const edgeStyle = MEDIUM_EDGE_STYLES[medium.mediumType] ?? MEDIUM_EDGE_STYLES.utp
+    const medium = e.medium ?? {
+      mediumType: 'utp' as MediumType,
+      cableCategory: null,
+      fiberType: null,
+      fiberConnector: null,
+      wifiSsid: null,
+      wifiStandard: null,
+      wifiBand: null,
+      wifiSecurity: null,
+      cableLength: null,
+    }
+    const touchesCloud = cloudNodeIds.has(e.source) || cloudNodeIds.has(e.target)
+    const effectiveMediumType: MediumType =
+      medium.mediumType === 'utp' && touchesCloud ? 'internet' : medium.mediumType
+    const edgeStyle = MEDIUM_EDGE_STYLES[effectiveMediumType] ?? MEDIUM_EDGE_STYLES.utp
     const isLogical = e.connectionType === 'logical'
+    const isInternetLink = effectiveMediumType === 'internet'
     const usePortHandles = !!(e.sourcePortId && e.targetPortId)
 
     const sourceLayout = layoutByNodeId.get(e.source)
@@ -323,14 +412,21 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
     const targetSection = e.targetPortId
       ? portSectionByNode.get(e.target)?.get(e.targetPortId) ?? 'physical'
       : 'physical'
+    const sourceIsCloud = cloudNodeIds.has(e.source)
+    const targetIsCloud = cloudNodeIds.has(e.target)
     const sourceLaneOffsetX =
-      usePortHandles && sourceLayout && e.sourcePortNumber != null
+      usePortHandles && !sourceIsCloud && sourceLayout && e.sourcePortNumber != null
         ? portSourceLaneOffsetX(e.sourcePortNumber, sourceLayout, sourceSeq, 'bottom', sourceSection)
         : 0
     const targetLaneOffsetX =
-      usePortHandles && targetLayout && e.targetPortNumber != null
+      usePortHandles && !targetIsCloud && targetLayout && e.targetPortNumber != null
         ? portTargetLaneOffsetX(e.targetPortNumber, targetLayout, targetSeq, 'top', targetSection)
         : 0
+
+    const mediumForLabel =
+      effectiveMediumType === medium.mediumType
+        ? medium
+        : { ...medium, mediumType: effectiveMediumType }
 
     return {
       id: e.id,
@@ -340,8 +436,12 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
       sourceHandle: usePortHandles ? portSourceHandleId(e.sourcePortId, 'bottom') : undefined,
       targetHandle: usePortHandles ? portTargetHandleId(e.targetPortId, 'top') : undefined,
       zIndex: 1000,
-      animated: isLogical,
-      style: { stroke: edgeStyle.stroke, strokeWidth: 2, strokeDasharray: edgeStyle.strokeDasharray },
+      animated: isLogical || isInternetLink,
+      style: {
+        stroke: edgeStyle.stroke,
+        strokeWidth: isInternetLink ? 2.5 : 2,
+        strokeDasharray: edgeStyle.strokeDasharray,
+      },
       data: {
         sourcePort: e.sourcePort,
         targetPort: e.targetPort,
@@ -362,8 +462,8 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
         targetFanCount: 1,
         pairLinkIndex: 0,
         pairLinkCount: 1,
-        mediumType: medium.mediumType,
-        mediumLabel: formatMediumLabel(medium),
+        mediumType: effectiveMediumType,
+        mediumLabel: formatMediumLabel(mediumForLabel),
         connectionStatus: e.connectionStatus ?? 'implemented',
         networkLabel: e.networkLabel,
         vlanLabel: e.vlanLabel,
@@ -377,13 +477,13 @@ function topologyToFlowElements(data: TopologyData): { nodes: DeviceFlowNodeType
 
   const { nodes: layouted } = layoutTopologyNodes(nodes, edges, { printFriendly: true })
   const oriented = orientPortEdgeHandles(
-    layouted as DeviceFlowNodeType[],
+    layouted as TopologyDeviceNode[],
     edges,
     layoutByNodeId,
     portIndexByNode,
     portSectionByNode,
   )
-  return { nodes: layouted as DeviceFlowNodeType[], edges: oriented }
+  return { nodes: layouted as TopologyDeviceNode[], edges: oriented }
 }
 
 export type EdgeLayoutPersist = {
@@ -414,6 +514,7 @@ function mergePersistedEdgeLayout(
 }
 
 const NODE_POS_STORAGE_PREFIX = 'nm-topology-node-pos:'
+const NODE_SCALE_STORAGE_PREFIX = 'nm-topology-node-scale:'
 const LABEL_OFFSET_STORAGE_PREFIX = 'nm-topology-label-offset:'
 const WORK_AREAS_STORAGE_PREFIX = 'nm-topology-work-areas:'
 const NODE_PARENTS_STORAGE_PREFIX = 'nm-topology-node-parents:'
@@ -438,39 +539,46 @@ function clearNodePositions(key: string) {
   catch { /* ignore */ }
 }
 
-function isValidWorkArea(v: unknown): v is TopologyWorkAreaPersist {
-  if (v === null || typeof v !== 'object') return false
-  const o = v as TopologyWorkAreaPersist
-  if (
-    typeof o.id !== 'string' ||
-    typeof o.name !== 'string' ||
-    !o.name.trim() ||
-    typeof o.x !== 'number' ||
-    typeof o.y !== 'number' ||
-    typeof o.width !== 'number' ||
-    typeof o.height !== 'number' ||
-    o.width < 40 ||
-    o.height < 40
-  ) {
-    return false
-  }
-  if (
-    o.titleFontSize !== undefined &&
-    (typeof o.titleFontSize !== 'number' || !Number.isFinite(o.titleFontSize))
-  ) {
-    return false
-  }
-  return true
+function loadNodeScales(key: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(NODE_SCALE_STORAGE_PREFIX + key)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out: Record<string, number> = {}
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) out[id] = value
+    }
+    return out
+  } catch { return {} }
+}
+
+function saveNodeScales(key: string, scales: Record<string, number>) {
+  try { localStorage.setItem(NODE_SCALE_STORAGE_PREFIX + key, JSON.stringify(scales)) }
+  catch { /* quota / private mode */ }
+}
+
+function clearNodeScales(key: string) {
+  try { localStorage.removeItem(NODE_SCALE_STORAGE_PREFIX + key) }
+  catch { /* ignore */ }
 }
 
 function loadWorkAreas(key: string): TopologyWorkAreaPersist[] {
   try {
     const raw = localStorage.getItem(WORK_AREAS_STORAGE_PREFIX + key)
     if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(isValidWorkArea)
+    return coerceWorkAreasArray(JSON.parse(raw) as unknown)
   } catch { return [] }
+}
+
+function resolveStoredWorkAreas(
+  serverLayout: TopologyServerLayout | undefined,
+  localAreas: TopologyWorkAreaPersist[],
+): TopologyWorkAreaPersist[] {
+  const serverAreas = coerceWorkAreasArray(serverLayout?.workAreas)
+  if (serverLayout !== undefined && serverAreas.length > 0) return serverAreas
+  if (localAreas.length > 0) return localAreas
+  return serverAreas
 }
 
 function saveWorkAreas(key: string, areas: TopologyWorkAreaPersist[]) {
@@ -544,9 +652,9 @@ function clearEdgeLayouts(key: string) {
 }
 
 function mergePersistedNodePositions(
-  nodes: DeviceFlowNodeType[],
+  nodes: TopologyDeviceNode[],
   saved: Readonly<Record<string, { x: number; y: number }>>
-): DeviceFlowNodeType[] {
+): TopologyDeviceNode[] {
   return nodes.map((n) => {
     const p = saved[n.id]
     if (p == null) return n
@@ -561,6 +669,7 @@ function persistCanvasLocal(
 ) {
   if (!key) return
   saveNodePositions(key, snapshotDevicePositions(nodes))
+  saveNodeScales(key, snapshotDeviceScales(nodes))
   saveWorkAreas(key, snapshotWorkAreas(nodes))
   saveNodeParents(key, snapshotNodeParents(nodes))
   if (edgeLayouts) saveEdgeLayouts(key, edgeLayouts)
@@ -809,6 +918,7 @@ function TopologyFlowPanels({
       if (onClearServerLayout) await onClearServerLayout()
     } catch { /* continuar con reset local */ }
     clearNodePositions(persistenceKey)
+    clearNodeScales(persistenceKey)
     clearEdgeLayouts(persistenceKey)
     clearWorkAreas(persistenceKey)
     clearNodeParents(persistenceKey)
@@ -1010,14 +1120,9 @@ function TopologyFlowInner({
     }
     const localAreas = persistenceKey ? loadWorkAreas(persistenceKey) : []
     const localParents = persistenceKey ? loadNodeParents(persistenceKey) : {}
-    const hasServer = serverLayout !== undefined
     return {
-      workAreas: hasServer && (serverLayout.workAreas?.length ?? 0) > 0
-        ? serverLayout.workAreas
-        : localAreas.length > 0
-          ? localAreas
-          : (serverLayout?.workAreas ?? []),
-      parents: hasServer && Object.keys(serverLayout.nodeParents ?? {}).length > 0
+      workAreas: resolveStoredWorkAreas(serverLayout, localAreas),
+      parents: serverLayout !== undefined && Object.keys(serverLayout.nodeParents ?? {}).length > 0
         ? serverLayout.nodeParents
         : Object.keys(localParents).length > 0
           ? localParents
@@ -1028,6 +1133,7 @@ function TopologyFlowInner({
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
     const built = topologyToFlowElements(topology)
     const localPos = persistenceKey ? loadNodePositions(persistenceKey) : {}
+    const localScales = persistenceKey ? loadNodeScales(persistenceKey) : {}
     const localLayouts = persistenceKey ? loadEdgeLayouts(persistenceKey) : {}
     const localAreas = persistenceKey ? loadWorkAreas(persistenceKey) : []
     const localParents = persistenceKey ? loadNodeParents(persistenceKey) : {}
@@ -1035,14 +1141,11 @@ function TopologyFlowInner({
     const serverPos = hasServer ? serverLayout.nodePositions : null
     const serverLayouts = hasServer ? serverLayout.labelOffsets : null
     let devices = mergePersistedNodePositions(built.nodes, localPos)
+    devices = mergePersistedNodeScales(devices, localScales)
     let edges = mergePersistedEdgeLayout(built.edges, localLayouts)
     if (serverPos !== null) devices = mergePersistedNodePositions(devices, serverPos)
     if (serverLayouts !== null) edges = mergePersistedEdgeLayout(edges, serverLayouts)
-    const workAreas = hasServer && (serverLayout.workAreas?.length ?? 0) > 0
-      ? serverLayout.workAreas
-      : localAreas.length > 0
-        ? localAreas
-        : (serverLayout?.workAreas ?? [])
+    const workAreas = resolveStoredWorkAreas(serverLayout, localAreas)
     const parents = hasServer && Object.keys(serverLayout?.nodeParents ?? {}).length > 0
       ? serverLayout!.nodeParents
       : Object.keys(localParents).length > 0
@@ -1055,6 +1158,19 @@ function TopologyFlowInner({
 
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<TopologyCanvasNode>(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<PortLinkEdgeType>(initialEdges)
+
+  // Quitar extent:'parent' legado para poder arrastrar dispositivos fuera del área.
+  useEffect(() => {
+    setNodes((prev) => {
+      let changed = false
+      const next = prev.map((n) => {
+        if (n.type === 'workArea' || n.extent === undefined) return n
+        changed = true
+        return { ...n, extent: undefined }
+      })
+      return changed ? next : prev
+    })
+  }, [setNodes])
 
   const highlightedPortIds = useMemo(() => {
     const ids = new Set<string>()
@@ -1099,13 +1215,17 @@ function TopologyFlowInner({
     const { nodes: nextDevices, edges: nextEdges } = topologyToFlowElements(topology)
     const live = getNodesRef.current?.() ?? null
     const currentPositions = live ? snapshotDevicePositions(live) : {}
+    const currentScales = live ? snapshotDeviceScales(live) : {}
     const localPos = persistenceKey ? loadNodePositions(persistenceKey) : {}
+    const localScales = persistenceKey ? loadNodeScales(persistenceKey) : {}
     const localLayouts = persistenceKey ? loadEdgeLayouts(persistenceKey) : {}
     const hasServer = serverLayout !== undefined
     const serverPos = hasServer ? serverLayout.nodePositions : null
     const serverLayouts = hasServer ? serverLayout.labelOffsets : null
     let devices = mergePersistedNodePositions(nextDevices, currentPositions)
     devices = mergePersistedNodePositions(devices, localPos)
+    devices = mergePersistedNodeScales(devices, localScales)
+    devices = mergePersistedNodeScales(devices, currentScales)
     let e = mergePersistedEdgeLayout(nextEdges, localLayouts)
     if (serverPos !== null) devices = mergePersistedNodePositions(devices, serverPos)
     if (serverLayouts !== null) e = mergePersistedEdgeLayout(e, serverLayouts)
@@ -1140,11 +1260,14 @@ function TopologyFlowInner({
     )
     if (resizeEnded) {
       queueMicrotask(() => {
-        const nds = (getNodesRef.current?.() ?? []) as TopologyCanvasNode[]
+        const raw = (getNodesRef.current?.() ?? []) as TopologyCanvasNode[]
+        const nds = withSyncedDeviceNodeScales(raw) as TopologyCanvasNode[]
+        setNodes(nds)
         persistLayoutLocalFromNodes(nds)
+        setEdges((prev) => withOrientedPortHandles(nds, prev))
       })
     }
-  }, [onNodesChangeBase, persistLayoutLocalFromNodes])
+  }, [onNodesChangeBase, persistLayoutLocalFromNodes, setEdges, setNodes])
 
   useEffect(() => () => {
     if (layoutSaveResetTimerRef.current != null) window.clearTimeout(layoutSaveResetTimerRef.current)

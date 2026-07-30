@@ -8,12 +8,13 @@ export type ScannedRoutes = {
     'auth.register': { paramsTuple?: []; params?: {} }
     'auth.logout': { paramsTuple?: []; params?: {} }
     'auth.me': { paramsTuple?: []; params?: {} }
-    'me.companies': { paramsTuple?: []; params?: {} }
-    'companies.index': { paramsTuple?: []; params?: {} }
-    'companies.store': { paramsTuple?: []; params?: {} }
-    'companies.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'companies.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'companies.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'me.projects': { paramsTuple?: []; params?: {} }
+    'dashboard.show': { paramsTuple?: []; params?: {} }
+    'projects.index': { paramsTuple?: []; params?: {} }
+    'projects.store': { paramsTuple?: []; params?: {} }
+    'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'projects.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'projects.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -56,6 +57,51 @@ export type ScannedRoutes = {
     'device_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.index': { paramsTuple?: []; params?: {} }
+    'device_templates.store': { paramsTuple?: []; params?: {} }
+    'device_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }
+    'device_templates.ports_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }
+    'sites.index': { paramsTuple?: []; params?: {} }
+    'sites.store': { paramsTuple?: []; params?: {} }
+    'sites.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.areas_index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.areas_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.areas_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
+    'sites.areas_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
+    'racks.index': { paramsTuple?: []; params?: {} }
+    'racks.store': { paramsTuple?: []; params?: {} }
+    'racks.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'port_types.index': { paramsTuple?: []; params?: {} }
+    'port_types.store': { paramsTuple?: []; params?: {} }
+    'port_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'port_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'port_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'cable_types.index': { paramsTuple?: []; params?: {} }
+    'cable_types.store': { paramsTuple?: []; params?: {} }
+    'cable_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'cable_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'cable_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.index': { paramsTuple?: []; params?: {} }
+    'attachments.store': { paramsTuple?: []; params?: {} }
+    'attachments.download': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'secrets.index': { paramsTuple?: []; params?: {} }
+    'secrets.store': { paramsTuple?: []; params?: {} }
+    'secrets.reveal': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'secrets.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'secrets.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_credentials.index': { paramsTuple?: []; params?: {} }
     'device_credentials.store': { paramsTuple?: []; params?: {} }
     'device_credentials.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -77,9 +123,10 @@ export type ScannedRoutes = {
   }
   GET: {
     'auth.me': { paramsTuple?: []; params?: {} }
-    'me.companies': { paramsTuple?: []; params?: {} }
-    'companies.index': { paramsTuple?: []; params?: {} }
-    'companies.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'me.projects': { paramsTuple?: []; params?: {} }
+    'dashboard.show': { paramsTuple?: []; params?: {} }
+    'projects.index': { paramsTuple?: []; params?: {} }
+    'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
@@ -96,6 +143,24 @@ export type ScannedRoutes = {
     'topology.index': { paramsTuple?: []; params?: {} }
     'device_types.index': { paramsTuple?: []; params?: {} }
     'device_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.index': { paramsTuple?: []; params?: {} }
+    'device_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.index': { paramsTuple?: []; params?: {} }
+    'sites.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.areas_index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.index': { paramsTuple?: []; params?: {} }
+    'racks.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'port_types.index': { paramsTuple?: []; params?: {} }
+    'port_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'cable_types.index': { paramsTuple?: []; params?: {} }
+    'cable_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.index': { paramsTuple?: []; params?: {} }
+    'attachments.download': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'secrets.index': { paramsTuple?: []; params?: {} }
+    'secrets.reveal': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_credentials.index': { paramsTuple?: []; params?: {} }
     'device_credentials.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.index': { paramsTuple?: []; params?: {} }
@@ -107,9 +172,10 @@ export type ScannedRoutes = {
   }
   HEAD: {
     'auth.me': { paramsTuple?: []; params?: {} }
-    'me.companies': { paramsTuple?: []; params?: {} }
-    'companies.index': { paramsTuple?: []; params?: {} }
-    'companies.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'me.projects': { paramsTuple?: []; params?: {} }
+    'dashboard.show': { paramsTuple?: []; params?: {} }
+    'projects.index': { paramsTuple?: []; params?: {} }
+    'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
@@ -126,6 +192,24 @@ export type ScannedRoutes = {
     'topology.index': { paramsTuple?: []; params?: {} }
     'device_types.index': { paramsTuple?: []; params?: {} }
     'device_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.index': { paramsTuple?: []; params?: {} }
+    'device_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.index': { paramsTuple?: []; params?: {} }
+    'sites.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.areas_index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.index': { paramsTuple?: []; params?: {} }
+    'racks.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'port_types.index': { paramsTuple?: []; params?: {} }
+    'port_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'cable_types.index': { paramsTuple?: []; params?: {} }
+    'cable_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.index': { paramsTuple?: []; params?: {} }
+    'attachments.download': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'secrets.index': { paramsTuple?: []; params?: {} }
+    'secrets.reveal': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_credentials.index': { paramsTuple?: []; params?: {} }
     'device_credentials.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.index': { paramsTuple?: []; params?: {} }
@@ -139,7 +223,7 @@ export type ScannedRoutes = {
     'auth.login': { paramsTuple?: []; params?: {} }
     'auth.register': { paramsTuple?: []; params?: {} }
     'auth.logout': { paramsTuple?: []; params?: {} }
-    'companies.store': { paramsTuple?: []; params?: {} }
+    'projects.store': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'ports.store': { paramsTuple?: []; params?: {} }
     'vlans.store': { paramsTuple?: []; params?: {} }
@@ -148,12 +232,21 @@ export type ScannedRoutes = {
     'departments.store': { paramsTuple?: []; params?: {} }
     'topology.store': { paramsTuple?: []; params?: {} }
     'device_types.store': { paramsTuple?: []; params?: {} }
+    'device_templates.store': { paramsTuple?: []; params?: {} }
+    'device_templates.ports_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.store': { paramsTuple?: []; params?: {} }
+    'sites.areas_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'racks.store': { paramsTuple?: []; params?: {} }
+    'port_types.store': { paramsTuple?: []; params?: {} }
+    'cable_types.store': { paramsTuple?: []; params?: {} }
+    'attachments.store': { paramsTuple?: []; params?: {} }
+    'secrets.store': { paramsTuple?: []; params?: {} }
     'device_credentials.store': { paramsTuple?: []; params?: {} }
     'system_users.store': { paramsTuple?: []; params?: {} }
     'employee_credentials.store': { paramsTuple?: []; params?: {} }
   }
   PUT: {
-    'companies.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'projects.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vlans.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -163,13 +256,22 @@ export type ScannedRoutes = {
     'topology.canvas_layout_update': { paramsTuple?: []; params?: {} }
     'topology.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }
+    'sites.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.areas_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
+    'racks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'port_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'cable_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'secrets.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_credentials.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'user_memberships.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   DELETE: {
-    'companies.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'projects.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vlans.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -179,6 +281,15 @@ export type ScannedRoutes = {
     'topology.canvas_layout_destroy': { paramsTuple?: []; params?: {} }
     'topology.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }
+    'sites.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'sites.areas_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
+    'racks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'port_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'cable_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'attachments.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'secrets.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_credentials.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'system_users.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employee_credentials.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }

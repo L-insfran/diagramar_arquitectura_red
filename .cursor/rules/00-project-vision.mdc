@@ -1,0 +1,28 @@
+---
+description: Visión del producto — plataforma profesional de documentación de infraestructura IT
+alwaysApply: true
+---
+
+# Visión del producto
+
+Este software es una **plataforma profesional** para documentación de infraestructura IT y redes empresariales (comparable a NetBox, RackTables, RackManage, Device42), con UX moderna.
+
+**NO es un CRUD simple.** Todo código nuevo debe respetar esta visión.
+
+## Principios innegociables
+
+- El proyecto **YA EXISTE**. Nunca crear una app desde cero. Siempre analizar la arquitectura actual antes de modificar.
+- **Extender**, nunca romper. No eliminar funcionalidades existentes.
+- No generar soluciones rápidas ni código desechable. Preparar código para evolucionar años.
+- El software administra **relaciones**, no solo dispositivos. Las **conexiones son ciudadanos de primera clase** (entidades, nunca texto libre).
+- Todo dispositivo nace de un **Template** → Instancia → Conexiones → Documentación.
+- Scope raíz: **Proyecto** (`projects`, `project_id`, `X-Project-Id`). Proyecto = infraestructura completa de un cliente. ADR 0001 aceptado (opción A).
+
+## Antes de escribir código
+
+1. Analizar la arquitectura existente.
+2. Buscar reutilización. Evitar duplicación.
+3. Mantener consistencia con patrones actuales.
+4. Pensar impacto en módulos futuros (racks, SNMP, LLDP, integraciones).
+5. Preferir componentes/servicios pequeños y reutilizables.
+6. Entre varias soluciones, elegir la más mantenible y escalable.

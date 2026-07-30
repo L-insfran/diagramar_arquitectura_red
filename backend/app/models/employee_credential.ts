@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from './employee.js'
-import Company from './company.js'
+import Project from './project.js'
 
 export type EmployeeCredentialKind = 'file_server' | 'vpn' | 'email' | 'rdp' | 'other'
 
@@ -16,7 +16,7 @@ export default class EmployeeCredential extends BaseModel {
   declare employeeId: string
 
   @column()
-  declare companyId: string
+  declare projectId: string
 
   @column()
   declare kind: EmployeeCredentialKind
@@ -43,6 +43,6 @@ export default class EmployeeCredential extends BaseModel {
   @belongsTo(() => Employee)
   declare employee: BelongsTo<typeof Employee>
 
-  @belongsTo(() => Company)
-  declare company: BelongsTo<typeof Company>
+  @belongsTo(() => Project)
+  declare project: BelongsTo<typeof Project>
 }

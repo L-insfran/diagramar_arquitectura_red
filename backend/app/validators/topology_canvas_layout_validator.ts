@@ -25,7 +25,7 @@ const workAreaSchema = vine.object({
 
 export const updateTopologyCanvasLayoutValidator = vine.compile(
   vine.object({
-    companyId: vine.string().uuid(),
+    projectId: vine.string().uuid(),
     layer: vine.enum(['unified'] as const).optional(),
     nodePositions: vine.record(pointSchema),
     labelOffsets: vine.record(labelOffsetSchema),

@@ -2,11 +2,11 @@ import type { HttpContext } from '@adonisjs/core/http'
 import Network from '#models/network'
 import SystemUser from '#models/system_user'
 import NetworkService from '#services/network_service'
-import { canAccessCompany, canMutateInCompany } from '#services/authorization_service'
+import { canAccessProject, canMutateInProject } from '#services/authorization_service'
 import {
-  requireCompanyContext,
-  requireMutateCompanyContext,
-} from '#services/company_context_service'
+  requireProjectContext,
+  requireMutateProjectContext,
+} from '#services/project_context_service'
 import { createNetworkValidator, updateNetworkValidator } from '#validators/network_validator'
 
 function serializeNetworkWithUsage(
@@ -21,11 +21,11 @@ export default class NetworksController {
   private networkService = new NetworkService()
 
   async index(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
     const networks = await Network.query()
-      .where('company_id', context.companyId)
+      .where('project_id', context.projectId)
       .preload('vlan')
       .orderBy('name', 'asc')
     const vlanIds = networks.map((n) => n.vlanId).filter((id): id is string => Boolean(id))
@@ -35,10 +35,10 @@ export default class NetworksController {
   }
 
   async store(ctx: HttpContext) {
-    if (!(await requireMutateCompanyContext(ctx))) return
+    if (!(await requireMutateProjectContext(ctx))) return
 
     const data = await ctx.request.validateUsing(createNetworkValidator)
-    if (!(await canAccessCompany(ctx.auth.getUserOrFail() as SystemUser, data.companyId))) {
+    if (!(await canAccessProject(ctx.auth.getUserOrFail() as SystemUser, data.projectId))) {
       return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const network = await Network.create(data)
@@ -55,7 +55,7 @@ export default class NetworksController {
   async show({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const network = await Network.query().where('id', params.id).preload('vlan').firstOrFail()
-    if (!(await canAccessCompany(user, network.companyId))) {
+    if (!(await canAccessProject(user, network.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const vlanIdsOnPorts = await this.networkService.getVlanIdsAssignedToPorts(
@@ -70,11 +70,11 @@ export default class NetworksController {
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const network = await Network.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, network.companyId))) {
+    if (!(await canMutateInProject(user, network.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const data = await request.validateUsing(updateNetworkValidator)
-    if (data.companyId && !(await canAccessCompany(user, data.companyId))) {
+    if (data.projectId && !(await canAccessProject(user, data.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     network.merge(data)
@@ -92,7 +92,7 @@ export default class NetworksController {
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const network = await Network.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, network.companyId))) {
+    if (!(await canMutateInProject(user, network.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     if (network.vlanId) {

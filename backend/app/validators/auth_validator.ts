@@ -13,7 +13,7 @@ export const registerValidator = vine.compile(
     password: vine.string().minLength(8),
     firstName: vine.string().trim().minLength(1).maxLength(100),
     lastName: vine.string().trim().minLength(1).maxLength(100),
-    companyId: vine.string().uuid(),
+    projectId: vine.string().uuid(),
     role: vine.enum(['admin', 'operator', 'viewer'] as const).optional(),
   })
 )

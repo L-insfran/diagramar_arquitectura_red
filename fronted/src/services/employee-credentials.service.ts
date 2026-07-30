@@ -3,7 +3,7 @@ import type { ApiResponse, EmployeeCredential } from '../types'
 
 export interface CreateCredentialPayload {
   employeeId: string
-  companyId: string
+  projectId: string
   kind?: EmployeeCredential['kind']
   label?: string
   username: string

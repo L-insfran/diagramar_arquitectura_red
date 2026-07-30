@@ -1,18 +1,27 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import Port from '#models/port'
+import PortType from '#models/port_type'
 import Device from '#models/device'
 import Vlan from '#models/vlan'
 import SystemUser from '#models/system_user'
-import { canAccessCompany, canMutateInCompany } from '#services/authorization_service'
+import { canAccessProject, canMutateInProject } from '#services/authorization_service'
 import { createPortValidator, updatePortValidator } from '#validators/port_validator'
 
 type VlanAssignment = { vlanId: string; isTagged?: boolean }
 
 export default class PortsController {
-  private async syncPortVlans(port: Port, companyId: string, assignments: VlanAssignment[]) {
+  private async assertPortTypeExists(code: string | undefined) {
+    if (!code) return
+    const exists = await PortType.query().where('code', code).first()
+    if (!exists) {
+      throw new Error(`Tipo de puerto desconocido: "${code}"`)
+    }
+  }
+
+  private async syncPortVlans(port: Port, projectId: string, assignments: VlanAssignment[]) {
     const uniqueIds = [...new Set(assignments.map((a) => a.vlanId))]
     if (uniqueIds.length) {
-      const vlans = await Vlan.query().where('company_id', companyId).whereIn('id', uniqueIds)
+      const vlans = await Vlan.query().where('project_id', projectId).whereIn('id', uniqueIds)
       if (vlans.length !== uniqueIds.length) {
         throw new Error('Una o más VLANs no pertenecen a la empresa del dispositivo')
       }
@@ -45,8 +54,8 @@ export default class PortsController {
     if (!deviceId) {
       return response.badRequest({ success: false, message: 'device_id query parameter is required' })
     }
-    const device = await Device.findOrFail(deviceId)
-    if (!(await canAccessCompany(user, device.companyId))) {
+    const device = await Device.query().where('id', deviceId).whereNull('deleted_at').firstOrFail()
+    if (!(await canAccessProject(user, device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const ports = await Port.query()
@@ -62,17 +71,25 @@ export default class PortsController {
   async store({ auth, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const data = await request.validateUsing(createPortValidator)
-    const device = await Device.findOrFail(data.deviceId)
-    if (!(await canMutateInCompany(user, device.companyId))) {
+    const device = await Device.query().where('id', data.deviceId).whereNull('deleted_at').firstOrFail()
+    if (!(await canMutateInProject(user, device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
 
     const { vlanAssignments, ...portData } = data
+    try {
+      await this.assertPortTypeExists(portData.portType)
+    } catch (err) {
+      return response.badRequest({
+        success: false,
+        message: err instanceof Error ? err.message : 'Tipo de puerto inválido',
+      })
+    }
     const port = await Port.create(portData)
 
     if (vlanAssignments) {
       try {
-        await this.syncPortVlans(port, device.companyId, vlanAssignments)
+        await this.syncPortVlans(port, device.projectId, vlanAssignments)
       } catch (err) {
         await port.delete()
         return response.badRequest({
@@ -93,7 +110,7 @@ export default class PortsController {
       .preload('device')
       .preload('vlans')
       .firstOrFail()
-    if (!(await canAccessCompany(user, port.device.companyId))) {
+    if (!(await canAccessProject(user, port.device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     return response.ok({ success: true, data: this.serializePort(port) })
@@ -102,24 +119,35 @@ export default class PortsController {
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const port = await Port.query().where('id', params.id).preload('device').firstOrFail()
-    if (!(await canMutateInCompany(user, port.device.companyId))) {
+    if (!(await canMutateInProject(user, port.device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const data = await request.validateUsing(updatePortValidator)
     if (data.deviceId) {
-      const targetDevice = await Device.findOrFail(data.deviceId)
-      if (!(await canMutateInCompany(user, targetDevice.companyId))) {
+      const targetDevice = await Device.query()
+        .where('id', data.deviceId)
+        .whereNull('deleted_at')
+        .firstOrFail()
+      if (!(await canMutateInProject(user, targetDevice.projectId))) {
         return response.forbidden({ success: false, message: 'Insufficient permissions' })
       }
     }
 
     const { vlanAssignments, ...portData } = data
+    try {
+      await this.assertPortTypeExists(portData.portType)
+    } catch (err) {
+      return response.badRequest({
+        success: false,
+        message: err instanceof Error ? err.message : 'Tipo de puerto inválido',
+      })
+    }
     port.merge(portData)
     await port.save()
 
     if (vlanAssignments !== undefined) {
       try {
-        await this.syncPortVlans(port, port.device.companyId, vlanAssignments)
+        await this.syncPortVlans(port, port.device.projectId, vlanAssignments)
       } catch (err) {
         return response.badRequest({
           success: false,
@@ -139,7 +167,7 @@ export default class PortsController {
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const port = await Port.query().where('id', params.id).preload('device').firstOrFail()
-    if (!(await canMutateInCompany(user, port.device.companyId))) {
+    if (!(await canMutateInProject(user, port.device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     await port.delete()

@@ -3,7 +3,7 @@ import hash from '@adonisjs/core/services/hash'
 import DeviceCredential from '#models/device_credential'
 import Device from '#models/device'
 import SystemUser from '#models/system_user'
-import { canAccessCompany, canMutateInCompany } from '#services/authorization_service'
+import { canAccessProject, canMutateInProject } from '#services/authorization_service'
 import {
   createDeviceCredentialValidator,
   updateDeviceCredentialValidator,
@@ -22,8 +22,8 @@ export default class DeviceCredentialsController {
     if (!deviceId) {
       return response.badRequest({ success: false, message: 'device_id query parameter is required' })
     }
-    const device = await Device.findOrFail(deviceId)
-    if (!(await canAccessCompany(user, device.companyId))) {
+    const device = await Device.query().where('id', deviceId).whereNull('deleted_at').firstOrFail()
+    if (!(await canAccessProject(user, device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const rows = await DeviceCredential.query().where('device_id', deviceId).orderBy('credential_type', 'asc')
@@ -33,8 +33,8 @@ export default class DeviceCredentialsController {
   async store({ auth, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const data = await request.validateUsing(createDeviceCredentialValidator)
-    const device = await Device.findOrFail(data.deviceId)
-    if (!(await canMutateInCompany(user, device.companyId))) {
+    const device = await Device.query().where('id', data.deviceId).whereNull('deleted_at').firstOrFail()
+    if (!(await canMutateInProject(user, device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const { password, ...rest } = data
@@ -48,7 +48,7 @@ export default class DeviceCredentialsController {
   async show({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await DeviceCredential.query().where('id', params.id).preload('device').firstOrFail()
-    if (!(await canAccessCompany(user, credential.device.companyId))) {
+    if (!(await canAccessProject(user, credential.device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     return response.ok({ success: true, data: credentialJson(credential) })
@@ -57,7 +57,7 @@ export default class DeviceCredentialsController {
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await DeviceCredential.query().where('id', params.id).preload('device').firstOrFail()
-    if (!(await canMutateInCompany(user, credential.device.companyId))) {
+    if (!(await canMutateInProject(user, credential.device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const data = await request.validateUsing(updateDeviceCredentialValidator)
@@ -73,7 +73,7 @@ export default class DeviceCredentialsController {
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await DeviceCredential.query().where('id', params.id).preload('device').firstOrFail()
-    if (!(await canMutateInCompany(user, credential.device.companyId))) {
+    if (!(await canMutateInProject(user, credential.device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     await credential.delete()

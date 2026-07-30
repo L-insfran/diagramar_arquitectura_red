@@ -5,7 +5,7 @@ const credentialKind = vine.enum(['file_server', 'vpn', 'email', 'rdp', 'other']
 export const createEmployeeCredentialValidator = vine.compile(
   vine.object({
     employeeId: vine.string().uuid(),
-    companyId: vine.string().uuid(),
+    projectId: vine.string().uuid(),
     kind: credentialKind.optional(),
     label: vine.string().trim().maxLength(255).optional(),
     username: vine.string().trim().minLength(1).maxLength(255),

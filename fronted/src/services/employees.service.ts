@@ -2,8 +2,8 @@ import api from './api'
 import type { ApiResponse, Employee } from '../types'
 
 export const employeesService = {
-  async getAll(companyId?: string): Promise<Employee[]> {
-    const params = companyId ? `?company_id=${companyId}` : ''
+  async getAll(projectId?: string): Promise<Employee[]> {
+    const params = projectId ? `?project_id=${projectId}` : ''
     const { data } = await api.get<ApiResponse<Employee[]>>(`/employees${params}`)
     return data.data
   },

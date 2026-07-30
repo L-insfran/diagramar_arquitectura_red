@@ -1,6 +1,6 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
-import Company from '#models/company'
-import CompanyMembership from '#models/company_membership'
+import Project from '#models/project'
+import ProjectMembership from '#models/project_membership'
 import Department from '#models/department'
 import SystemUser from '#models/system_user'
 import DeviceType from '#models/device_type'
@@ -10,19 +10,19 @@ export default class extends BaseSeeder {
   async run() {
     const vlanService = new VlanService()
 
-    const company = await Company.firstOrCreate(
+    const demoProject = await Project.firstOrCreate(
       { domain: 'demo.local' },
       {
-        name: 'Demo Company',
+        name: 'Demo Project',
         domain: 'demo.local',
         address: '123 Network Street',
         phone: '+1-555-0100',
         isActive: true,
       }
     )
-    await vlanService.ensureNativeVlan(company.id)
+    await vlanService.ensureNativeVlan(demoProject.id)
 
-    const clientTwo = await Company.firstOrCreate(
+    const clientTwo = await Project.firstOrCreate(
       { domain: 'cliente2.local' },
       {
         name: 'Cliente 2 S.A.',
@@ -35,22 +35,22 @@ export default class extends BaseSeeder {
     await vlanService.ensureNativeVlan(clientTwo.id)
 
     await Department.firstOrCreate(
-      { companyId: company.id, name: 'IT' },
-      { companyId: company.id, name: 'IT', description: 'Information Technology' }
+      { projectId: demoProject.id, name: 'IT' },
+      { projectId: demoProject.id, name: 'IT', description: 'Information Technology' }
     )
     await Department.firstOrCreate(
-      { companyId: company.id, name: 'Engineering' },
-      { companyId: company.id, name: 'Engineering', description: 'Software Engineering' }
+      { projectId: demoProject.id, name: 'Engineering' },
+      { projectId: demoProject.id, name: 'Engineering', description: 'Software Engineering' }
     )
     await Department.firstOrCreate(
-      { companyId: company.id, name: 'Operations' },
-      { companyId: company.id, name: 'Operations', description: 'Network Operations Center' }
+      { projectId: demoProject.id, name: 'Operations' },
+      { projectId: demoProject.id, name: 'Operations', description: 'Network Operations Center' }
     )
 
     const admin = await SystemUser.updateOrCreate(
       { email: 'admin@demo.local' },
       {
-        companyId: company.id,
+        projectId: demoProject.id,
         email: 'admin@demo.local',
         password: 'admin123',
         firstName: 'Admin',
@@ -60,13 +60,13 @@ export default class extends BaseSeeder {
       }
     )
 
-    await CompanyMembership.updateOrCreate(
-      { systemUserId: admin.id, companyId: company.id },
-      { systemUserId: admin.id, companyId: company.id, role: 'admin', isDefault: true }
+    await ProjectMembership.updateOrCreate(
+      { systemUserId: admin.id, projectId: demoProject.id },
+      { systemUserId: admin.id, projectId: demoProject.id, role: 'admin', isDefault: true }
     )
-    await CompanyMembership.updateOrCreate(
-      { systemUserId: admin.id, companyId: clientTwo.id },
-      { systemUserId: admin.id, companyId: clientTwo.id, role: 'admin', isDefault: false }
+    await ProjectMembership.updateOrCreate(
+      { systemUserId: admin.id, projectId: clientTwo.id },
+      { systemUserId: admin.id, projectId: clientTwo.id, role: 'admin', isDefault: false }
     )
 
     const deviceTypes = [
@@ -83,6 +83,11 @@ export default class extends BaseSeeder {
       { name: 'Server', icon: 'cpu', description: 'Physical or virtual server' },
       { name: 'ESXi', icon: 'box', description: 'VMware ESXi hypervisor host' },
       { name: 'Virtual Machine', icon: 'monitor', description: 'Virtual machine instance' },
+      {
+        name: 'Internet',
+        icon: 'cloud',
+        description: 'Nube de Internet / WAN pública con puerto general invisible en el diagrama',
+      },
       {
         name: 'Internet Service Provider',
         icon: 'cloud',

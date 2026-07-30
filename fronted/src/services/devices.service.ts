@@ -5,9 +5,13 @@ export const devicesService = {
   async getAll(filters?: DeviceFilters): Promise<Device[]> {
     const params = new URLSearchParams()
     if (filters?.status) params.set('status', filters.status)
-    if (filters?.deviceTypeId) params.set('device_type_id', filters.deviceTypeId)
+    if (filters?.deviceTypeId) params.set('deviceTypeId', filters.deviceTypeId)
+    if (filters?.deviceTemplateId) params.set('deviceTemplateId', filters.deviceTemplateId)
+    if (filters?.siteId) params.set('siteId', filters.siteId)
+    if (filters?.areaId) params.set('areaId', filters.areaId)
+    if (filters?.rackId) params.set('rackId', filters.rackId)
     if (filters?.search) params.set('search', filters.search)
-    if (filters?.companyId) params.set('company_id', filters.companyId)
+    if (filters?.projectId) params.set('projectId', filters.projectId)
     const { data } = await api.get<ApiResponse<Device[]>>(`/devices?${params}`)
     return data.data
   },

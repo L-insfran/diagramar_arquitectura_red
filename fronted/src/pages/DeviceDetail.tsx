@@ -10,23 +10,26 @@ import { Card } from '../components/Card'
 import { Modal } from '../components/Modal'
 import { Input } from '../components/Input'
 import { Select } from '../components/Select'
+import { ObjectDocsPanel } from '../components/ObjectDocsPanel'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { devicesService } from '../services/devices.service'
 import { portsService } from '../services/ports.service'
+import { portTypesService } from '../services/port-types.service'
 import { vlansService } from '../services/vlans.service'
-import type { Port, Vlan } from '../types'
+import type { Port, PortType, Vlan } from '../types'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
 
-const portTypeOptions: { value: Port['portType']; label: string }[] = [
+const FALLBACK_PORT_TYPES: { value: string; label: string }[] = [
   { value: 'ethernet', label: 'Ethernet' },
   { value: 'fiber', label: 'Fiber' },
   { value: 'serial', label: 'Serial' },
   { value: 'wireless', label: 'Wireless' },
   { value: 'wan', label: 'WAN' },
   { value: 'sfp', label: 'SFP' },
+  { value: 'coaxial', label: 'Coaxil' },
 ]
 
 const portStatusOptions: { value: Port['status']; label: string }[] = [
@@ -41,25 +44,26 @@ export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { canMutate, isViewer } = usePermissions()
-  const { activeCompanyId } = useCompany()
+  const { activeProjectId } = useProject()
   const { data: device, isLoading, refetch } = useApi(
     () => (id ? devicesService.getById(id) : Promise.reject(new Error('Missing device id'))),
     [id]
   )
   const { data: companyVlans } = useApi(
     () => {
-      const companyId = device?.companyId || activeCompanyId
-      return companyId ? vlansService.getAll(companyId) : Promise.resolve([] as Vlan[])
+      const projectId = device?.projectId || activeProjectId
+      return projectId ? vlansService.getAll(projectId) : Promise.resolve([] as Vlan[])
     },
-    [device?.companyId, activeCompanyId]
+    [device?.projectId, activeProjectId]
   )
+  const { data: catalogPortTypes } = useApi(() => portTypesService.getAll(), [])
 
   const [portModalOpen, setPortModalOpen] = useState(false)
   const [editingPortId, setEditingPortId] = useState<string | null>(null)
   const [portForm, setPortForm] = useState({
     name: '',
     portNumber: '',
-    portType: 'ethernet' as Port['portType'],
+    portType: 'ethernet',
     speed: '',
     status: 'down' as Port['status'],
     description: '',
@@ -81,11 +85,23 @@ export default function DeviceDetail() {
     [companyVlans]
   )
 
+  const portTypeOptions = useMemo(() => {
+    if (catalogPortTypes?.length) {
+      return [...catalogPortTypes]
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        .map((t: PortType) => ({ value: t.code, label: t.name }))
+    }
+    return FALLBACK_PORT_TYPES
+  }, [catalogPortTypes])
+
+  const portTypeLabel = (code: string) =>
+    portTypeOptions.find((o) => o.value === code)?.label ?? code
+
   const resetPortForm = () => {
     setPortForm({
       name: '',
       portNumber: '',
-      portType: 'ethernet',
+      portType: portTypeOptions[0]?.value ?? 'ethernet',
       speed: '',
       status: 'down',
       description: '',
@@ -203,7 +219,9 @@ export default function DeviceDetail() {
       key: 'portType',
       header: 'Type',
       render: (p) => (
-        <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">{p.portType}</span>
+        <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+          {portTypeLabel(p.portType)}
+        </span>
       ),
     },
     { key: 'speed', header: 'Speed', render: (p) => p.speed || '—' },
@@ -283,15 +301,46 @@ export default function DeviceDetail() {
 
   const infoItems: { icon: LucideIcon; label: string; value: string | null | undefined }[] = [
     { icon: Server, label: 'Type', value: device.deviceType?.name },
+    {
+      icon: Cpu,
+      label: 'Template',
+      value: device.deviceTemplate?.name || undefined,
+    },
     { icon: Hash, label: 'IP Address', value: device.ipAddress },
     {
       icon: Cpu,
       label: 'Model',
       value: `${device.manufacturer || ''} ${device.model || ''}`.trim() || undefined,
     },
+    {
+      icon: Hash,
+      label: 'Rack units',
+      value:
+        device.deviceTemplate?.rackUnits != null
+          ? `${device.deviceTemplate.rackUnits}U`
+          : undefined,
+    },
+    {
+      icon: MapPin,
+      label: 'Sitio / Área',
+      value:
+        [device.site?.name, device.area?.name].filter(Boolean).join(' › ') ||
+        device.location ||
+        undefined,
+    },
+    {
+      icon: Server,
+      label: 'Rack',
+      value: device.rack
+        ? `${device.rack.name} · U${device.rackUnitStart ?? '?'}${
+            device.deviceTemplate?.rackUnits
+              ? `–${(device.rackUnitStart ?? 1) + device.deviceTemplate.rackUnits - 1}`
+              : ''
+          } (${device.rackFace ?? 'front'})`
+        : undefined,
+    },
     { icon: Hash, label: 'MAC Address', value: device.macAddress },
     { icon: Hash, label: 'Serial', value: device.serialNumber },
-    { icon: MapPin, label: 'Location', value: device.location },
     { icon: Clock, label: 'Firmware', value: device.firmwareVersion },
   ]
 
@@ -358,6 +407,12 @@ export default function DeviceDetail() {
         </Card>
       )}
 
+      <ObjectDocsPanel
+        attachableType="device"
+        attachableId={device.id}
+        title="Documentación del dispositivo"
+      />
+
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -414,7 +469,7 @@ export default function DeviceDetail() {
               label="Type"
               value={portForm.portType}
               onChange={(e) =>
-                setPortForm((p) => ({ ...p, portType: e.target.value as Port['portType'] }))
+                setPortForm((p) => ({ ...p, portType: e.target.value }))
               }
               options={portTypeOptions.map((o) => ({ value: o.value, label: o.label }))}
             />

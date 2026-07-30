@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
-import Company from './company.js'
+import Project from './project.js'
 import SystemUser from './system_user.js'
 
-export default class CompanyMembership extends BaseModel {
+export default class ProjectMembership extends BaseModel {
+  static table = 'project_memberships'
+
   @column({ isPrimary: true })
   declare id: string
 
@@ -12,7 +14,7 @@ export default class CompanyMembership extends BaseModel {
   declare systemUserId: string
 
   @column()
-  declare companyId: string
+  declare projectId: string
 
   @column()
   declare role: 'admin' | 'operator' | 'viewer'
@@ -29,6 +31,6 @@ export default class CompanyMembership extends BaseModel {
   @belongsTo(() => SystemUser)
   declare systemUser: BelongsTo<typeof SystemUser>
 
-  @belongsTo(() => Company)
-  declare company: BelongsTo<typeof Company>
+  @belongsTo(() => Project)
+  declare project: BelongsTo<typeof Project>
 }

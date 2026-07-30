@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { usePermissions } from '../hooks/usePermissions'
 
 interface TopbarProps {
@@ -19,34 +19,33 @@ const ROLE_LABELS: Record<string, string> = {
 export function Topbar({ onMenuClick }: TopbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout } = useAuth()
-  const { companies, activeCompany, activeCompanyId, setActiveCompany, isLoading } = useCompany()
+  const { projects, activeProject, activeProjectId, setActiveProject, isLoading } = useProject()
   const { isGlobalAdmin, role } = usePermissions()
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const [showCompanyMenu, setShowCompanyMenu] = useState(false)
-  const [companyQuery, setCompanyQuery] = useState('')
-  const companyMenuRef = useRef<HTMLDivElement | null>(null)
+  const [showProjectMenu, setShowProjectMenu] = useState(false)
+  const [projectQuery, setProjectQuery] = useState('')
+  const projectMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    if (!showCompanyMenu) return
+    if (!showProjectMenu) return
     const onDocClick = (e: MouseEvent) => {
-      if (!companyMenuRef.current?.contains(e.target as Node)) {
-        setShowCompanyMenu(false)
-        setCompanyQuery('')
+      if (!projectMenuRef.current?.contains(e.target as Node)) {
+        setShowProjectMenu(false)
+        setProjectQuery('')
       }
     }
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
-  }, [showCompanyMenu])
+  }, [showProjectMenu])
 
-  const filteredCompanies = useMemo(() => {
-    const q = companyQuery.trim().toLowerCase()
-    if (!q) return companies
-    return companies.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.domain ?? '').toLowerCase().includes(q)
+  const filteredProjects = useMemo(() => {
+    const q = projectQuery.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) || (p.domain ?? '').toLowerCase().includes(q)
     )
-  }, [companies, companyQuery])
+  }, [projects, projectQuery])
 
   return (
     <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80">
@@ -61,13 +60,13 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             <Menu className="w-5 h-5" />
           </button>
 
-          <div className="relative min-w-0" ref={companyMenuRef}>
+          <div className="relative min-w-0" ref={projectMenuRef}>
             <button
               type="button"
-              onClick={() => setShowCompanyMenu((v) => !v)}
-              disabled={isLoading || companies.length === 0}
+              onClick={() => setShowProjectMenu((v) => !v)}
+              disabled={isLoading || projects.length === 0}
               className="inline-flex max-w-[min(100vw-8rem,22rem)] items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition disabled:opacity-60"
-              aria-expanded={showCompanyMenu}
+              aria-expanded={showProjectMenu}
               aria-haspopup="listbox"
             >
               <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-600/10 text-blue-600 dark:text-blue-400">
@@ -75,47 +74,47 @@ export function Topbar({ onMenuClick }: TopbarProps) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                  {activeCompany?.name ?? (isLoading ? 'Cargando…' : 'Seleccionar cliente')}
+                  {activeProject?.name ?? (isLoading ? 'Cargando…' : 'Seleccionar proyecto')}
                 </span>
                 <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
                   {ROLE_LABELS[role] ?? role}
-                  {activeCompany?.domain ? ` · ${activeCompany.domain}` : ''}
+                  {activeProject?.domain ? ` · ${activeProject.domain}` : ''}
                 </span>
               </span>
               <ChevronDown className="w-4 h-4 shrink-0 text-slate-400" />
             </button>
 
-            {showCompanyMenu && (
+            {showProjectMenu && (
               <div className="absolute left-0 mt-2 w-[min(100vw-2rem,22rem)] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50 overflow-hidden">
                 <div className="p-2 border-b border-slate-100 dark:border-slate-800">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                     <input
                       type="search"
-                      value={companyQuery}
-                      onChange={(e) => setCompanyQuery(e.target.value)}
-                      placeholder="Buscar cliente…"
+                      value={projectQuery}
+                      onChange={(e) => setProjectQuery(e.target.value)}
+                      placeholder="Buscar proyecto…"
                       className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 py-2 pl-8 pr-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                       autoFocus
                     />
                   </div>
                 </div>
                 <ul className="max-h-64 overflow-y-auto py-1" role="listbox">
-                  {filteredCompanies.length === 0 ? (
+                  {filteredProjects.length === 0 ? (
                     <li className="px-3 py-4 text-center text-xs text-slate-500">Sin resultados</li>
                   ) : (
-                    filteredCompanies.map((company) => {
-                      const selected = company.id === activeCompanyId
+                    filteredProjects.map((project) => {
+                      const selected = project.id === activeProjectId
                       return (
-                        <li key={company.id}>
+                        <li key={project.id}>
                           <button
                             type="button"
                             role="option"
                             aria-selected={selected}
                             onClick={() => {
-                              setActiveCompany(company.id)
-                              setShowCompanyMenu(false)
-                              setCompanyQuery('')
+                              setActiveProject(project.id)
+                              setShowProjectMenu(false)
+                              setProjectQuery('')
                             }}
                             className={`flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800 ${
                               selected ? 'bg-blue-50/70 dark:bg-blue-950/30' : ''
@@ -123,12 +122,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                           >
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                                {company.name}
+                                {project.name}
                               </span>
                               <span className="block truncate text-[11px] text-slate-500">
-                                {ROLE_LABELS[company.role]}
-                                {typeof company.deviceCount === 'number'
-                                  ? ` · ${company.deviceCount} dispositivos`
+                                {ROLE_LABELS[project.role]}
+                                {typeof project.deviceCount === 'number'
+                                  ? ` · ${project.deviceCount} dispositivos`
                                   : ''}
                               </span>
                             </span>
@@ -142,12 +141,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 {isGlobalAdmin && (
                   <div className="border-t border-slate-100 dark:border-slate-800 p-2">
                     <Link
-                      to="/clients"
-                      onClick={() => setShowCompanyMenu(false)}
+                      to="/projects"
+                      onClick={() => setShowProjectMenu(false)}
                       className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
                     >
                       <Building2 className="w-4 h-4" />
-                      Gestionar clientes
+                      Gestionar proyectos
                     </Link>
                   </div>
                 )}

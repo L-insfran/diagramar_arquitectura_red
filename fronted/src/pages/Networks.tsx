@@ -1,25 +1,28 @@
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { FileText, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
+import { Modal } from '../components/Modal'
+import { ObjectDocsPanel } from '../components/ObjectDocsPanel'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { networksService } from '../services/networks.service'
 import type { Network } from '../types'
 
 export default function Networks() {
   const navigate = useNavigate()
   const { canMutate, isAdmin } = usePermissions()
-  const { activeCompanyId } = useCompany()
+  const { activeProjectId } = useProject()
   const { data: networks, isLoading, refetch } = useApi(
     () => networksService.getAll(),
-    [activeCompanyId]
+    [activeProjectId]
   )
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [docsNetwork, setDocsNetwork] = useState<Network | null>(null)
 
   const handleDelete = useCallback(
     async (network: Network) => {
@@ -99,50 +102,61 @@ export default function Networks() {
           <span className="text-xs text-gray-400">Libre</span>
         ),
     },
-    ...(canMutate
-      ? [
-          {
-            key: 'actions',
-            header: 'Actions',
-            render: (n: Network) => (
-              <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant={'ghost' as const}
-                  size={'sm' as const}
-                  className="!p-2"
-                  icon={<Pencil className="w-4 h-4" />}
-                  onClick={(event: React.MouseEvent) => {
-                    event.stopPropagation()
-                    navigate(`/networks/${n.id}/edit`)
-                  }}
-                  aria-label={`Editar ${n.name}`}
-                >
-                  Editar
-                </Button>
-                {isAdmin && !n.inUse && (
-                  <Button
-                    type="button"
-                    variant={'ghost' as const}
-                    size={'sm' as const}
-                    className="!p-2 text-red-500 hover:text-red-600 dark:text-red-400"
-                    icon={<Trash2 className="w-4 h-4" />}
-                    isLoading={deletingId === n.id}
-                    disabled={deletingId !== null}
-                    onClick={(event: React.MouseEvent) => {
-                      event.stopPropagation()
-                      void handleDelete(n)
-                    }}
-                    aria-label={`Eliminar ${n.name}`}
-                  >
-                    Eliminar
-                  </Button>
-                )}
-              </div>
-            ),
-          },
-        ]
-      : []),
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (n) => (
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="!p-2"
+            icon={<FileText className="w-4 h-4" />}
+            onClick={(event) => {
+              event.stopPropagation()
+              setDocsNetwork(n)
+            }}
+          >
+            Docs
+          </Button>
+          {canMutate && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="!p-2"
+              icon={<Pencil className="w-4 h-4" />}
+              onClick={(event) => {
+                event.stopPropagation()
+                navigate(`/networks/${n.id}/edit`)
+              }}
+              aria-label={`Editar ${n.name}`}
+            >
+              Editar
+            </Button>
+          )}
+          {isAdmin && !n.inUse && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="!p-2 text-red-500 hover:text-red-600 dark:text-red-400"
+              icon={<Trash2 className="w-4 h-4" />}
+              isLoading={deletingId === n.id}
+              disabled={deletingId !== null}
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleDelete(n)
+              }}
+              aria-label={`Eliminar ${n.name}`}
+            >
+              Eliminar
+            </Button>
+          )}
+        </div>
+      ),
+    },
   ]
 
   return (
@@ -170,6 +184,21 @@ export default function Networks() {
           canMutate ? (network) => navigate(`/networks/${network.id}/edit`) : undefined
         }
       />
+
+      <Modal
+        isOpen={Boolean(docsNetwork)}
+        onClose={() => setDocsNetwork(null)}
+        title={docsNetwork ? `Documentación — ${docsNetwork.name}` : 'Documentación'}
+        size="lg"
+      >
+        {docsNetwork && (
+          <ObjectDocsPanel
+            attachableType="network"
+            attachableId={docsNetwork.id}
+            title="Red"
+          />
+        )}
+      </Modal>
     </div>
   )
 }

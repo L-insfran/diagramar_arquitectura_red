@@ -1,6 +1,6 @@
 import { Building2 } from 'lucide-react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { useAuth } from '../contexts/AuthContext'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -9,12 +9,13 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: 'Visualizador',
 }
 
-export default function SelectClient() {
+export default function SelectProject() {
   const { user } = useAuth()
-  const { companies, setActiveCompany, needsCompanySelection, isLoading, activeCompanyId } = useCompany()
+  const { projects, setActiveProject, needsProjectSelection, isLoading, activeProjectId } =
+    useProject()
   const navigate = useNavigate()
 
-  if (!isLoading && !needsCompanySelection && activeCompanyId) {
+  if (!isLoading && !needsProjectSelection && activeProjectId) {
     return <Navigate to="/" replace />
   }
 
@@ -25,26 +26,26 @@ export default function SelectClient() {
           <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-blue-600 text-white">
             <Building2 className="w-6 h-6" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Seleccionar cliente</h1>
+          <h1 className="text-2xl font-bold text-white">Seleccionar proyecto</h1>
           <p className="text-sm text-slate-400">
-            Hola {user?.firstName}, tenés acceso a varios clientes. Elegí con cuál trabajar.
+            Hola {user?.firstName}, tenés acceso a varios proyectos. Elegí con cuál trabajar.
           </p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2 space-y-1">
           {isLoading ? (
-            <p className="px-4 py-8 text-center text-sm text-slate-400">Cargando clientes…</p>
-          ) : companies.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-slate-400">Cargando proyectos…</p>
+          ) : projects.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-slate-400">
-              No tenés clientes asignados. Pedile a un administrador que te dé acceso.
+              No tenés proyectos asignados. Pedile a un administrador que te dé acceso.
             </p>
           ) : (
-            companies.map((company) => (
+            projects.map((project) => (
               <button
-                key={company.id}
+                key={project.id}
                 type="button"
                 onClick={() => {
-                  setActiveCompany(company.id)
+                  setActiveProject(project.id)
                   navigate('/', { replace: true })
                 }}
                 className="flex w-full items-start gap-3 rounded-xl px-4 py-3 text-left hover:bg-slate-800/80 transition"
@@ -53,12 +54,12 @@ export default function SelectClient() {
                   <Building2 className="w-4 h-4" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-semibold text-slate-100">{company.name}</span>
+                  <span className="block font-semibold text-slate-100">{project.name}</span>
                   <span className="block text-xs text-slate-400 mt-0.5">
-                    {ROLE_LABELS[company.role] ?? company.role}
-                    {company.domain ? ` · ${company.domain}` : ''}
-                    {typeof company.deviceCount === 'number'
-                      ? ` · ${company.deviceCount} dispositivos`
+                    {ROLE_LABELS[project.role] ?? project.role}
+                    {project.domain ? ` · ${project.domain}` : ''}
+                    {typeof project.deviceCount === 'number'
+                      ? ` · ${project.deviceCount} dispositivos`
                       : ''}
                   </span>
                 </span>

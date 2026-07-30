@@ -12,6 +12,7 @@ import {
   Wifi,
   Cable,
   Zap,
+  Cloud,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -25,9 +26,10 @@ import {
 } from '../components/topology/TopologyFlowCanvas'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { topologyService } from '../services/topology.service'
+import { coerceWorkAreasArray } from '../utils/topologyWorkAreas'
 import { exportTopologyPdf } from '../utils/exportPdf'
 import type {
   TopologyData,
@@ -96,22 +98,23 @@ const MEDIUM_ICON: Record<MediumType, typeof Cable> = {
   utp: Cable,
   fiber: Zap,
   wifi: Wifi,
+  internet: Cloud,
 }
 
 export default function Topology() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { activeCompanyId, activeCompany, roleInActiveCompany } = useCompany()
+  const { activeProjectId, activeProject, roleInActiveProject } = useProject()
   const { canMutate } = usePermissions()
   const toast = useToast()
-  const companyId = activeCompanyId
-  const companyName = activeCompany?.name
+  const projectId = activeProjectId
+  const projectName = activeProject?.name
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const topologyFlowRef = useRef<TopologyFlowCanvasHandle | null>(null)
 
   const { data: topology, isLoading, error, refetch } = useApi(
-    () => topologyService.getTopology(companyId || undefined),
-    [companyId]
+    () => topologyService.getTopology(projectId || undefined),
+    [projectId]
   )
 
   const graphTopology: TopologyData = useMemo(() => {
@@ -141,16 +144,16 @@ export default function Topology() {
   const [exporting, setExporting] = useState(false)
 
   const flowPersistenceKey = useMemo(() => {
-    if (!companyId) return undefined
-    const base = `topology-${companyId}-unified`
-    if (roleInActiveCompany === 'viewer' && user?.id) return `${base}-viewer-${user.id}`
+    if (!projectId) return undefined
+    const base = `topology-${projectId}-unified`
+    if (roleInActiveProject === 'viewer' && user?.id) return `${base}-viewer-${user.id}`
     return base
-  }, [companyId, roleInActiveCompany, user?.id])
+  }, [projectId, roleInActiveProject, user?.id])
 
   const [serverLayout, setServerLayout] = useState<TopologyServerLayout | undefined>(undefined)
 
   useEffect(() => {
-    if (!companyId) {
+    if (!projectId) {
       setServerLayout(undefined)
       return
     }
@@ -158,12 +161,12 @@ export default function Topology() {
     setServerLayout(undefined)
     ;(async () => {
       try {
-        const data = await topologyService.getCanvasLayout(companyId)
+        const data = await topologyService.getCanvasLayout(projectId)
         if (!cancelled) {
           setServerLayout({
             nodePositions: data.nodePositions ?? {},
             labelOffsets: data.labelOffsets ?? {},
-            workAreas: data.workAreas ?? [],
+            workAreas: coerceWorkAreasArray(data.workAreas),
             nodeParents: data.nodeParents ?? {},
           })
         }
@@ -174,7 +177,7 @@ export default function Topology() {
       }
     })()
     return () => { cancelled = true }
-  }, [companyId])
+  }, [projectId])
 
   const [connSearch, setConnSearch] = useState('')
   const [filterSourceDevice, setFilterSourceDevice] = useState('')
@@ -184,7 +187,7 @@ export default function Topology() {
   const [filterVlan, setFilterVlan] = useState('')
   const [filterNetwork, setFilterNetwork] = useState('')
   const connectionFiltersStorageKey = useMemo(
-    () => `nm-topology:connection-filters:${companyId || 'global'}`, [companyId]
+    () => `nm-topology:connection-filters:${projectId || 'global'}`, [projectId]
   )
 
   useEffect(() => {
@@ -226,7 +229,7 @@ export default function Topology() {
   }, [connSearch, filterSourceDevice, filterTargetDevice, filterMedium, filterBandwidth, filterVlan, filterNetwork, connectionFiltersStorageKey])
 
   const connectionsCollapsedStorageKey = useMemo(
-    () => `nm-topology:connections-collapsed:${companyId || 'global'}`, [companyId]
+    () => `nm-topology:connections-collapsed:${projectId || 'global'}`, [projectId]
   )
   const [connectionsCollapsed, setConnectionsCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(connectionsCollapsedStorageKey) === '1' } catch { return false }
@@ -302,7 +305,7 @@ export default function Topology() {
       await exportTopologyPdf({
         title: 'Arquitectura de Red',
         subtitle: `${physicalDiagram.nodes.length} dispositivos · ${physicalDiagram.edges.length} conexiones físicas`,
-        companyName: companyName ?? undefined,
+        projectName: projectName ?? undefined,
         authorName: user?.firstName ? `${user.firstName} ${user.lastName}` : undefined,
         topology: physicalDiagram,
         orientation: 'landscape',
@@ -313,7 +316,7 @@ export default function Topology() {
       console.error('Error exporting PDF:', err)
       toast.error('Error al exportar el PDF', 'Intenta de nuevo.')
     } finally { setExporting(false) }
-  }, [topology, physicalDiagram, user, companyName, toast])
+  }, [topology, physicalDiagram, user, projectName, toast])
 
   const deviceFilterOptions = useMemo(() => {
     if (!graphTopology.nodes.length) return [{ value: '', label: 'Todos' }]
@@ -331,6 +334,7 @@ export default function Topology() {
     { value: 'utp', label: 'Cable UTP' },
     { value: 'fiber', label: 'Fibra óptica' },
     { value: 'wifi', label: 'WiFi' },
+    { value: 'internet', label: 'Internet / WAN' },
   ], [])
 
   const bandwidthFilterOptions = useMemo(() => {
@@ -409,7 +413,7 @@ export default function Topology() {
       chips.push({ key: 'tgt', label: `Destino: ${node ? formatDeviceFilterOptionLabel(node) : filterTargetDevice}`, onRemove: () => setFilterTargetDevice('') })
     }
     if (filterMedium) {
-      const label = filterMedium === 'utp' ? 'Cable UTP' : filterMedium === 'fiber' ? 'Fibra óptica' : filterMedium === 'wifi' ? 'WiFi' : filterMedium
+      const label = MEDIUM_LABELS[filterMedium as MediumType] ?? filterMedium
       chips.push({ key: 'medium', label: `Medio: ${label}`, onRemove: () => setFilterMedium('') })
     }
     if (filterBandwidth) chips.push({ key: 'bw', label: `Velocidad: ${filterBandwidth}`, onRemove: () => setFilterBandwidth('') })
@@ -425,10 +429,10 @@ export default function Topology() {
   }, [connSearch, filterSourceDevice, filterTargetDevice, filterMedium, filterBandwidth, filterVlan, filterNetwork, graphTopology.nodes, vlanFilterOptions, networkFilterOptions])
 
   const mediumStats = useMemo(() => {
-    const counts = { utp: 0, fiber: 0, wifi: 0 }
+    const counts: Record<MediumType, number> = { utp: 0, fiber: 0, wifi: 0, internet: 0 }
     for (const edge of physicalDiagram.edges) {
       const mt = edge.medium?.mediumType ?? 'utp'
-      if (mt in counts) counts[mt]++
+      if (mt in counts) counts[mt as MediumType]++
     }
     return counts
   }, [physicalDiagram.edges])
@@ -447,11 +451,11 @@ export default function Topology() {
   return (
     <div className="space-y-3">
       <PageHeader
-        title={companyName ? `${companyName} — Arquitectura de Red` : 'Arquitectura de Red'}
-        subtitle={`Documentación visual unificada · Rol: ${roleInActiveCompany === 'admin' ? 'Administrador' : roleInActiveCompany === 'operator' ? 'Operador' : 'Visualizador'}`}
+        title={projectName ? `${projectName} — Arquitectura de Red` : 'Arquitectura de Red'}
+        subtitle={`Documentación visual unificada · Rol: ${roleInActiveProject === 'admin' ? 'Administrador' : roleInActiveProject === 'operator' ? 'Operador' : 'Visualizador'}`}
         actions={
           <div className="flex gap-2">
-            {canMutate && companyId && (
+            {canMutate && projectId && (
               <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>Nueva conexión</Button>
             )}
             {physicalDiagram.edges.length > 0 && (
@@ -465,7 +469,7 @@ export default function Topology() {
 
       {!isLoading && !error && topology && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
             <Card compact title="Dispositivos" value={physicalDiagram.nodes.length} subtitle="Capa física" />
             <Card compact title="Enlaces" value={physicalDiagram.edges.length} subtitle="Capa física" />
             <Card compact title="VLANs" value={summary?.vlanCount ?? 0} subtitle="En inventario" />
@@ -482,7 +486,7 @@ export default function Topology() {
           {physicalDiagram.edges.length > 0 && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
               <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Leyenda:</span>
-              {([['utp', 'Cable UTP', '─'], ['fiber', 'Fibra óptica', '─'], ['wifi', 'WiFi', '┈']] as const).map(([mt, label, line]) => (
+              {([['utp', 'Cable UTP', '─'], ['fiber', 'Fibra óptica', '─'], ['wifi', 'WiFi', '┈'], ['internet', 'Internet / WAN', '·─']] as const).map(([mt, label, line]) => (
                 <span key={mt} className="inline-flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
                   <span className="font-mono font-bold" style={{ color: MEDIUM_COLORS[mt] }}>{line}{line}</span>
                   {label}
@@ -514,8 +518,9 @@ export default function Topology() {
             <div className="mb-2 px-1">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Diagrama de topología (capa física)</h3>
               <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400 mt-0.5">
-                Solo se dibujan enlaces físicos entre puertos. Clic en un puerto conectado para resaltar su enlace;
-                doble clic en el cable para editarlo. Los enlaces lógicos quedan en la tabla inferior
+                Solo se dibujan enlaces físicos entre puertos. Clic en un nodo para redimensionarlo (proporcional);
+                clic en un puerto conectado para resaltar su enlace; doble clic en el cable para editarlo.
+                Los enlaces lógicos quedan en la tabla inferior
                 {logicalLinkCount > 0 ? ` (${logicalLinkCount} oculto${logicalLinkCount === 1 ? '' : 's'} en el diagrama)` : ''}.
               </p>
             </div>
@@ -525,7 +530,7 @@ export default function Topology() {
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Crea dispositivos, asigna puertos y VLANs, y luego documenta las conexiones entre ellos.
                 </p>
-                {canMutate && companyId && (
+                {canMutate && projectId && (
                   <div className="mt-4">
                     <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>Nueva conexión</Button>
                   </div>
@@ -544,11 +549,11 @@ export default function Topology() {
                 exporting={exporting}
                 serverLayout={serverLayout}
                 onPersistLayout={
-                  companyId
+                  projectId
                     ? async (payload) => {
                         try {
                           const saved = await topologyService.saveCanvasLayout({
-                            companyId,
+                            projectId,
                             nodePositions: payload.nodePositions,
                             labelOffsets: payload.labelOffsets,
                             workAreas: payload.workAreas,
@@ -557,7 +562,7 @@ export default function Topology() {
                           setServerLayout({
                             nodePositions: saved.nodePositions ?? payload.nodePositions,
                             labelOffsets: saved.labelOffsets ?? payload.labelOffsets,
-                            workAreas: saved.workAreas ?? payload.workAreas,
+                            workAreas: coerceWorkAreasArray(saved.workAreas ?? payload.workAreas),
                             nodeParents: saved.nodeParents ?? payload.nodeParents,
                           })
                         } catch (err: unknown) {
@@ -578,9 +583,9 @@ export default function Topology() {
                     : undefined
                 }
                 onClearServerLayout={
-                  companyId
+                  projectId
                     ? async () => {
-                        await topologyService.clearCanvasLayout(companyId)
+                        await topologyService.clearCanvasLayout(projectId)
                         setServerLayout({ nodePositions: {}, labelOffsets: {}, workAreas: [], nodeParents: {} })
                       }
                     : undefined
@@ -679,7 +684,7 @@ export default function Topology() {
               {!graphTopology.edges.length ? (
                 <div className="px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
                   Aún no hay conexiones documentadas.
-                  {canMutate && companyId && (
+                  {canMutate && projectId && (
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Presiona &quot;Nueva conexión&quot; para documentar tu primer enlace.</p>
                   )}
                 </div>
@@ -788,8 +793,8 @@ export default function Topology() {
         </div>
       )}
 
-      {canMutate && companyId && (
-        <ConnectionModal isOpen={modalOpen} onClose={closeModal} companyId={companyId}
+      {canMutate && projectId && (
+        <ConnectionModal isOpen={modalOpen} onClose={closeModal} projectId={projectId}
           edge={editingEdge} onSaved={refetch} physicalEdges={physicalDiagram.edges} />
       )}
     </div>

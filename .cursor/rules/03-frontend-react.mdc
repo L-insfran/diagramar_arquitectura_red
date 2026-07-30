@@ -1,0 +1,28 @@
+---
+description: Convenciones UX y frontend React
+globs: fronted/**/*.tsx
+alwaysApply: false
+---
+
+# Frontend React
+
+## Prioridad UX
+
+Pantallas limpias, minimalistas, profesionales. Preferir: Cards, Drawer, Context Menu, Tabs, Split View, panel lateral, Drag & Drop, diagramas interactivos. **No abusar de modales.**
+
+## Reutilizar antes de crear
+
+Componentes en `fronted/src/components/`: Button, Card, DataTable, Input, Modal, Select, PageHeader, StatusBadge. Topología en `components/topology/`.
+
+- No crear componentes gigantes; preferir piezas reutilizables.
+- Datos vía `services/*.service.ts` (axios en `api.ts`) + hook `useApi`.
+- Permisos vía `usePermissions` (`canMutate`, `isAdmin`, `isGlobalAdmin`).
+- Estado global solo con Contexts existentes (Auth, Project, Theme, Toast). No introducir stores/React Query sin ADR.
+
+## Scope activo
+
+`ProjectContext` + header `X-Project-Id` desde `api.ts`. Selector en Topbar / `SelectProject`. Lenguaje de producto: **Proyecto**.
+
+## Rutas
+
+Definidas en `App.tsx` con guards: `ProtectedRoute`, `ProjectGate`, `MutateOnly`, `AdminOnly`, `GlobalAdminOnly`.

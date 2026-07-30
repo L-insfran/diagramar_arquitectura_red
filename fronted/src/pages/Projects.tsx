@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Building2, Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { Building2, FileText, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
+import { ObjectDocsPanel } from '../components/ObjectDocsPanel'
 import { useApi } from '../hooks/useApi'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { useToast } from '../contexts/ToastContext'
-import { companiesService } from '../services/companies.service'
+import { projectsService } from '../services/projects.service'
 import { systemUsersService } from '../services/system-users.service'
-import type { Company, SystemUser } from '../types'
+import type { Project, SystemUser } from '../types'
 
 const emptyForm = {
   name: '',
@@ -22,19 +23,19 @@ const emptyForm = {
 }
 
 type MembershipDraft = {
-  companyId: string
+  projectId: string
   role: 'admin' | 'operator' | 'viewer'
   isDefault: boolean
 }
 
-export default function Clients() {
+export default function Projects() {
   const toast = useToast()
-  const { refreshCompanies, setActiveCompany, activeCompanyId } = useCompany()
-  const { data: companies, isLoading, refetch } = useApi(() => companiesService.getAll())
+  const { refreshProjects, setActiveProject, activeProjectId } = useProject()
+  const { data: projects, isLoading, refetch } = useApi(() => projectsService.getAll())
   const { data: users } = useApi(() => systemUsersService.getAll())
 
   const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<Company | null>(null)
+  const [editing, setEditing] = useState<Project | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -44,6 +45,7 @@ export default function Clients() {
   const [memberships, setMemberships] = useState<MembershipDraft[]>([])
   const [membersError, setMembersError] = useState<string | null>(null)
   const [membersSaving, setMembersSaving] = useState(false)
+  const [docsProject, setDocsProject] = useState<Project | null>(null)
 
   const openCreate = () => {
     setEditing(null)
@@ -52,13 +54,13 @@ export default function Clients() {
     setModalOpen(true)
   }
 
-  const openEdit = (company: Company) => {
-    setEditing(company)
+  const openEdit = (project: Project) => {
+    setEditing(project)
     setForm({
-      name: company.name ?? '',
-      domain: company.domain ?? '',
-      address: company.address ?? '',
-      phone: company.phone ?? '',
+      name: project.name ?? '',
+      domain: project.domain ?? '',
+      address: project.address ?? '',
+      phone: project.phone ?? '',
     })
     setFormError(null)
     setModalOpen(true)
@@ -68,7 +70,7 @@ export default function Clients() {
     e.preventDefault()
     setFormError(null)
     if (!form.name.trim()) {
-      setFormError('El nombre del cliente es obligatorio.')
+      setFormError('El nombre del proyecto es obligatorio.')
       return
     }
     try {
@@ -80,44 +82,44 @@ export default function Clients() {
         phone: form.phone.trim() || null,
       }
       if (editing) {
-        await companiesService.update(editing.id, payload)
-        toast.success('Cliente actualizado')
+        await projectsService.update(editing.id, payload)
+        toast.success('Proyecto actualizado')
       } else {
-        const created = await companiesService.create(payload)
-        toast.success('Cliente creado', 'Ya podés documentar su infraestructura.')
-        setActiveCompany(created.id)
+        const created = await projectsService.create(payload)
+        toast.success('Proyecto creado', 'Ya podés documentar su infraestructura.')
+        setActiveProject(created.id)
       }
       setModalOpen(false)
       await refetch()
-      await refreshCompanies()
+      await refreshProjects()
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'No se pudo guardar el cliente.'
+        'No se pudo guardar el proyecto.'
       setFormError(message)
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleDelete = async (company: Company) => {
-    if (company.id === activeCompanyId) {
-      toast.error('No se puede eliminar', 'Cambiá a otro cliente antes de eliminar este.')
+  const handleDelete = async (project: Project) => {
+    if (project.id === activeProjectId) {
+      toast.error('No se puede eliminar', 'Cambiá a otro proyecto antes de eliminar este.')
       return
     }
     const ok = window.confirm(
-      `¿Eliminar el cliente "${company.name}"? Se borrarán dispositivos, VLANs, redes y topología asociados.`
+      `¿Eliminar el proyecto "${project.name}"? Se borrarán dispositivos, VLANs, redes y topología asociados.`
     )
     if (!ok) return
     try {
-      await companiesService.remove(company.id)
-      toast.success('Cliente eliminado')
+      await projectsService.remove(project.id)
+      toast.success('Proyecto eliminado')
       await refetch()
-      await refreshCompanies()
+      await refreshProjects()
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'No se pudo eliminar el cliente.'
+        'No se pudo eliminar el proyecto.'
       toast.error('Error', message)
     }
   }
@@ -126,29 +128,29 @@ export default function Clients() {
     setMembersUser(user)
     setMembersError(null)
     try {
-      const list = await companiesService.getUserMemberships(user.id)
+      const list = await projectsService.getUserMemberships(user.id)
       setMemberships(
         list.map((m) => ({
-          companyId: m.companyId,
+          projectId: m.projectId,
           role: m.role,
           isDefault: m.isDefault,
         }))
       )
     } catch {
       setMemberships(
-        user.companyId
-          ? [{ companyId: user.companyId, role: user.role, isDefault: true }]
+        user.projectId
+          ? [{ projectId: user.projectId, role: user.role, isDefault: true }]
           : []
       )
     }
     setMembersModalOpen(true)
   }
 
-  const toggleMembership = (companyId: string) => {
+  const toggleMembership = (projectId: string) => {
     setMemberships((prev) => {
-      const exists = prev.find((m) => m.companyId === companyId)
+      const exists = prev.find((m) => m.projectId === projectId)
       if (exists) {
-        const next = prev.filter((m) => m.companyId !== companyId)
+        const next = prev.filter((m) => m.projectId !== projectId)
         if (next.length && !next.some((m) => m.isDefault)) {
           next[0] = { ...next[0], isDefault: true }
         }
@@ -157,7 +159,7 @@ export default function Clients() {
       return [
         ...prev,
         {
-          companyId,
+          projectId,
           role: 'operator',
           isDefault: prev.length === 0,
         },
@@ -165,26 +167,26 @@ export default function Clients() {
     })
   }
 
-  const setMembershipRole = (companyId: string, role: MembershipDraft['role']) => {
-    setMemberships((prev) => prev.map((m) => (m.companyId === companyId ? { ...m, role } : m)))
+  const setMembershipRole = (projectId: string, role: MembershipDraft['role']) => {
+    setMemberships((prev) => prev.map((m) => (m.projectId === projectId ? { ...m, role } : m)))
   }
 
-  const setDefaultMembership = (companyId: string) => {
+  const setDefaultMembership = (projectId: string) => {
     setMemberships((prev) =>
-      prev.map((m) => ({ ...m, isDefault: m.companyId === companyId }))
+      prev.map((m) => ({ ...m, isDefault: m.projectId === projectId }))
     )
   }
 
   const saveMemberships = async () => {
     if (!membersUser) return
     if (!memberships.length) {
-      setMembersError('El usuario debe pertenecer al menos a un cliente.')
+      setMembersError('El usuario debe pertenecer al menos a un proyecto.')
       return
     }
     try {
       setMembersSaving(true)
       setMembersError(null)
-      await companiesService.updateUserMemberships(membersUser.id, memberships)
+      await projectsService.updateUserMemberships(membersUser.id, memberships)
       toast.success('Membresías actualizadas')
       setMembersModalOpen(false)
     } catch (err: unknown) {
@@ -197,11 +199,11 @@ export default function Clients() {
     }
   }
 
-  const columns: Column<Company>[] = useMemo(
+  const columns: Column<Project>[] = useMemo(
     () => [
       {
         key: 'name',
-        header: 'Cliente',
+        header: 'Proyecto',
         render: (row) => (
           <div className="min-w-0">
             <p className="font-medium text-gray-900 dark:text-white truncate">{row.name}</p>
@@ -240,6 +242,15 @@ export default function Clients() {
               type="button"
               size="sm"
               variant="ghost"
+              icon={<FileText className="w-4 h-4" />}
+              onClick={() => setDocsProject(row)}
+            >
+              Docs
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
               icon={<Pencil className="w-4 h-4" />}
               onClick={() => openEdit(row)}
             >
@@ -259,35 +270,35 @@ export default function Clients() {
         ),
       },
     ],
-    [activeCompanyId]
+    [activeProjectId]
   )
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Clientes"
-        subtitle="Administrá las empresas/clientes y quién puede acceder a cada red"
+        title="Proyectos"
+        subtitle="Administrá los proyectos y quién puede acceder a cada infraestructura"
         actions={
           <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>
-            Nuevo cliente
+            Nuevo proyecto
           </Button>
         }
       />
 
       <DataTable
         columns={columns}
-        data={companies ?? []}
+        data={projects ?? []}
         isLoading={isLoading}
-        emptyMessage="Todavía no hay clientes. Creá el primero para empezar a documentar redes."
+        emptyMessage="Todavía no hay proyectos. Creá el primero para empezar a documentar redes."
       />
 
       <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Users className="w-4 h-4 text-blue-600" />
-          <h3 className="font-semibold text-gray-900 dark:text-white">Asignar clientes a usuarios</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-white">Asignar proyectos a usuarios</h3>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          Cada usuario puede pertenecer a varios clientes con un rol distinto en cada uno.
+          Cada usuario puede pertenecer a varios proyectos con un rol distinto en cada uno.
         </p>
         <div className="divide-y divide-gray-100 dark:divide-gray-800">
           {(users ?? []).map((u) => (
@@ -318,7 +329,7 @@ export default function Clients() {
       <Modal
         isOpen={modalOpen}
         onClose={() => !submitting && setModalOpen(false)}
-        title={editing ? 'Editar cliente' : 'Nuevo cliente'}
+        title={editing ? 'Editar proyecto' : 'Nuevo proyecto'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
@@ -364,25 +375,25 @@ export default function Clients() {
       >
         <div className="space-y-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Marcá los clientes a los que este usuario puede acceder y definí su rol en cada uno.
+            Marcá los proyectos a los que este usuario puede acceder y definí su rol en cada uno.
           </p>
           <div className="max-h-80 overflow-y-auto space-y-2">
-            {(companies ?? []).map((company) => {
-              const membership = memberships.find((m) => m.companyId === company.id)
+            {(projects ?? []).map((project) => {
+              const membership = memberships.find((m) => m.projectId === project.id)
               const checked = Boolean(membership)
               return (
                 <div
-                  key={company.id}
+                  key={project.id}
                   className="flex flex-col gap-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3 sm:flex-row sm:items-center"
                 >
                   <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-gray-800 dark:text-gray-100">
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => toggleMembership(company.id)}
+                      onChange={() => toggleMembership(project.id)}
                       className="rounded border-gray-300"
                     />
-                    <span className="truncate font-medium">{company.name}</span>
+                    <span className="truncate font-medium">{project.name}</span>
                   </label>
                   {checked && membership && (
                     <div className="flex items-center gap-2">
@@ -396,7 +407,7 @@ export default function Clients() {
                         ]}
                         value={membership.role}
                         onChange={(e) =>
-                          setMembershipRole(company.id, e.target.value as MembershipDraft['role'])
+                          setMembershipRole(project.id, e.target.value as MembershipDraft['role'])
                         }
                       />
                       <label className="inline-flex items-center gap-1.5 text-xs text-gray-500">
@@ -404,7 +415,7 @@ export default function Clients() {
                           type="radio"
                           name="default-membership"
                           checked={membership.isDefault}
-                          onChange={() => setDefaultMembership(company.id)}
+                          onChange={() => setDefaultMembership(project.id)}
                         />
                         Por defecto
                       </label>
@@ -429,6 +440,21 @@ export default function Clients() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(docsProject)}
+        onClose={() => setDocsProject(null)}
+        title={docsProject ? `Documentación — ${docsProject.name}` : 'Documentación'}
+        size="lg"
+      >
+        {docsProject && (
+          <ObjectDocsPanel
+            attachableType="project"
+            attachableId={docsProject.id}
+            title="Proyecto"
+          />
+        )}
       </Modal>
     </div>
   )

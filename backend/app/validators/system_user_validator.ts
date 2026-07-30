@@ -4,7 +4,7 @@ const userRole = vine.enum(['admin', 'operator', 'viewer'] as const)
 
 export const createSystemUserValidator = vine.compile(
   vine.object({
-    companyId: vine.string().uuid(),
+    projectId: vine.string().uuid(),
     email: vine.string().trim().email(),
     password: vine.string().minLength(8).maxLength(128),
     firstName: vine.string().trim().minLength(1).maxLength(100),

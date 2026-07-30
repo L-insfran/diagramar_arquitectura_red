@@ -2,8 +2,8 @@ import api from './api'
 import type { ApiResponse, Network } from '../types'
 
 export const networksService = {
-  async getAll(companyId?: string): Promise<Network[]> {
-    const params = companyId ? `?company_id=${companyId}` : ''
+  async getAll(projectId?: string): Promise<Network[]> {
+    const params = projectId ? `?project_id=${projectId}` : ''
     const { data } = await api.get<ApiResponse<Network[]>>(`/networks${params}`)
     return data.data
   },

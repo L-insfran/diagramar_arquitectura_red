@@ -18,7 +18,7 @@ import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { systemUsersService } from '../services/system-users.service'
 import type { SystemUser } from '../types'
 
@@ -53,10 +53,10 @@ function formatError(err: unknown): string {
 
 export default function Users() {
   const { user: currentUser } = useAuth()
-  const { activeCompanyId } = useCompany()
+  const { activeProjectId } = useProject()
   const { data: users, isLoading, error, refetch } = useApi(
     () => systemUsersService.getAll(),
-    [activeCompanyId]
+    [activeProjectId]
   )
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -101,7 +101,7 @@ export default function Users() {
     event.preventDefault()
     setFormError(null)
 
-    if (!activeCompanyId) return
+    if (!activeProjectId) return
 
     const firstName = form.firstName.trim()
     const lastName = form.lastName.trim()
@@ -140,7 +140,7 @@ export default function Users() {
         })
       } else {
         await systemUsersService.create({
-          companyId: activeCompanyId,
+          projectId: activeProjectId,
           firstName,
           lastName,
           email,
@@ -420,11 +420,11 @@ export default function Users() {
           <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700/50 p-3 text-xs text-gray-500 dark:text-gray-400 space-y-1">
             <p>
               <strong className="text-gray-700 dark:text-gray-300">Admin:</strong> acceso completo
-              al sistema, gestión de empresas, tipos y usuarios.
+              al sistema, gestión de proyectos, tipos y usuarios.
             </p>
             <p>
               <strong className="text-gray-700 dark:text-gray-300">Operador:</strong> gestión
-              operativa de dispositivos, topología, redes, empleados. No gestiona empresas ni
+              operativa de dispositivos, topología, redes, empleados. No gestiona proyectos ni
               tipos.
             </p>
             <p>

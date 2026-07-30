@@ -1,4 +1,12 @@
-import { Handle, Position, useNodeId, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react'
+import {
+  Handle,
+  NodeResizer,
+  Position,
+  useNodeId,
+  useUpdateNodeInternals,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react'
 import { Wifi } from 'lucide-react'
 import { Fragment, useContext, useLayoutEffect } from 'react'
 import { TopologyCanvasInteractionContext } from './TopologyCanvasContext'
@@ -30,6 +38,7 @@ import {
   wifiChipClasses,
   type PortPanelSection,
 } from '../../utils/topologyPortPanel'
+import { clampNodeScale, NODE_SCALE_MAX, NODE_SCALE_MIN } from '../../utils/topologyNodeScale'
 
 export type DeviceNodeData = {
   label: string
@@ -47,6 +56,8 @@ export type DeviceNodeData = {
   ports?: TopologyPortSummary[]
   nodeWidth?: number
   nodeHeight?: number
+  /** Escala visual respecto al tamaño natural del layout (1 = tamaño por defecto). */
+  nodeScale?: number
   totalPortCount?: number
 }
 
@@ -165,10 +176,11 @@ function WifiChip({
   )
 }
 
-export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
+export function DeviceFlowNode({ data, selected, width, height }: NodeProps<DeviceFlowNodeType>) {
   const nodeId = useNodeId()
   const updateNodeInternals = useUpdateNodeInternals()
   const interaction = useContext(TopologyCanvasInteractionContext)
+  const readOnly = interaction?.readOnly ?? false
   const goDevice = interaction?.onNavigateToDevice
   const selection = interaction?.selection ?? null
   const highlightedPortIds = interaction?.highlightedPortIds
@@ -203,8 +215,19 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
   const wirelessInUse = wirelessPorts.filter((p) => p.connected).length
   const freePhysicalCount = Math.max(0, totalPhysicalCount - physicalInUse)
 
-  const nodeWidth = layout.width
-  const nodeHeight = layout.height
+  const baseWidth = layout.width
+  const baseHeight = layout.height
+  const scaleFromData = clampNodeScale(data.nodeScale ?? 1)
+  const displayWidth =
+    typeof width === 'number' && width > 0 ? width : Math.round(baseWidth * scaleFromData)
+  const displayHeight =
+    typeof height === 'number' && height > 0 ? height : Math.round(baseHeight * scaleFromData)
+  const scaleX = displayWidth / baseWidth
+  const scaleY = displayHeight / baseHeight
+
+  /** Coordenadas de handles / anclas en el tamaño natural (dentro del transform). */
+  const nodeWidth = baseWidth
+  const nodeHeight = baseHeight
 
   const portLayoutKey = allPorts
     .map((p) => `${p.id}:${p.portNumber}:${p.portType}:${p.connected ? 1 : 0}`)
@@ -216,8 +239,10 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
     nodeId,
     updateNodeInternals,
     portLayoutKey,
-    nodeWidth,
-    nodeHeight,
+    displayWidth,
+    displayHeight,
+    scaleX,
+    scaleY,
     layout.cols,
     layout.rows,
     layout.gridTop,
@@ -316,19 +341,44 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
 
   return (
     <div
-      className={`relative box-border flex flex-col rounded-lg border border-gray-300 dark:border-gray-600 shadow-md shrink-0 print:shadow-none ${
-        hasPorts ? 'bg-transparent' : 'bg-white dark:bg-gray-800'
+      className={`relative box-border shrink-0 ${
+        selected ? 'z-20' : ''
       }`}
       style={{
-        width: nodeWidth,
-        height: nodeHeight,
-        minWidth: nodeWidth,
-        maxWidth: nodeWidth,
-        minHeight: nodeHeight,
-        maxHeight: nodeHeight,
+        width: displayWidth,
+        height: displayHeight,
         overflow: 'visible',
       }}
     >
+      {!readOnly && (
+        <NodeResizer
+          keepAspectRatio
+          isVisible={!!selected}
+          minWidth={Math.round(baseWidth * NODE_SCALE_MIN)}
+          minHeight={Math.round(baseHeight * NODE_SCALE_MIN)}
+          maxWidth={Math.round(baseWidth * NODE_SCALE_MAX)}
+          maxHeight={Math.round(baseHeight * NODE_SCALE_MAX)}
+          lineClassName="!border-amber-400/90 !border-[2px]"
+          handleClassName="!h-3.5 !w-3.5 !rounded-sm !border-2 !border-amber-500 !bg-white dark:!bg-gray-900"
+        />
+      )}
+
+      <div
+        className={`relative box-border flex flex-col rounded-lg border border-gray-300 dark:border-gray-600 shadow-md print:shadow-none ${
+          hasPorts ? 'bg-transparent' : 'bg-white dark:bg-gray-800'
+        } ${
+          selected
+            ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900'
+            : ''
+        }`}
+        style={{
+          width: baseWidth,
+          height: baseHeight,
+          transform: `scale(${scaleX}, ${scaleY})`,
+          transformOrigin: 'top left',
+          overflow: 'visible',
+        }}
+      >
       {/* Marca de color del dispositivo */}
       <div
         className="pointer-events-none absolute inset-y-px left-px z-10 w-2.5 rounded-l-[7px] print:shadow-none"
@@ -560,6 +610,7 @@ export function DeviceFlowNode({ data }: NodeProps<DeviceFlowNodeType>) {
       {!hasPorts && (
         <Handle type="source" position={Position.Bottom} className="!size-2.5 !border-gray-400 !bg-gray-200 dark:!bg-gray-600" />
       )}
+      </div>
     </div>
   )
 }

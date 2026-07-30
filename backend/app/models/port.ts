@@ -17,8 +17,9 @@ export default class Port extends BaseModel {
   @column()
   declare portNumber: number
 
+  /** Código del catálogo port_types (ej: ethernet, coaxial, wireless). */
   @column()
-  declare portType: 'ethernet' | 'fiber' | 'serial' | 'wireless' | 'wan' | 'sfp'
+  declare portType: string
 
   @column()
   declare speed: string | null

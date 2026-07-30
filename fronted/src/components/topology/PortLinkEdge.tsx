@@ -278,6 +278,7 @@ const MEDIUM_BADGE_CONFIG: Record<MediumType, { bg: string; text: string; icon: 
   utp: { bg: 'bg-blue-50 dark:bg-blue-950/40', text: 'text-blue-800 dark:text-blue-200', icon: '🔌' },
   fiber: { bg: 'bg-orange-50 dark:bg-orange-950/40', text: 'text-orange-800 dark:text-orange-200', icon: '💡' },
   wifi: { bg: 'bg-green-50 dark:bg-green-950/40', text: 'text-green-800 dark:text-green-200', icon: '📶' },
+  internet: { bg: 'bg-sky-50 dark:bg-sky-950/40', text: 'text-sky-800 dark:text-sky-200', icon: '☁️' },
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -413,7 +414,13 @@ export function PortLinkEdge({
   const edgeStyle = {
     ...style,
     stroke: strokeColor,
-    strokeWidth: isHighlighted ? 4 : usePortHandles ? 2.25 : (style?.strokeWidth ?? 2.25),
+    strokeWidth: isHighlighted
+      ? 4
+      : mediumType === 'internet'
+        ? 2.75
+        : usePortHandles
+          ? 2.25
+          : (style?.strokeWidth ?? 2.25),
     strokeLinecap: 'round' as const,
     opacity: isDimmed ? 0.22 : 1,
     filter: isHighlighted ? 'drop-shadow(0 0 4px rgba(245, 158, 11, 0.85))' : undefined,

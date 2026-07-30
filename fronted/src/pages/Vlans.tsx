@@ -1,19 +1,23 @@
-import { Pencil, Plus } from 'lucide-react'
+import { useState } from 'react'
+import { FileText, Pencil, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { Button } from '../components/Button'
+import { Modal } from '../components/Modal'
+import { ObjectDocsPanel } from '../components/ObjectDocsPanel'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { vlansService } from '../services/vlans.service'
 import type { Vlan } from '../types'
 
 export default function Vlans() {
   const navigate = useNavigate()
   const { canMutate } = usePermissions()
-  const { activeCompanyId } = useCompany()
-  const { data: vlans, isLoading } = useApi(() => vlansService.getAll(), [activeCompanyId])
+  const { activeProjectId } = useProject()
+  const { data: vlans, isLoading } = useApi(() => vlansService.getAll(), [activeProjectId])
+  const [docsVlan, setDocsVlan] = useState<Vlan | null>(null)
 
   const columns: Column<Vlan>[] = [
     {
@@ -36,61 +40,46 @@ export default function Vlans() {
       key: 'description',
       header: 'Description',
       render: (v) => (
-        <span className="text-gray-500 dark:text-gray-400">{v.description || '—'}</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400">{v.description || '—'}</span>
       ),
     },
     {
-      key: 'networks',
-      header: 'Networks',
-      render: (v) => {
-        const count = v.networks?.length ?? 0
-        if (!canMutate) {
-          return (
-            <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded text-xs font-medium">
-              {count}
-            </span>
-          )
-        }
-        return (
-          <button
+      key: 'actions',
+      header: 'Actions',
+      render: (v) => (
+        <div className="flex items-center gap-1">
+          <Button
             type="button"
-            className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded text-xs font-medium hover:bg-blue-500/20 transition-colors"
-            title="Las subredes (IP) se definen en Redes. Clic para añadir una red a esta VLAN."
+            variant="ghost"
+            size="sm"
+            className="!p-2"
+            icon={<FileText className="w-4 h-4" />}
             onClick={(event) => {
               event.stopPropagation()
-              navigate(`/networks/new?vlanId=${v.id}`)
+              setDocsVlan(v)
             }}
           >
-            <span>{count}</span>
-            <Plus className="w-3 h-3 opacity-80" aria-hidden />
-          </button>
-        )
-      },
+            Docs
+          </Button>
+          {canMutate && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="!p-2"
+              icon={<Pencil className="w-4 h-4" />}
+              onClick={(event) => {
+                event.stopPropagation()
+                navigate(`/vlans/${v.id}/edit`)
+              }}
+              aria-label={`Edit ${v.name}`}
+            >
+              Edit
+            </Button>
+          )}
+        </div>
+      ),
     },
-    ...(canMutate
-      ? [
-          {
-            key: 'actions',
-            header: 'Actions',
-            render: (v: Vlan) => (
-              <Button
-                type="button"
-                variant={'ghost' as const}
-                size={'sm' as const}
-                className="!p-2"
-                icon={<Pencil className="w-4 h-4" />}
-                onClick={(event: React.MouseEvent) => {
-                  event.stopPropagation()
-                  navigate(`/vlans/${v.id}/edit`)
-                }}
-                aria-label={`Edit ${v.name}`}
-              >
-                Edit
-              </Button>
-            ),
-          },
-        ]
-      : []),
   ]
 
   return (
@@ -113,6 +102,17 @@ export default function Vlans() {
         emptyMessage="No VLANs configured yet"
         onRowClick={canMutate ? (vlan) => navigate(`/vlans/${vlan.id}/edit`) : undefined}
       />
+
+      <Modal
+        isOpen={Boolean(docsVlan)}
+        onClose={() => setDocsVlan(null)}
+        title={docsVlan ? `Documentación — ${docsVlan.name}` : 'Documentación'}
+        size="lg"
+      >
+        {docsVlan && (
+          <ObjectDocsPanel attachableType="vlan" attachableId={docsVlan.id} title="VLAN" />
+        )}
+      </Modal>
     </div>
   )
 }

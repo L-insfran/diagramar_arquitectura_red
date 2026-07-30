@@ -8,7 +8,7 @@ import { Button } from '../components/Button'
 import { Select } from '../components/Select'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { useToast } from '../contexts/ToastContext'
 import { devicesService } from '../services/devices.service'
 import { deviceTypesService } from '../services/device-types.service'
@@ -19,14 +19,14 @@ const NOTEBOOK_NAMES = ['notebook', 'notebock']
 export default function Devices() {
   const navigate = useNavigate()
   const { canMutate, isViewer } = usePermissions()
-  const { activeCompanyId } = useCompany()
+  const { activeProjectId } = useProject()
   const toast = useToast()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [deviceTypeFilter, setDeviceTypeFilter] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const { data: deviceTypes } = useApi(() => deviceTypesService.getAll(), [activeCompanyId])
+  const { data: deviceTypes } = useApi(() => deviceTypesService.getAll(), [activeProjectId])
 
   const notebookTypeId = useMemo(
     () => deviceTypes?.find((t) => NOTEBOOK_NAMES.includes(t.name.toLowerCase()))?.id ?? null,
@@ -40,7 +40,7 @@ export default function Devices() {
         status: statusFilter || undefined,
         deviceTypeId: deviceTypeFilter || undefined,
       }),
-    [search, statusFilter, deviceTypeFilter, activeCompanyId]
+    [search, statusFilter, deviceTypeFilter, activeProjectId]
   )
 
   const isNotebook = (d: Device) =>
@@ -101,10 +101,21 @@ export default function Devices() {
       header: 'Location',
       sortable: true,
       render: (d) => (
-        <span className="text-gray-500 dark:text-gray-400">{d.location || '—'}</span>
+        <span className="text-gray-500 dark:text-gray-400">
+          {[d.site?.name, d.area?.name].filter(Boolean).join(' › ') || d.location || '—'}
+        </span>
       ),
     },
     { key: 'manufacturer', header: 'Manufacturer', render: (d) => d.manufacturer || '—' },
+    {
+      key: 'template',
+      header: 'Template',
+      render: (d) => (
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {d.deviceTemplate?.name || '—'}
+        </span>
+      ),
+    },
     {
       key: 'actions',
       header: 'Actions',

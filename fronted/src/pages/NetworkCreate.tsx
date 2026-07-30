@@ -7,7 +7,7 @@ import { Input } from '../components/Input'
 import { Select } from '../components/Select'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { networksService } from '../services/networks.service'
 import { vlansService } from '../services/vlans.service'
 import type { Vlan } from '../types'
@@ -40,7 +40,7 @@ export default function NetworkCreate() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const { user, isLoading: authLoading } = useAuth()
-  const { activeCompanyId } = useCompany()
+  const { activeProjectId } = useProject()
   const isEditMode = Boolean(id)
   const isAdmin = user?.role === 'admin'
   const { data: existingNetwork, isLoading: isLoadingNetwork } = useApi(
@@ -49,12 +49,12 @@ export default function NetworkCreate() {
   )
   const { data: vlanData, isLoading: vlansLoading } = useApi<Vlan[]>(
     () => {
-      if (!activeCompanyId) {
+      if (!activeProjectId) {
         return Promise.resolve([])
       }
-      return vlansService.getAll(activeCompanyId)
+      return vlansService.getAll(activeProjectId)
     },
-    [activeCompanyId]
+    [activeProjectId]
   )
   const [form, setForm] = useState(initialFormState)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -130,8 +130,8 @@ export default function NetworkCreate() {
       return
     }
 
-    if (!isEditMode && !activeCompanyId) {
-      setFormError('Selecciona un cliente activo antes de crear una red.')
+    if (!isEditMode && !activeProjectId) {
+      setFormError('Selecciona un proyecto activo antes de crear una red.')
       return
     }
 
@@ -157,7 +157,7 @@ export default function NetworkCreate() {
         await networksService.update(id, payload)
       } else {
         await networksService.create({
-          companyId: activeCompanyId,
+          projectId: activeProjectId,
           ...payload,
         })
       }

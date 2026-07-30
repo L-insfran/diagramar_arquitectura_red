@@ -2,7 +2,7 @@ import vine from '@vinejs/vine'
 
 export const createEmployeeValidator = vine.compile(
   vine.object({
-    companyId: vine.string().uuid(),
+    projectId: vine.string().uuid(),
     departmentId: vine.string().uuid().optional(),
     firstName: vine.string().trim().minLength(1).maxLength(100),
     lastName: vine.string().trim().minLength(1).maxLength(100),
@@ -14,7 +14,7 @@ export const createEmployeeValidator = vine.compile(
 
 export const updateEmployeeValidator = vine.compile(
   vine.object({
-    companyId: vine.string().uuid().optional(),
+    projectId: vine.string().uuid().optional(),
     departmentId: vine.string().uuid().optional().nullable(),
     firstName: vine.string().trim().minLength(1).maxLength(100).optional(),
     lastName: vine.string().trim().minLength(1).maxLength(100).optional(),

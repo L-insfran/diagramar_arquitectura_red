@@ -2,33 +2,33 @@ import type { HttpContext } from '@adonisjs/core/http'
 import Vlan from '#models/vlan'
 import SystemUser from '#models/system_user'
 import VlanService from '#services/vlan_service'
-import { canAccessCompany, canMutateInCompany } from '#services/authorization_service'
+import { canAccessProject, canMutateInProject } from '#services/authorization_service'
 import {
-  requireCompanyContext,
-  requireMutateCompanyContext,
-} from '#services/company_context_service'
+  requireProjectContext,
+  requireMutateProjectContext,
+} from '#services/project_context_service'
 import { createVlanValidator, updateVlanValidator } from '#validators/vlan_validator'
 
 export default class VlansController {
   private vlanService = new VlanService()
 
   async index(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
-    await this.vlanService.ensureNativeVlan(context.companyId)
+    await this.vlanService.ensureNativeVlan(context.projectId)
     const vlans = await Vlan.query()
-      .where('company_id', context.companyId)
+      .where('project_id', context.projectId)
       .preload('networks')
       .orderBy('vlan_id', 'asc')
     return ctx.response.ok({ success: true, data: vlans })
   }
 
   async store(ctx: HttpContext) {
-    if (!(await requireMutateCompanyContext(ctx))) return
+    if (!(await requireMutateProjectContext(ctx))) return
 
     const data = await ctx.request.validateUsing(createVlanValidator)
-    if (!(await canAccessCompany(ctx.auth.getUserOrFail() as SystemUser, data.companyId))) {
+    if (!(await canAccessProject(ctx.auth.getUserOrFail() as SystemUser, data.projectId))) {
       return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const vlan = await Vlan.create(data)
@@ -42,7 +42,7 @@ export default class VlansController {
       .preload('networks')
       .preload('ports')
       .firstOrFail()
-    if (!(await canAccessCompany(user, vlan.companyId))) {
+    if (!(await canAccessProject(user, vlan.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     return response.ok({ success: true, data: vlan })
@@ -51,11 +51,11 @@ export default class VlansController {
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const vlan = await Vlan.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, vlan.companyId))) {
+    if (!(await canMutateInProject(user, vlan.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const data = await request.validateUsing(updateVlanValidator)
-    if (data.companyId && !(await canAccessCompany(user, data.companyId))) {
+    if (data.projectId && !(await canAccessProject(user, data.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     vlan.merge(data)
@@ -68,7 +68,7 @@ export default class VlansController {
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const vlan = await Vlan.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, vlan.companyId))) {
+    if (!(await canMutateInProject(user, vlan.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     if (vlan.vlanId === 1) {

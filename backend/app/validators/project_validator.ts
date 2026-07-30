@@ -1,6 +1,6 @@
 import vine from '@vinejs/vine'
 
-export const createCompanyValidator = vine.compile(
+export const createProjectValidator = vine.compile(
   vine.object({
     name: vine.string().trim().minLength(1).maxLength(255),
     domain: vine.string().trim().maxLength(255).optional(),
@@ -9,7 +9,7 @@ export const createCompanyValidator = vine.compile(
   })
 )
 
-export const updateCompanyValidator = vine.compile(
+export const updateProjectValidator = vine.compile(
   vine.object({
     name: vine.string().trim().minLength(1).maxLength(255).optional(),
     domain: vine.string().trim().maxLength(255).optional(),

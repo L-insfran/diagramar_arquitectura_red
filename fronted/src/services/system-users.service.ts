@@ -2,7 +2,7 @@ import api from './api'
 import type { ApiResponse, SystemUser } from '../types'
 
 export interface CreateSystemUserPayload {
-  companyId: string
+  projectId: string
   email: string
   password: string
   firstName: string
@@ -21,8 +21,8 @@ export interface UpdateSystemUserPayload {
 }
 
 export const systemUsersService = {
-  async getAll(companyId?: string): Promise<SystemUser[]> {
-    const params = companyId ? `?company_id=${companyId}` : ''
+  async getAll(projectId?: string): Promise<SystemUser[]> {
+    const params = projectId ? `?project_id=${projectId}` : ''
     const { data } = await api.get<ApiResponse<SystemUser[]>>(`/system-users${params}`)
     return data.data
   },

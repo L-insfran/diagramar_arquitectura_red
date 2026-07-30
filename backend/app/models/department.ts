@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
-import Company from './company.js'
+import Project from './project.js'
 import Employee from './employee.js'
 
 export default class Department extends BaseModel {
@@ -9,7 +9,7 @@ export default class Department extends BaseModel {
   declare id: string
 
   @column()
-  declare companyId: string
+  declare projectId: string
 
   @column()
   declare name: string
@@ -23,8 +23,8 @@ export default class Department extends BaseModel {
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 
-  @belongsTo(() => Company)
-  declare company: BelongsTo<typeof Company>
+  @belongsTo(() => Project)
+  declare project: BelongsTo<typeof Project>
 
   @hasMany(() => Employee)
   declare employees: HasMany<typeof Employee>

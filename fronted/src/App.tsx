@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { CompanyProvider, useCompany } from './contexts/CompanyContext'
+import { ProjectProvider, useProject } from './contexts/ProjectContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ToastViewport } from './components/ToastViewport'
 import { MainLayout } from './layouts/MainLayout'
@@ -21,8 +21,13 @@ import EmployeeDetail from './pages/EmployeeDetail'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
 import DeviceTypes from './pages/DeviceTypes'
-import Clients from './pages/Clients'
-import SelectClient from './pages/SelectClient'
+import DeviceTemplates from './pages/DeviceTemplates'
+import Sites from './pages/Sites'
+import Racks from './pages/Racks'
+import PortTypes from './pages/PortTypes'
+import CableTypes from './pages/CableTypes'
+import Projects from './pages/Projects'
+import SelectProject from './pages/SelectProject'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -60,8 +65,8 @@ function GlobalAdminOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-function CompanyGate({ children }: { children: React.ReactNode }) {
-  const { needsCompanySelection, isLoading } = useCompany()
+function ProjectGate({ children }: { children: React.ReactNode }) {
+  const { needsProjectSelection, isLoading } = useProject()
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -69,7 +74,7 @@ function CompanyGate({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
-  if (needsCompanySelection) return <Navigate to="/select-client" replace />
+  if (needsProjectSelection) return <Navigate to="/select-project" replace />
   return <>{children}</>
 }
 
@@ -91,24 +96,25 @@ function AppRoutes() {
         element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
       />
       <Route
-        path="/select-client"
+        path="/select-project"
         element={
           <ProtectedRoute>
-            <SelectClient />
+            <SelectProject />
           </ProtectedRoute>
         }
       />
       <Route
         element={
           <ProtectedRoute>
-            <CompanyGate>
+            <ProjectGate>
               <MainLayout />
-            </CompanyGate>
+            </ProjectGate>
           </ProtectedRoute>
         }
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/devices" element={<Devices />} />
+        <Route path="/racks" element={<Racks />} />
         <Route path="/devices/new" element={<DeviceCreate />} />
         <Route path="/devices/:id/edit" element={<DeviceCreate />} />
         <Route path="/devices/:id" element={<DeviceDetail />} />
@@ -121,11 +127,18 @@ function AppRoutes() {
         <Route path="/topology" element={<Topology />} />
         <Route path="/employees" element={<Employees />} />
         <Route path="/employees/:id" element={<EmployeeDetail />} />
-        <Route path="/clients" element={<GlobalAdminOnly><Clients /></GlobalAdminOnly>} />
+        <Route path="/projects" element={<GlobalAdminOnly><Projects /></GlobalAdminOnly>} />
         <Route path="/settings" element={<MutateOnly><Settings /></MutateOnly>} />
         <Route path="/settings/users" element={<AdminOnly><Users /></AdminOnly>} />
         <Route path="/settings/device-types" element={<AdminOnly><DeviceTypes /></AdminOnly>} />
+        <Route path="/settings/device-templates" element={<MutateOnly><DeviceTemplates /></MutateOnly>} />
+        <Route path="/settings/sites" element={<MutateOnly><Sites /></MutateOnly>} />
+        <Route path="/settings/racks" element={<Navigate to="/racks" replace />} />
+        <Route path="/settings/port-types" element={<AdminOnly><PortTypes /></AdminOnly>} />
+        <Route path="/settings/cable-types" element={<AdminOnly><CableTypes /></AdminOnly>} />
       </Route>
+      <Route path="/select-client" element={<Navigate to="/select-project" replace />} />
+      <Route path="/clients" element={<Navigate to="/projects" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
@@ -136,12 +149,12 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <CompanyProvider>
+          <ProjectProvider>
             <ToastProvider>
               <AppRoutes />
               <ToastViewport />
             </ToastProvider>
-          </CompanyProvider>
+          </ProjectProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

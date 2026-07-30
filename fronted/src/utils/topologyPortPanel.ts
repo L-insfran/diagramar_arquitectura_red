@@ -38,6 +38,13 @@ export const WIFI_SECTION_GAP = 14
 /** Tipo de dispositivo del seeder para patch panels / cableado horizontal. */
 export const STRUCTURED_CABLING_DEVICE_TYPE_NAME = 'Cableado Estructurado'
 
+/** Nube de Internet / ISP: se dibuja como nube con puerto general invisible. */
+export const INTERNET_CLOUD_DEVICE_TYPE_NAME = 'Internet'
+
+/** Tamaño fijo del nodo nube en el diagrama. */
+export const CLOUD_NODE_WIDTH = 200
+export const CLOUD_NODE_HEIGHT = 120
+
 export type PortPanelSection = 'physical' | 'wireless'
 
 export function isWirelessPort(port: Pick<TopologyPortSummary, 'portType'>): boolean {
@@ -65,6 +72,20 @@ export function isStructuredCablingDeviceType(deviceType: string | null | undefi
     t === STRUCTURED_CABLING_DEVICE_TYPE_NAME.toLowerCase() ||
     t.includes('patch') ||
     t.includes('cableado estructurado')
+  )
+}
+
+/** ISP / Internet / nube: forma de nube y puerto general oculto en el canvas. */
+export function isInternetCloudDeviceType(deviceType: string | null | undefined): boolean {
+  const t = (deviceType ?? '').trim().toLowerCase()
+  if (!t) return false
+  return (
+    t === INTERNET_CLOUD_DEVICE_TYPE_NAME.toLowerCase() ||
+    t === 'internet service provider' ||
+    t === 'isp' ||
+    t === 'nube' ||
+    t === 'cloud' ||
+    t.includes('internet')
   )
 }
 

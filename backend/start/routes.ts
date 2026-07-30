@@ -1,7 +1,7 @@
 import router from '@adonisjs/core/services/router'
 
 const AuthController = () => import('#controllers/auth_controller')
-const CompaniesController = () => import('#controllers/companies_controller')
+const ProjectsController = () => import('#controllers/projects_controller')
 const DevicesController = () => import('#controllers/devices_controller')
 const PortsController = () => import('#controllers/ports_controller')
 const VlansController = () => import('#controllers/vlans_controller')
@@ -10,10 +10,18 @@ const EmployeesController = () => import('#controllers/employees_controller')
 const DepartmentsController = () => import('#controllers/departments_controller')
 const TopologyController = () => import('#controllers/topology_controller')
 const DeviceTypesController = () => import('#controllers/device_types_controller')
+const DeviceTemplatesController = () => import('#controllers/device_templates_controller')
+const SitesController = () => import('#controllers/sites_controller')
+const RacksController = () => import('#controllers/racks_controller')
+const PortTypesController = () => import('#controllers/port_types_controller')
+const CableTypesController = () => import('#controllers/cable_types_controller')
+const AttachmentsController = () => import('#controllers/attachments_controller')
+const SecretsController = () => import('#controllers/secrets_controller')
 const DeviceCredentialsController = () => import('#controllers/device_credentials_controller')
 const EmployeeCredentialsController = () => import('#controllers/employee_credentials_controller')
 const SystemUsersController = () => import('#controllers/system_users_controller')
 const MeController = () => import('#controllers/me_controller')
+const DashboardController = () => import('#controllers/dashboard_controller')
 const UserMembershipsController = () => import('#controllers/user_memberships_controller')
 
 // Health check
@@ -33,14 +41,15 @@ router
     // Auth
     router.post('/auth/logout', [AuthController, 'logout'])
     router.get('/auth/me', [AuthController, 'me'])
-    router.get('/me/companies', [MeController, 'companies'])
+    router.get('/me/projects', [MeController, 'projects'])
+    router.get('/dashboard', [DashboardController, 'show'])
 
-    // Companies
-    router.get('/companies', [CompaniesController, 'index'])
-    router.post('/companies', [CompaniesController, 'store'])
-    router.get('/companies/:id', [CompaniesController, 'show'])
-    router.put('/companies/:id', [CompaniesController, 'update'])
-    router.delete('/companies/:id', [CompaniesController, 'destroy'])
+    // Projects
+    router.get('/projects', [ProjectsController, 'index'])
+    router.post('/projects', [ProjectsController, 'store'])
+    router.get('/projects/:id', [ProjectsController, 'show'])
+    router.put('/projects/:id', [ProjectsController, 'update'])
+    router.delete('/projects/:id', [ProjectsController, 'destroy'])
 
     // Devices
     router.get('/devices', [DevicesController, 'index'])
@@ -99,6 +108,68 @@ router
     router.get('/device-types/:id', [DeviceTypesController, 'show'])
     router.put('/device-types/:id', [DeviceTypesController, 'update'])
     router.delete('/device-types/:id', [DeviceTypesController, 'destroy'])
+
+    // Device Templates
+    router.get('/device-templates', [DeviceTemplatesController, 'index'])
+    router.post('/device-templates', [DeviceTemplatesController, 'store'])
+    router.get('/device-templates/:id', [DeviceTemplatesController, 'show'])
+    router.put('/device-templates/:id', [DeviceTemplatesController, 'update'])
+    router.delete('/device-templates/:id', [DeviceTemplatesController, 'destroy'])
+    router.get('/device-templates/:id/ports', [DeviceTemplatesController, 'portsIndex'])
+    router.post('/device-templates/:id/ports', [DeviceTemplatesController, 'portsStore'])
+    router.put('/device-templates/:id/ports/:portId', [DeviceTemplatesController, 'portsUpdate'])
+    router.delete('/device-templates/:id/ports/:portId', [
+      DeviceTemplatesController,
+      'portsDestroy',
+    ])
+
+    // Sites & Areas (inventory físico — distinto de work_areas del canvas)
+    router.get('/sites', [SitesController, 'index'])
+    router.post('/sites', [SitesController, 'store'])
+    router.get('/sites/:id', [SitesController, 'show'])
+    router.put('/sites/:id', [SitesController, 'update'])
+    router.delete('/sites/:id', [SitesController, 'destroy'])
+    router.get('/sites/:id/areas', [SitesController, 'areasIndex'])
+    router.post('/sites/:id/areas', [SitesController, 'areasStore'])
+    router.put('/sites/:id/areas/:areaId', [SitesController, 'areasUpdate'])
+    router.delete('/sites/:id/areas/:areaId', [SitesController, 'areasDestroy'])
+
+    // Racks (inventario físico bajo área)
+    router.get('/racks', [RacksController, 'index'])
+    router.post('/racks', [RacksController, 'store'])
+    router.get('/racks/:id/occupancy', [RacksController, 'occupancy'])
+    router.get('/racks/:id', [RacksController, 'show'])
+    router.put('/racks/:id', [RacksController, 'update'])
+    router.delete('/racks/:id', [RacksController, 'destroy'])
+
+    // Port Types
+    router.get('/port-types', [PortTypesController, 'index'])
+    router.post('/port-types', [PortTypesController, 'store'])
+    router.get('/port-types/:id', [PortTypesController, 'show'])
+    router.put('/port-types/:id', [PortTypesController, 'update'])
+    router.delete('/port-types/:id', [PortTypesController, 'destroy'])
+
+    // Cable Types (catálogo global)
+    router.get('/cable-types', [CableTypesController, 'index'])
+    router.post('/cable-types', [CableTypesController, 'store'])
+    router.get('/cable-types/:id', [CableTypesController, 'show'])
+    router.put('/cable-types/:id', [CableTypesController, 'update'])
+    router.delete('/cable-types/:id', [CableTypesController, 'destroy'])
+
+    // Attachments (documentación polimórfica)
+    router.get('/attachments', [AttachmentsController, 'index'])
+    router.post('/attachments', [AttachmentsController, 'store'])
+    router.get('/attachments/:id/download', [AttachmentsController, 'download'])
+    router.get('/attachments/:id', [AttachmentsController, 'show'])
+    router.put('/attachments/:id', [AttachmentsController, 'update'])
+    router.delete('/attachments/:id', [AttachmentsController, 'destroy'])
+
+    // Secrets cifrados (polimórficos; reveal solo mutate)
+    router.get('/secrets', [SecretsController, 'index'])
+    router.post('/secrets', [SecretsController, 'store'])
+    router.get('/secrets/:id/reveal', [SecretsController, 'reveal'])
+    router.put('/secrets/:id', [SecretsController, 'update'])
+    router.delete('/secrets/:id', [SecretsController, 'destroy'])
 
     // Device Credentials
     router.get('/device-credentials', [DeviceCredentialsController, 'index'])

@@ -9,7 +9,7 @@ import { Input } from '../components/Input'
 import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
 import { useApi } from '../hooks/useApi'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { employeesService } from '../services/employees.service'
 import { departmentsService } from '../services/departments.service'
@@ -40,13 +40,13 @@ function formatSubmitError(err: unknown): string {
 
 export default function Employees() {
   const navigate = useNavigate()
-  const { activeCompanyId } = useCompany()
+  const { activeProjectId } = useProject()
   const { canMutate, isViewer } = usePermissions()
   const { data: employees, isLoading, error, refetch } = useApi(
     () => employeesService.getAll(),
-    [activeCompanyId]
+    [activeProjectId]
   )
-  const { data: departments } = useApi(() => departmentsService.getAll(), [activeCompanyId])
+  const { data: departments } = useApi(() => departmentsService.getAll(), [activeProjectId])
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -87,8 +87,8 @@ export default function Employees() {
     event.preventDefault()
     setFormError(null)
 
-    if (!activeCompanyId) {
-      setFormError('No hay un cliente activo seleccionado.')
+    if (!activeProjectId) {
+      setFormError('No hay un proyecto activo seleccionado.')
       return
     }
 
@@ -118,7 +118,7 @@ export default function Employees() {
         })
       } else {
         await employeesService.create({
-          companyId: activeCompanyId,
+          projectId: activeProjectId,
           firstName,
           lastName,
           ...(email ? { email } : {}),

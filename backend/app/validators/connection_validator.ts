@@ -1,7 +1,7 @@
 import vine from '@vinejs/vine'
 
 const connectionType = vine.enum(['physical', 'logical'] as const)
-const mediumType = vine.enum(['utp', 'fiber', 'wifi'] as const)
+const mediumType = vine.enum(['utp', 'fiber', 'wifi', 'internet'] as const)
 const cableCategory = vine.enum(['5e', '6', '6a', '7', '7a', '8'] as const)
 const fiberType = vine.enum(['singlemode', 'multimode'] as const)
 const fiberConnector = vine.enum(['LC', 'SC', 'ST', 'FC', 'MPO', 'MTRJ'] as const)
@@ -23,12 +23,13 @@ const metadataSchema = vine
 
 export const createConnectionValidator = vine.compile(
   vine.object({
-    companyId: vine.string().uuid(),
+    projectId: vine.string().uuid(),
     sourcePortId: vine.string().uuid(),
     targetPortId: vine.string().uuid(),
     // Kept optional for backwards compatibility; new UI always creates physical links
     connectionType: connectionType.optional(),
     mediumType: mediumType.optional(),
+    cableTypeId: vine.string().uuid().optional().nullable(),
     cableCategory: cableCategory.optional().nullable(),
     fiberType: fiberType.optional().nullable(),
     fiberConnector: fiberConnector.optional().nullable(),
@@ -50,6 +51,7 @@ export const updateConnectionValidator = vine.compile(
     targetPortId: vine.string().uuid().optional(),
     connectionType: connectionType.optional(),
     mediumType: mediumType.optional(),
+    cableTypeId: vine.string().uuid().optional().nullable(),
     cableCategory: cableCategory.optional().nullable(),
     fiberType: fiberType.optional().nullable(),
     fiberConnector: fiberConnector.optional().nullable(),

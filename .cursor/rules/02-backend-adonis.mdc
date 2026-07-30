@@ -1,0 +1,40 @@
+---
+description: Convenciones del backend AdonisJS
+globs: backend/**/*.ts
+alwaysApply: false
+---
+
+# Backend AdonisJS
+
+## Imports
+
+Usar alias: `#models/...`, `#services/...`, `#repositories/...`, `#dtos/...`, `#validators/...`, `#controllers/...`.
+
+## Validación y respuestas
+
+- Validar con VineJS en `backend/app/validators/`.
+- Responder siempre `{ success: true, data }` o `{ success: false, message }`.
+- Códigos HTTP coherentes: 201 create, 403 forbidden, 401 unauthorized.
+
+## Contexto de scope (Project)
+
+```typescript
+const context = await requireProjectContext(ctx)       // lectura
+const context = await requireMutateProjectContext(ctx) // escritura
+// context.projectId, context.role, context.canMutate
+```
+
+Header `X-Project-Id` (también query/body `projectId` / `project_id`). Resolución en `project_context_service.ts`.
+
+## Capas
+
+- Controller delgado: authz + validación + llamada a service (sin Lucid).
+- Service: reglas de negocio; pasa `actorId` en mutaciones cuando hay auditoría.
+- Repository: todo acceso Lucid. Módulos nuevos/tocados: Repository + DTO (ADR 0002).
+- Referencia: `devices`, `connections`/topology (ConnectionRepository + soft delete).
+
+## Migraciones
+
+- Numeración secuencial: la siguiente es `0034_descripcion.ts`.
+- No editar migraciones ya aplicadas; crear una nueva.
+- `database/schema.ts` es auto-generado: no editar a mano.

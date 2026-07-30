@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
-import Company from './company.js'
+import Project from './project.js'
 import Port from './port.js'
+import CableType from './cable_type.js'
 
-export type MediumType = 'utp' | 'fiber' | 'wifi'
+export type MediumType = 'utp' | 'fiber' | 'wifi' | 'internet'
 export type CableCategory = '5e' | '6' | '6a' | '7' | '7a' | '8'
 export type FiberType = 'singlemode' | 'multimode'
 export type FiberConnector = 'LC' | 'SC' | 'ST' | 'FC' | 'MPO' | 'MTRJ'
@@ -26,7 +27,7 @@ export default class Connection extends BaseModel {
   declare id: string
 
   @column()
-  declare companyId: string
+  declare projectId: string
 
   @column()
   declare sourcePortId: string
@@ -39,6 +40,9 @@ export default class Connection extends BaseModel {
 
   @column()
   declare mediumType: MediumType
+
+  @column()
+  declare cableTypeId: string | null
 
   @column()
   declare cableCategory: CableCategory | null
@@ -76,14 +80,26 @@ export default class Connection extends BaseModel {
   @column()
   declare metadata: ConnectionMetadata | null
 
+  @column()
+  declare createdBy: string | null
+
+  @column()
+  declare updatedBy: string | null
+
+  @column()
+  declare deletedBy: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 
-  @belongsTo(() => Company)
-  declare company: BelongsTo<typeof Company>
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+
+  @belongsTo(() => Project)
+  declare project: BelongsTo<typeof Project>
 
   @belongsTo(() => Port, {
     foreignKey: 'sourcePortId',
@@ -94,4 +110,7 @@ export default class Connection extends BaseModel {
     foreignKey: 'targetPortId',
   })
   declare targetPort: BelongsTo<typeof Port>
+
+  @belongsTo(() => CableType)
+  declare cableType: BelongsTo<typeof CableType>
 }

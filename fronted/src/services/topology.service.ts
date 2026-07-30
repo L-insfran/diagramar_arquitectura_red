@@ -15,11 +15,12 @@ import type {
 } from '../types'
 
 export interface CreateConnectionPayload {
-  companyId: string
+  projectId: string
   sourcePortId: string
   targetPortId: string
   connectionType?: 'physical' | 'logical'
   mediumType?: MediumType
+  cableTypeId?: string | null
   cableCategory?: CableCategory | null
   fiberType?: FiberType | null
   fiberConnector?: FiberConnector | null
@@ -39,6 +40,7 @@ export interface UpdateConnectionPayload {
   targetPortId?: string
   connectionType?: 'physical' | 'logical'
   mediumType?: MediumType
+  cableTypeId?: string | null
   cableCategory?: CableCategory | null
   fiberType?: FiberType | null
   fiberConnector?: FiberConnector | null
@@ -71,15 +73,15 @@ export type TopologyCanvasLayoutPayload = {
 }
 
 export const topologyService = {
-  async getCanvasLayout(companyId: string): Promise<TopologyCanvasLayoutPayload> {
+  async getCanvasLayout(projectId: string): Promise<TopologyCanvasLayoutPayload> {
     const { data } = await api.get<ApiResponse<TopologyCanvasLayoutPayload>>(
-      `/topology/canvas-layout?company_id=${encodeURIComponent(companyId)}`
+      `/topology/canvas-layout?project_id=${encodeURIComponent(projectId)}`
     )
     return data.data
   },
 
   async saveCanvasLayout(payload: {
-    companyId: string
+    projectId: string
     nodePositions: Record<string, { x: number; y: number }>
     labelOffsets: Record<string, { x: number; y: number; bendX?: number; bendY?: number }>
     workAreas?: TopologyWorkAreaPayload[]
@@ -89,14 +91,14 @@ export const topologyService = {
     return data.data
   },
 
-  async clearCanvasLayout(companyId: string): Promise<void> {
+  async clearCanvasLayout(projectId: string): Promise<void> {
     await api.delete(
-      `/topology/canvas-layout?company_id=${encodeURIComponent(companyId)}`
+      `/topology/canvas-layout?project_id=${encodeURIComponent(projectId)}`
     )
   },
 
-  async getTopology(companyId?: string): Promise<TopologyPayload> {
-    const params = companyId ? `?company_id=${companyId}` : ''
+  async getTopology(projectId?: string): Promise<TopologyPayload> {
+    const params = projectId ? `?project_id=${projectId}` : ''
     const { data } = await api.get<ApiResponse<TopologyPayload>>(`/topology${params}`)
     return data.data
   },

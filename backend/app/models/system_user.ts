@@ -5,8 +5,8 @@ import { BaseModel, column, belongsTo, hasMany, manyToMany } from '@adonisjs/luc
 import { withAuthFinder } from '@adonisjs/auth/mixins/lucid'
 import { DbAccessTokensProvider } from '@adonisjs/auth/access_tokens'
 import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
-import Company from './company.js'
-import CompanyMembership from './company_membership.js'
+import Project from './project.js'
+import ProjectMembership from './project_membership.js'
 
 // withAuthFinder already registers a @beforeSave hook that hashes the password
 // automatically whenever $dirty.password changes — no manual hook needed.
@@ -25,7 +25,7 @@ export default class SystemUser extends compose(
   declare id: string
 
   @column()
-  declare companyId: string
+  declare projectId: string
 
   @column()
   declare email: string
@@ -51,17 +51,17 @@ export default class SystemUser extends compose(
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 
-  @belongsTo(() => Company)
-  declare company: BelongsTo<typeof Company>
+  @belongsTo(() => Project)
+  declare project: BelongsTo<typeof Project>
 
-  @hasMany(() => CompanyMembership)
-  declare memberships: HasMany<typeof CompanyMembership>
+  @hasMany(() => ProjectMembership)
+  declare memberships: HasMany<typeof ProjectMembership>
 
-  @manyToMany(() => Company, {
-    pivotTable: 'company_memberships',
+  @manyToMany(() => Project, {
+    pivotTable: 'project_memberships',
     pivotForeignKey: 'system_user_id',
-    pivotRelatedForeignKey: 'company_id',
+    pivotRelatedForeignKey: 'project_id',
     pivotColumns: ['role', 'is_default'],
   })
-  declare companies: ManyToMany<typeof Company>
+  declare projects: ManyToMany<typeof Project>
 }

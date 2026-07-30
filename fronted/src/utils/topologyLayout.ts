@@ -1,6 +1,6 @@
 import dagre from 'dagre'
 import type { Edge, Node } from '@xyflow/react'
-import { TOPOLOGY_NODE_MIN_WIDTH, TOPOLOGY_HEADER_HEIGHT, TOPOLOGY_HEADER_HEIGHT_PATCH, computePortPanelLayout, isCompactPortPanel, isStructuredCablingDeviceType, partitionDiagramPorts } from './topologyPortPanel'
+import { TOPOLOGY_NODE_MIN_WIDTH, TOPOLOGY_HEADER_HEIGHT, TOPOLOGY_HEADER_HEIGHT_PATCH, CLOUD_NODE_WIDTH, CLOUD_NODE_HEIGHT, computePortPanelLayout, isCompactPortPanel, isInternetCloudDeviceType, isStructuredCablingDeviceType, partitionDiagramPorts } from './topologyPortPanel'
 import type { TopologyPortSummary } from '../types'
 
 /** @deprecated Use TOPOLOGY_NODE_MIN_WIDTH */
@@ -18,6 +18,7 @@ function nodeDimensions(node: Node): { width: number; height: number } {
   const data = node.data as {
     nodeWidth?: number
     nodeHeight?: number
+    nodeScale?: number
     ports?: TopologyPortSummary[]
     totalPortCount?: number
     portCount?: number
@@ -29,6 +30,10 @@ function nodeDimensions(node: Node): { width: number; height: number } {
   const style = node.style as { width?: number; height?: number } | undefined
   if (typeof style?.width === 'number' && typeof style?.height === 'number') {
     return { width: style.width, height: style.height }
+  }
+  if (node.type === 'cloud' || isInternetCloudDeviceType(data?.deviceType)) {
+    const scale = typeof data?.nodeScale === 'number' && data.nodeScale > 0 ? data.nodeScale : 1
+    return { width: Math.round(CLOUD_NODE_WIDTH * scale), height: Math.round(CLOUD_NODE_HEIGHT * scale) }
   }
   const allPorts = Array.isArray(data?.ports) ? data.ports : []
   const { physical, wireless } = partitionDiagramPorts(allPorts)
@@ -45,7 +50,8 @@ function nodeDimensions(node: Node): { width: number; height: number } {
     headerHeight,
     wireless.length,
   )
-  return { width: layout.width, height: layout.height }
+  const scale = typeof data?.nodeScale === 'number' && data.nodeScale > 0 ? data.nodeScale : 1
+  return { width: Math.round(layout.width * scale), height: Math.round(layout.height * scale) }
 }
 
 function maxIncidentDegree(edges: Edge[]): number {

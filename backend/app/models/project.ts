@@ -7,9 +7,11 @@ import Employee from './employee.js'
 import Device from './device.js'
 import Vlan from './vlan.js'
 import Network from './network.js'
-import CompanyMembership from './company_membership.js'
+import ProjectMembership from './project_membership.js'
 
-export default class Company extends BaseModel {
+export default class Project extends BaseModel {
+  static table = 'projects'
+
   @column({ isPrimary: true })
   declare id: string
 
@@ -52,6 +54,6 @@ export default class Company extends BaseModel {
   @hasMany(() => Network)
   declare networks: HasMany<typeof Network>
 
-  @hasMany(() => CompanyMembership)
-  declare memberships: HasMany<typeof CompanyMembership>
+  @hasMany(() => ProjectMembership)
+  declare memberships: HasMany<typeof ProjectMembership>
 }

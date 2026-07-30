@@ -2,25 +2,25 @@ import type { HttpContext } from '@adonisjs/core/http'
 import Employee from '#models/employee'
 import SystemUser from '#models/system_user'
 import {
-  canAccessCompany,
-  canMutateInCompany,
+  canAccessProject,
+  canMutateInProject,
   findLinkedEmployee,
-  resolveRoleForCompany,
+  resolveRoleForProject,
 } from '#services/authorization_service'
 import {
-  requireCompanyContext,
-  requireMutateCompanyContext,
-} from '#services/company_context_service'
+  requireProjectContext,
+  requireMutateProjectContext,
+} from '#services/project_context_service'
 import { createEmployeeValidator, updateEmployeeValidator } from '#validators/employee_validator'
 
 export default class EmployeesController {
   async index(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
     const user = ctx.auth.getUserOrFail() as SystemUser
     if (context.role === 'viewer') {
-      const linked = await findLinkedEmployee(user, context.companyId)
+      const linked = await findLinkedEmployee(user, context.projectId)
       if (!linked) {
         return ctx.response.ok({ success: true, data: [] })
       }
@@ -29,17 +29,17 @@ export default class EmployeesController {
     }
 
     const employees = await Employee.query()
-      .where('company_id', context.companyId)
+      .where('project_id', context.projectId)
       .preload('department')
       .orderBy('last_name', 'asc')
     return ctx.response.ok({ success: true, data: employees })
   }
 
   async store(ctx: HttpContext) {
-    if (!(await requireMutateCompanyContext(ctx))) return
+    if (!(await requireMutateProjectContext(ctx))) return
 
     const data = await ctx.request.validateUsing(createEmployeeValidator)
-    if (!(await canAccessCompany(ctx.auth.getUserOrFail() as SystemUser, data.companyId))) {
+    if (!(await canAccessProject(ctx.auth.getUserOrFail() as SystemUser, data.projectId))) {
       return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const employee = await Employee.create(data)
@@ -54,12 +54,12 @@ export default class EmployeesController {
       .preload('devices')
       .preload('department')
       .firstOrFail()
-    if (!(await canAccessCompany(user, employee.companyId))) {
+    if (!(await canAccessProject(user, employee.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const role = await resolveRoleForCompany(user, employee.companyId)
+    const role = await resolveRoleForProject(user, employee.projectId)
     if (role === 'viewer') {
-      const linked = await findLinkedEmployee(user, employee.companyId)
+      const linked = await findLinkedEmployee(user, employee.projectId)
       if (!linked || linked.id !== employee.id) {
         return response.forbidden({ success: false, message: 'Insufficient permissions' })
       }
@@ -70,11 +70,11 @@ export default class EmployeesController {
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const employee = await Employee.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, employee.companyId))) {
+    if (!(await canMutateInProject(user, employee.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const data = await request.validateUsing(updateEmployeeValidator)
-    if (data.companyId && !(await canAccessCompany(user, data.companyId))) {
+    if (data.projectId && !(await canAccessProject(user, data.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     employee.merge(data)
@@ -87,7 +87,7 @@ export default class EmployeesController {
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const employee = await Employee.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, employee.companyId))) {
+    if (!(await canMutateInProject(user, employee.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     await employee.delete()

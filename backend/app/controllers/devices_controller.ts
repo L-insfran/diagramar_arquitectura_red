@@ -1,44 +1,63 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import Device from '#models/device'
 import SystemUser from '#models/system_user'
 import DeviceService from '#services/device_service'
+import DeviceTemplateService from '#services/device_template_service'
 import {
-  canAccessCompany,
-  canMutateInCompany,
+  canAccessProject,
+  canMutateInProject,
   isNotebookType,
-  resolveRoleForCompany,
+  resolveRoleForProject,
 } from '#services/authorization_service'
-import { requireCompanyContext } from '#services/company_context_service'
+import { requireProjectContext } from '#services/project_context_service'
 import { createDeviceValidator, updateDeviceValidator } from '#validators/device_validator'
 
 export default class DevicesController {
   private deviceService = new DeviceService()
+  private templateService = new DeviceTemplateService()
 
   async index(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
     const status = ctx.request.input('status') as string | undefined
     const deviceTypeId = ctx.request.input('deviceTypeId') as string | undefined
+    const deviceTemplateId = ctx.request.input('deviceTemplateId') as string | undefined
+    const siteId = ctx.request.input('siteId') as string | undefined
+    const areaId = ctx.request.input('areaId') as string | undefined
+    const rackId = ctx.request.input('rackId') as string | undefined
     const search = ctx.request.input('search') as string | undefined
-    const devices = await this.deviceService.getAllByCompany(context.companyId, {
+    const devices = await this.deviceService.getAllByProject(context.projectId, {
       status,
       deviceTypeId,
+      deviceTemplateId,
+      siteId,
+      areaId,
+      rackId,
       search,
     })
     return ctx.response.ok({ success: true, data: devices })
   }
 
   async store(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
+    const user = ctx.auth.getUserOrFail() as SystemUser
     const data = await ctx.request.validateUsing(createDeviceValidator)
-    if (!(await canAccessCompany(ctx.auth.getUserOrFail() as SystemUser, data.companyId))) {
+    if (!(await canAccessProject(user, data.projectId))) {
       return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
+
+    const template = await this.templateService.getActiveSummary(data.deviceTemplateId)
+    if (template.projectId !== data.projectId) {
+      return ctx.response.unprocessableEntity({
+        success: false,
+        message: 'El template no pertenece al proyecto indicado',
+      })
+    }
+
     if (context.role === 'viewer') {
-      const notebook = await isNotebookType(data.deviceTypeId)
+      const notebook = await isNotebookType(template.deviceTypeId)
       if (!notebook) {
         return ctx.response.forbidden({
           success: false,
@@ -46,15 +65,22 @@ export default class DevicesController {
         })
       }
     }
-    const device = await this.deviceService.create(data)
-    await device.load('deviceType')
-    return ctx.response.created({ success: true, data: device })
+
+    try {
+      const device = await this.deviceService.create(data, user.id)
+      return ctx.response.created({ success: true, data: device })
+    } catch (error: any) {
+      if (error?.status === 422) {
+        return ctx.response.unprocessableEntity({ success: false, message: error.message })
+      }
+      throw error
+    }
   }
 
   async show({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const device = await this.deviceService.getById(params.id)
-    if (!(await canAccessCompany(user, device.companyId))) {
+    if (!(await canAccessProject(user, device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const data = device.serialize() as Record<string, unknown>
@@ -75,12 +101,12 @@ export default class DevicesController {
 
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
-    const existing = await Device.query().where('id', params.id).preload('deviceType').firstOrFail()
-    if (!(await canAccessCompany(user, existing.companyId))) {
+    const existing = await this.deviceService.getActiveSummary(params.id)
+    if (!(await canAccessProject(user, existing.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
 
-    const role = await resolveRoleForCompany(user, existing.companyId)
+    const role = await resolveRoleForProject(user, existing.projectId)
     const isViewerRole = role === 'viewer'
 
     if (isViewerRole) {
@@ -93,30 +119,20 @@ export default class DevicesController {
       }
     }
     const data = await request.validateUsing(updateDeviceValidator)
-    if (data.companyId && !(await canAccessCompany(user, data.companyId))) {
+    if (data.projectId && !(await canAccessProject(user, data.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    if (isViewerRole && data.deviceTypeId) {
-      const targetIsNotebook = await isNotebookType(data.deviceTypeId)
-      if (!targetIsNotebook) {
-        return response.forbidden({
-          success: false,
-          message: 'Solo puedes asignar tipo Notebook',
-        })
-      }
-    }
-    await this.deviceService.update(params.id, data)
-    const updated = await this.deviceService.getById(params.id)
+    const updated = await this.deviceService.update(params.id, data, user.id)
     return response.ok({ success: true, data: updated })
   }
 
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
-    const device = await Device.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, device.companyId))) {
+    const device = await this.deviceService.getActiveSummary(params.id)
+    if (!(await canMutateInProject(user, device.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    await this.deviceService.delete(params.id)
+    await this.deviceService.delete(params.id, user.id)
     return response.ok({ success: true, message: 'Device deleted', data: null })
   }
 }

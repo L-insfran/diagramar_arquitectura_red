@@ -9,6 +9,7 @@ import {
   Settings,
   Network,
   Building2,
+  HardDrive,
   X,
   ChevronLeft,
   ChevronRight,
@@ -18,11 +19,12 @@ import { usePermissions } from '../hooks/usePermissions'
 const allNavItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', viewerVisible: true, adminOnly: false },
   { to: '/devices', icon: Server, label: 'Dispositivos', viewerVisible: true, adminOnly: false },
+  { to: '/racks', icon: HardDrive, label: 'Racks', viewerVisible: true, adminOnly: false },
   { to: '/vlans', icon: Layers, label: 'VLANs', viewerVisible: true, adminOnly: false },
   { to: '/networks', icon: Globe, label: 'Redes', viewerVisible: true, adminOnly: false },
   { to: '/topology', icon: GitBranch, label: 'Topología', viewerVisible: true, adminOnly: false },
   { to: '/employees', icon: Users, label: 'Empleados', viewerVisible: true, adminOnly: false },
-  { to: '/clients', icon: Building2, label: 'Clientes', viewerVisible: false, adminOnly: true },
+  { to: '/projects', icon: Building2, label: 'Proyectos', viewerVisible: false, adminOnly: true },
 ]
 
 interface SidebarProps {

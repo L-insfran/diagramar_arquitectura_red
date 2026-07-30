@@ -1,0 +1,32 @@
+---
+description: Sistema de roles y permisos — no romper
+globs: backend/**/*.ts,fronted/**/*.tsx
+alwaysApply: false
+---
+
+# Permisos
+
+Mantener el sistema existente. No introducir un sistema de roles paralelo.
+
+## Roles actuales
+
+| Nivel | Valores | Dónde |
+|-------|---------|--------|
+| Global | `admin`, `operator`, `viewer` | `system_users.role` |
+| Por proyecto | mismo enum | `project_memberships.role` |
+
+## Checks canónicos (backend)
+
+- `isAdmin(user)` — admin global
+- `canMutate(user)` — legacy global (admin/operator)
+- `canAccessProject` / `canMutateInProject` — por proyecto
+- `requireProjectContext` / `requireMutateProjectContext` — en controllers
+
+## Frontend (`usePermissions`)
+
+- `canMutate` = admin u operator en proyecto activo
+- `isAdmin` = rol admin en contexto activo
+- `isGlobalAdmin` = `user.role === 'admin'` (plataforma)
+- Guards: `MutateOnly`, `AdminOnly`, `GlobalAdminOnly`
+
+No existe el string `globalAdmin` en backend; el concepto es admin global vía `system_users.role`.

@@ -1,4 +1,4 @@
-export interface Company {
+export interface Project {
   id: string
   name: string
   domain: string | null
@@ -9,12 +9,12 @@ export interface Company {
   updatedAt: string
 }
 
-export interface CompanyMembershipSummary {
+export interface ProjectMembershipSummary {
   id?: string
-  companyId: string
+  projectId: string
   role: 'admin' | 'operator' | 'viewer'
   isDefault: boolean
-  company?: {
+  project?: {
     id: string
     name: string
     domain: string | null
@@ -22,7 +22,7 @@ export interface CompanyMembershipSummary {
   } | null
 }
 
-export interface AccessibleCompany extends Company {
+export interface AccessibleProject extends Project {
   role: 'admin' | 'operator' | 'viewer'
   isDefault: boolean
   deviceCount?: number
@@ -31,7 +31,7 @@ export interface AccessibleCompany extends Company {
 
 export interface Department {
   id: string
-  companyId: string
+  projectId: string
   name: string
   description: string | null
   createdAt: string
@@ -41,7 +41,7 @@ export interface Department {
 
 export interface SystemUser {
   id: string
-  companyId: string
+  projectId: string
   email: string
   firstName: string
   lastName: string
@@ -49,12 +49,12 @@ export interface SystemUser {
   isActive: boolean
   createdAt: string
   updatedAt: string
-  memberships?: CompanyMembershipSummary[]
+  memberships?: ProjectMembershipSummary[]
 }
 
 export interface Employee {
   id: string
-  companyId: string
+  projectId: string
   departmentId: string | null
   firstName: string
   lastName: string
@@ -74,10 +74,251 @@ export interface DeviceType {
   description: string | null
 }
 
+export interface DeviceTemplatePort {
+  id: string
+  deviceTemplateId: string
+  name: string
+  portNumber: number
+  portType: string
+  speed: string | null
+  description: string | null
+}
+
+export interface DeviceTemplate {
+  id: string
+  projectId: string
+  deviceTypeId: string
+  name: string
+  manufacturer: string | null
+  model: string | null
+  rackUnits: number | null
+  imageUrl: string | null
+  frontViewUrl: string | null
+  rearViewUrl: string | null
+  powerConsumptionW: number | null
+  weightKg: number | null
+  customFields?: Record<string, unknown>
+  notes: string | null
+  deviceType?: DeviceType
+  ports?: DeviceTemplatePort[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PortType {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  defaultSpeed: string | null
+  color: string | null
+  icon: string | null
+  direction: 'in' | 'out' | 'bidirectional'
+}
+
+export interface CableType {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  mediumFamily: 'utp' | 'fiber' | 'wifi' | 'internet' | 'power' | 'console' | 'other'
+  defaultCategory: string | null
+  defaultFiberType: string | null
+  color: string | null
+  sortOrder: number
+}
+
+export type AttachableType =
+  | 'project'
+  | 'site'
+  | 'area'
+  | 'rack'
+  | 'device'
+  | 'connection'
+  | 'network'
+  | 'vlan'
+  | 'device_template'
+
+export type AttachmentKind =
+  | 'file'
+  | 'pdf'
+  | 'plan'
+  | 'photo'
+  | 'diagram'
+  | 'link'
+  | 'note'
+  | 'other'
+
+export type SecretKind = 'password' | 'api_key' | 'snmp' | 'wifi' | 'console' | 'other'
+
+export interface Attachment {
+  id: string
+  projectId: string
+  attachableType: AttachableType
+  attachableId: string
+  kind: AttachmentKind
+  title: string
+  description: string | null
+  url: string | null
+  mimeType: string | null
+  sizeBytes: number | null
+  originalFilename: string | null
+  hasFile: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ObjectSecret {
+  id: string
+  projectId: string
+  attachableType: AttachableType
+  attachableId: string
+  kind: SecretKind
+  label: string
+  username: string | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type DashboardAlertSeverity = 'info' | 'warning' | 'critical'
+
+export interface DashboardAlert {
+  severity: DashboardAlertSeverity
+  code: string
+  message: string
+  entityType?: string
+  entityId?: string
+}
+
+export interface DashboardRackSummary {
+  id: string
+  name: string
+  code: string | null
+  heightU: number
+  usedU: number
+  freeU: number
+  percentUsed: number
+}
+
+export interface DashboardRecentDevice {
+  id: string
+  name: string
+  status: string
+  ipAddress: string | null
+  deviceTypeName: string | null
+  updatedAt: string | null
+}
+
+export interface DashboardMetrics {
+  counts: {
+    devices: number
+    devicesOnline: number
+    devicesOffline: number
+    devicesMaintenance: number
+    racks: number
+    sites: number
+    areas: number
+    ports: number
+    portsFree: number
+    portsOccupied: number
+    connections: number
+    connectionsPhysical: number
+    vlans: number
+    networks: number
+    attachments: number
+    secrets: number
+  }
+  racks: {
+    totalCapacityU: number
+    usedU: number
+    freeU: number
+    percentUsed: number
+    items: DashboardRackSummary[]
+  }
+  documentation: {
+    devicesWithoutAttachments: number
+    devicesWithoutPhysicalLink: number
+  }
+  alerts: DashboardAlert[]
+  recentDevices: DashboardRecentDevice[]
+}
+
+export interface Site {
+  id: string
+  projectId: string
+  name: string
+  address: string | null
+  notes: string | null
+  areas?: Area[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Area {
+  id: string
+  siteId: string
+  name: string
+  notes: string | null
+  site?: Site
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Rack {
+  id: string
+  projectId: string
+  areaId: string
+  name: string
+  code: string | null
+  heightU: number
+  manufacturer: string | null
+  model: string | null
+  notes: string | null
+  area?: Area
+  createdAt: string
+  updatedAt: string
+}
+
+export type RackFace = 'front' | 'rear'
+
+export interface RackOccupancySlot {
+  unit: number
+  deviceId: string | null
+  deviceName: string | null
+  face: RackFace | null
+  isStart: boolean
+  heightU: number
+}
+
+export interface RackOccupancy {
+  rackId: string
+  heightU: number
+  usedU: number
+  freeU: number
+  percentUsed: number
+  devices: Array<{
+    id: string
+    name: string
+    rackUnitStart: number
+    rackFace: RackFace
+    heightU: number
+    rackUnitEnd: number
+  }>
+  slotsFront: RackOccupancySlot[]
+  slotsRear: RackOccupancySlot[]
+}
+
 export interface Device {
   id: string
-  companyId: string
+  projectId: string
   deviceTypeId: string
+  deviceTemplateId: string
+  siteId: string | null
+  areaId: string | null
+  rackId: string | null
+  rackUnitStart: number | null
+  rackFace: RackFace | null
   name: string
   hostname: string | null
   ipAddress: string | null
@@ -86,12 +327,17 @@ export interface Device {
   manufacturer: string | null
   serialNumber: string | null
   firmwareVersion: string | null
+  /** Legacy free-text; prefer site/area. */
   location: string | null
   status: 'online' | 'offline' | 'maintenance' | 'unknown'
   notes: string | null
   createdAt: string
   updatedAt: string
   deviceType?: DeviceType
+  deviceTemplate?: DeviceTemplate
+  site?: Site
+  area?: Area
+  rack?: Rack
   ports?: Port[]
   employees?: Employee[]
 }
@@ -101,7 +347,8 @@ export interface Port {
   deviceId: string
   name: string
   portNumber: number
-  portType: 'ethernet' | 'fiber' | 'serial' | 'wireless' | 'wan' | 'sfp'
+  /** Código del catálogo de tipos de puerto (ej: ethernet, coaxial). */
+  portType: string
   speed: string | null
   status: 'up' | 'down' | 'disabled'
   description: string | null
@@ -111,7 +358,7 @@ export interface Port {
 
 export interface Vlan {
   id: string
-  companyId: string
+  projectId: string
   vlanId: number
   name: string
   description: string | null
@@ -123,7 +370,7 @@ export interface Vlan {
 
 export interface Network {
   id: string
-  companyId: string
+  projectId: string
   vlanId: string | null
   name: string
   subnet: string
@@ -138,7 +385,7 @@ export interface Network {
   vlan?: Vlan
 }
 
-export type MediumType = 'utp' | 'fiber' | 'wifi'
+export type MediumType = 'utp' | 'fiber' | 'wifi' | 'internet'
 export type CableCategory = '5e' | '6' | '6a' | '7' | '7a' | '8'
 export type FiberType = 'singlemode' | 'multimode'
 export type FiberConnector = 'LC' | 'SC' | 'ST' | 'FC' | 'MPO' | 'MTRJ'
@@ -149,6 +396,7 @@ export type ConnectionStatusType = 'planned' | 'implemented' | 'verified'
 
 export interface MediumInfo {
   mediumType: MediumType
+  cableTypeId?: string | null
   cableCategory: CableCategory | null
   fiberType: FiberType | null
   fiberConnector: FiberConnector | null
@@ -161,11 +409,12 @@ export interface MediumInfo {
 
 export interface Connection {
   id: string
-  companyId: string
+  projectId: string
   sourcePortId: string
   targetPortId: string
   connectionType: 'physical' | 'logical'
   mediumType: MediumType
+  cableTypeId?: string | null
   cableCategory: CableCategory | null
   fiberType: FiberType | null
   fiberConnector: FiberConnector | null
@@ -293,7 +542,7 @@ export type EmployeeCredentialKind = 'file_server' | 'vpn' | 'email' | 'rdp' | '
 export interface EmployeeCredential {
   id: string
   employeeId: string
-  companyId: string
+  projectId: string
   kind: EmployeeCredentialKind
   label: string | null
   username: string
@@ -320,14 +569,19 @@ export interface AuthResponse {
 export interface DeviceFilters {
   status?: string
   deviceTypeId?: string
+  deviceTemplateId?: string
+  siteId?: string
+  areaId?: string
+  rackId?: string
   search?: string
-  companyId?: string
+  projectId?: string
 }
 
 export const MEDIUM_LABELS: Record<MediumType, string> = {
   utp: 'Cable UTP',
   fiber: 'Fibra óptica',
   wifi: 'WiFi',
+  internet: 'Internet / WAN',
 }
 
 export const CABLE_CATEGORY_LABELS: Record<CableCategory, string> = {
@@ -370,6 +624,9 @@ export function formatMediumLabel(medium: MediumInfo): string {
     const parts = [ssid, std, band].filter(Boolean).join(' · ')
     return parts ? `WiFi · ${parts}` : 'WiFi'
   }
+  if (medium.mediumType === 'internet') {
+    return 'Internet / WAN'
+  }
   return 'Desconocido'
 }
 
@@ -377,10 +634,13 @@ export const MEDIUM_COLORS: Record<MediumType, string> = {
   utp: '#3b82f6',
   fiber: '#f97316',
   wifi: '#22c55e',
+  internet: '#0284c7',
 }
 
 export const MEDIUM_EDGE_STYLES: Record<MediumType, { stroke: string; strokeDasharray?: string }> = {
   utp: { stroke: '#3b82f6' },
   fiber: { stroke: '#f97316' },
   wifi: { stroke: '#22c55e', strokeDasharray: '6 3' },
+  /** Trazo punto-raya, distinto de UTP/fibra/WiFi. */
+  internet: { stroke: '#0284c7', strokeDasharray: '14 5 3 5' },
 }

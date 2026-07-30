@@ -3,10 +3,10 @@ import EmployeeCredential from '#models/employee_credential'
 import Employee from '#models/employee'
 import SystemUser from '#models/system_user'
 import {
-  canAccessCompany,
-  canMutateInCompany,
+  canAccessProject,
+  canMutateInProject,
   findLinkedEmployee,
-  resolveRoleForCompany,
+  resolveRoleForProject,
 } from '#services/authorization_service'
 import {
   createEmployeeCredentialValidator,
@@ -27,9 +27,9 @@ export default class EmployeeCredentialsController {
   private async assertViewerOwnership(
     user: SystemUser,
     employeeId: string,
-    companyId?: string
+    projectId?: string
   ): Promise<Employee | null> {
-    const linked = await findLinkedEmployee(user, companyId)
+    const linked = await findLinkedEmployee(user, projectId)
     if (!linked || linked.id !== employeeId) return null
     return linked
   }
@@ -44,12 +44,12 @@ export default class EmployeeCredentialsController {
       })
     }
     const employee = await Employee.findOrFail(employeeId)
-    if (!(await canAccessCompany(user, employee.companyId))) {
+    if (!(await canAccessProject(user, employee.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const role = await resolveRoleForCompany(user, employee.companyId)
+    const role = await resolveRoleForProject(user, employee.projectId)
     if (role === 'viewer') {
-      const linked = await this.assertViewerOwnership(user, employeeId, employee.companyId)
+      const linked = await this.assertViewerOwnership(user, employeeId, employee.projectId)
       if (!linked) {
         return response.forbidden({ success: false, message: 'Insufficient permissions' })
       }
@@ -64,12 +64,12 @@ export default class EmployeeCredentialsController {
   async store({ auth, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const data = await request.validateUsing(createEmployeeCredentialValidator)
-    if (!(await canAccessCompany(user, data.companyId))) {
+    if (!(await canAccessProject(user, data.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const role = await resolveRoleForCompany(user, data.companyId)
+    const role = await resolveRoleForProject(user, data.projectId)
     if (role === 'viewer') {
-      const linked = await this.assertViewerOwnership(user, data.employeeId, data.companyId)
+      const linked = await this.assertViewerOwnership(user, data.employeeId, data.projectId)
       if (!linked) {
         return response.forbidden({ success: false, message: 'Insufficient permissions' })
       }
@@ -88,12 +88,12 @@ export default class EmployeeCredentialsController {
       .where('id', params.id)
       .preload('employee')
       .firstOrFail()
-    if (!(await canAccessCompany(user, credential.companyId))) {
+    if (!(await canAccessProject(user, credential.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const role = await resolveRoleForCompany(user, credential.companyId)
+    const role = await resolveRoleForProject(user, credential.projectId)
     if (role === 'viewer') {
-      const linked = await this.assertViewerOwnership(user, credential.employeeId, credential.companyId)
+      const linked = await this.assertViewerOwnership(user, credential.employeeId, credential.projectId)
       if (!linked) {
         return response.forbidden({ success: false, message: 'Insufficient permissions' })
       }
@@ -104,12 +104,12 @@ export default class EmployeeCredentialsController {
   async reveal({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await EmployeeCredential.findOrFail(params.id)
-    if (!(await canAccessCompany(user, credential.companyId))) {
+    if (!(await canAccessProject(user, credential.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const role = await resolveRoleForCompany(user, credential.companyId)
+    const role = await resolveRoleForProject(user, credential.projectId)
     if (role === 'viewer') {
-      const linked = await this.assertViewerOwnership(user, credential.employeeId, credential.companyId)
+      const linked = await this.assertViewerOwnership(user, credential.employeeId, credential.projectId)
       if (!linked) {
         return response.forbidden({
           success: false,
@@ -129,12 +129,12 @@ export default class EmployeeCredentialsController {
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await EmployeeCredential.findOrFail(params.id)
-    if (!(await canAccessCompany(user, credential.companyId))) {
+    if (!(await canAccessProject(user, credential.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const role = await resolveRoleForCompany(user, credential.companyId)
+    const role = await resolveRoleForProject(user, credential.projectId)
     if (role === 'viewer') {
-      const linked = await this.assertViewerOwnership(user, credential.employeeId, credential.companyId)
+      const linked = await this.assertViewerOwnership(user, credential.employeeId, credential.projectId)
       if (!linked) {
         return response.forbidden({ success: false, message: 'Insufficient permissions' })
       }
@@ -152,7 +152,7 @@ export default class EmployeeCredentialsController {
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const credential = await EmployeeCredential.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, credential.companyId))) {
+    if (!(await canMutateInProject(user, credential.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     await credential.delete()

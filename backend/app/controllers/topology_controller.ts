@@ -1,148 +1,111 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import Connection from '#models/connection'
 import SystemUser from '#models/system_user'
-import TopologyCanvasLayout from '#models/topology_canvas_layout'
 import TopologyService from '#services/topology_service'
-import { canAccessCompany, canMutateInCompany } from '#services/authorization_service'
+import { canAccessProject, canMutateInProject } from '#services/authorization_service'
 import {
-  requireCompanyContext,
-  requireMutateCompanyContext,
-  type CompanyContext,
-} from '#services/company_context_service'
+  requireProjectContext,
+  requireMutateProjectContext,
+  type ProjectContext,
+} from '#services/project_context_service'
 import {
   createConnectionValidator,
   updateConnectionValidator,
 } from '#validators/connection_validator'
 import { updateTopologyCanvasLayoutValidator } from '#validators/topology_canvas_layout_validator'
 
-const UNIFIED_LAYER = 'unified'
-
 export default class TopologyController {
   private topologyService = new TopologyService()
 
-  private canvasLayoutScope(user: SystemUser, context: CompanyContext) {
+  private canvasLayoutScope(user: SystemUser, context: ProjectContext) {
     return context.role === 'viewer' ? user.id : 'shared'
   }
 
   async canvasLayoutShow(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
     const user = ctx.auth.getUserOrFail() as SystemUser
     const scope = this.canvasLayoutScope(user, context)
-    const row = await TopologyCanvasLayout.query()
-      .where('companyId', context.companyId)
-      .where('layer', UNIFIED_LAYER)
-      .where('scope', scope)
-      .first()
-    return ctx.response.ok({
-      success: true,
-      data: {
-        nodePositions: row?.nodePositions ?? {},
-        labelOffsets: row?.labelOffsets ?? {},
-        workAreas: row?.workAreas ?? [],
-        nodeParents: row?.nodeParents ?? {},
-      },
-    })
+    const data = await this.topologyService.getCanvasLayout(context.projectId, scope)
+    return ctx.response.ok({ success: true, data })
   }
 
   async canvasLayoutUpdate(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
     const user = ctx.auth.getUserOrFail() as SystemUser
     const payload = await ctx.request.validateUsing(updateTopologyCanvasLayoutValidator)
-    if (!(await canAccessCompany(user, payload.companyId))) {
+    if (!(await canAccessProject(user, payload.projectId))) {
       return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const scope = this.canvasLayoutScope(user, context)
-    const workAreas = payload.workAreas ?? []
-    const nodeParents = payload.nodeParents ?? {}
-    let row = await TopologyCanvasLayout.query()
-      .where('companyId', payload.companyId)
-      .where('layer', UNIFIED_LAYER)
-      .where('scope', scope)
-      .first()
-    if (!row) {
-      row = await TopologyCanvasLayout.create({
-        companyId: payload.companyId,
-        layer: UNIFIED_LAYER,
-        scope,
-        nodePositions: payload.nodePositions,
-        labelOffsets: payload.labelOffsets,
-        workAreas,
-        nodeParents,
-      })
-    } else {
-      row.nodePositions = payload.nodePositions
-      row.labelOffsets = payload.labelOffsets
-      row.workAreas = workAreas
-      row.nodeParents = nodeParents
-      await row.save()
-    }
-    return ctx.response.ok({
-      success: true,
-      data: {
-        nodePositions: row.nodePositions,
-        labelOffsets: row.labelOffsets,
-        workAreas: row.workAreas,
-        nodeParents: row.nodeParents,
-      },
-    })
+    const data = await this.topologyService.upsertCanvasLayout(scope, payload)
+    return ctx.response.ok({ success: true, data })
   }
 
   async canvasLayoutDestroy(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
     const user = ctx.auth.getUserOrFail() as SystemUser
     const scope = this.canvasLayoutScope(user, context)
-    const row = await TopologyCanvasLayout.query()
-      .where('companyId', context.companyId)
-      .where('layer', UNIFIED_LAYER)
-      .where('scope', scope)
-      .first()
-    if (row) await row.delete()
+    await this.topologyService.deleteCanvasLayout(context.projectId, scope)
     return ctx.response.ok({ success: true, message: 'Layout eliminado', data: null })
   }
 
   async index(ctx: HttpContext) {
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
-    const data = await this.topologyService.getTopology(context.companyId)
+    const data = await this.topologyService.getTopology(context.projectId)
     return ctx.response.ok({ success: true, data })
   }
 
   async store(ctx: HttpContext) {
-    if (!(await requireMutateCompanyContext(ctx))) return
+    if (!(await requireMutateProjectContext(ctx))) return
 
+    const user = ctx.auth.getUserOrFail() as SystemUser
     const payload = await ctx.request.validateUsing(createConnectionValidator)
-    if (!(await canAccessCompany(ctx.auth.getUserOrFail() as SystemUser, payload.companyId))) {
+    if (!(await canAccessProject(user, payload.projectId))) {
       return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const connection = await this.topologyService.createConnection(payload)
-    return ctx.response.created({ success: true, data: connection })
+    try {
+      const connection = await this.topologyService.createConnection(payload, user.id)
+      return ctx.response.created({ success: true, data: connection })
+    } catch (error: any) {
+      if (error?.status === 409 || error?.status === 422 || error?.status === 400) {
+        return ctx.response.status(error.status).send({ success: false, message: error.message })
+      }
+      throw error
+    }
   }
 
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
-    const connection = await Connection.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, connection.companyId))) {
+    const connection = await this.topologyService.getActiveConnectionSummary(params.id)
+    if (!(await canMutateInProject(user, connection.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     const payload = await request.validateUsing(updateConnectionValidator)
-    const updated = await this.topologyService.updateConnection(params.id, payload)
-    return response.ok({ success: true, data: updated })
+    try {
+      const updated = await this.topologyService.updateConnection(params.id, payload, user.id)
+      return response.ok({ success: true, data: updated })
+    } catch (error: any) {
+      if (error?.status === 409 || error?.status === 422 || error?.status === 400) {
+        return response.status(error.status).send({ success: false, message: error.message })
+      }
+      throw error
+    }
   }
 
   async destroy({ auth, params, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
-    const connection = await Connection.findOrFail(params.id)
-    if (!(await canMutateInCompany(user, connection.companyId))) {
+    const connection = await this.topologyService.getActiveConnectionSummary(params.id)
+    if (!(await canMutateInProject(user, connection.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    await this.topologyService.deleteConnection(params.id)
+    await this.topologyService.deleteConnection(params.id, user.id)
     return response.ok({ success: true, message: 'Connection deleted', data: null })
   }
 }

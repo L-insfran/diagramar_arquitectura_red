@@ -10,6 +10,9 @@ import { networksService } from '../../services/networks.service'
 import { portsService } from '../../services/ports.service'
 import { topologyService } from '../../services/topology.service'
 import { vlansService } from '../../services/vlans.service'
+import { cableTypesService } from '../../services/cable-types.service'
+import { ObjectDocsPanel } from '../ObjectDocsPanel'
+import { isInternetCloudDeviceType } from '../../utils/topologyPortPanel'
 import type {
   ConnectionMetadata,
   Device,
@@ -19,6 +22,7 @@ import type {
   Vlan,
   MediumType,
   CableCategory,
+  CableType,
   FiberType,
   FiberConnector,
   WifiStandard,
@@ -33,9 +37,9 @@ function portOptionLabel(p: Port) {
 
 function deviceOptionLabel(d: Device) {
   const host = d.hostname?.trim()
-  if (!host) return d.name
-  if (host === d.name.trim()) return d.name
-  return `${d.name} — ${host}`
+  const base = !host || host === d.name.trim() ? d.name : `${d.name} — ${host}`
+  if (isInternetCloudDeviceType(d.deviceType?.name)) return `${base} · ☁️ Internet`
+  return base
 }
 
 function formatPortHint(stats: { inUse: number; down: number }): string {
@@ -45,12 +49,22 @@ function formatPortHint(stats: { inUse: number; down: number }): string {
   return parts.join(' · ')
 }
 
-/** Igual que `device_types.name` del seeder (patch panel / cableado horizontal). */
-const STRUCTURED_CABLING_DEVICE_TYPE_NAME = 'Cableado Estructurado'
-
-function allowsMultiplePhysicalConnectionsPerPort(devices: Device[], deviceId: string): boolean {
+function isCloudDeviceId(devices: Device[], deviceId: string): boolean {
   const device = devices.find((d) => d.id === deviceId)
-  return device?.deviceType?.name === STRUCTURED_CABLING_DEVICE_TYPE_NAME
+  return isInternetCloudDeviceType(device?.deviceType?.name)
+}
+
+async function ensureInternetGeneralPort(deviceId: string, ports: Port[]): Promise<Port[]> {
+  if (ports.length > 0) return ports
+  const created = await portsService.create({
+    deviceId,
+    name: 'Internet',
+    portNumber: 1,
+    portType: 'wan',
+    status: 'up',
+    description: 'Puerto general de enlace a Internet (invisible en el diagrama)',
+  })
+  return [created]
 }
 
 interface PhysicalEdgeRef {
@@ -62,7 +76,7 @@ interface PhysicalEdgeRef {
 interface ConnectionModalProps {
   isOpen: boolean
   onClose: () => void
-  companyId: string
+  projectId: string
   edge: TopologyEdge | null
   onSaved: () => void
   /** @deprecated Layer mode removed; kept for call-site compatibility */
@@ -74,6 +88,7 @@ const MEDIUM_OPTIONS: SelectOption[] = [
   { value: 'utp', label: 'Cable UTP' },
   { value: 'fiber', label: 'Fibra óptica' },
   { value: 'wifi', label: 'WiFi' },
+  { value: 'internet', label: 'Internet / WAN' },
 ]
 
 const CABLE_CATEGORY_OPTIONS: SelectOption[] = [
@@ -131,7 +146,7 @@ const CONNECTION_STATUS_OPTIONS: SelectOption[] = [
   { value: 'verified', label: 'Verificada' },
 ]
 
-export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mode: _mode, physicalEdges = [] }: ConnectionModalProps) {
+export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mode: _mode, physicalEdges = [] }: ConnectionModalProps) {
   const isEdit = !!edge
 
   const [devices, setDevices] = useState<Device[]>([])
@@ -149,6 +164,8 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
   const [connectionType, setConnectionType] = useState<'physical' | 'logical'>('physical')
 
   const [mediumType, setMediumType] = useState<MediumType>('utp')
+  const [cableTypeId, setCableTypeId] = useState('')
+  const [cableTypes, setCableTypes] = useState<CableType[]>([])
   const [cableCategory, setCableCategory] = useState<CableCategory | ''>('')
   const [fiberType, setFiberType] = useState<FiberType | ''>('')
   const [fiberConnector, setFiberConnector] = useState<FiberConnector | ''>('')
@@ -179,6 +196,7 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
     setTargetPortId('')
     setConnectionType('physical')
     setMediumType('utp')
+    setCableTypeId('')
     setCableCategory('')
     setFiberType('')
     setFiberConnector('')
@@ -209,6 +227,10 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
       .then(setDevices)
       .catch(() => setDevices([]))
       .finally(() => setLoadingDevices(false))
+    cableTypesService
+      .getAll()
+      .then(setCableTypes)
+      .catch(() => setCableTypes([]))
   }, [isOpen])
 
   useEffect(() => {
@@ -220,6 +242,7 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
       setTargetPortId(edge.targetPortId)
       setConnectionType(edge.connectionType === 'logical' ? 'logical' : 'physical')
       setMediumType(edge.medium?.mediumType ?? 'utp')
+      setCableTypeId(edge.medium?.cableTypeId ?? '')
       setCableCategory((edge.medium?.cableCategory as CableCategory) ?? '')
       setFiberType((edge.medium?.fiberType as FiberType) ?? '')
       setFiberConnector((edge.medium?.fiberConnector as FiberConnector) ?? '')
@@ -249,10 +272,10 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
   }, [isOpen, edge])
 
   useEffect(() => {
-    if (!isOpen || !companyId) return
+    if (!isOpen || !projectId) return
     let cancelled = false
     setLoadingLogicalCatalog(true)
-    Promise.all([vlansService.getAll(companyId), networksService.getAll(companyId)])
+    Promise.all([vlansService.getAll(projectId), networksService.getAll(projectId)])
       .then(([fetchedVlans, fetchedNetworks]) => {
         if (cancelled) return
         setVlans(fetchedVlans)
@@ -263,25 +286,50 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
       })
       .finally(() => { if (!cancelled) setLoadingLogicalCatalog(false) })
     return () => { cancelled = true }
-  }, [isOpen, companyId])
+  }, [isOpen, projectId])
 
   useEffect(() => {
     if (!isOpen || !sourceDeviceId) { setSourcePorts([]); return }
     let cancelled = false
     portsService.getByDevice(sourceDeviceId)
-      .then((ports) => { if (!cancelled) setSourcePorts(ports) })
+      .then(async (ports) => {
+        if (cancelled) return
+        let next = ports
+        if (isCloudDeviceId(devices, sourceDeviceId)) {
+          next = await ensureInternetGeneralPort(sourceDeviceId, ports)
+          if (cancelled) return
+          if (next.length === 1 && !sourcePortId) setSourcePortId(next[0].id)
+        }
+        setSourcePorts(next)
+      })
       .catch(() => { if (!cancelled) setSourcePorts([]) })
     return () => { cancelled = true }
-  }, [isOpen, sourceDeviceId])
+  }, [isOpen, sourceDeviceId, devices])
 
   useEffect(() => {
     if (!isOpen || !targetDeviceId) { setTargetPorts([]); return }
     let cancelled = false
     portsService.getByDevice(targetDeviceId)
-      .then((ports) => { if (!cancelled) setTargetPorts(ports) })
+      .then(async (ports) => {
+        if (cancelled) return
+        let next = ports
+        if (isCloudDeviceId(devices, targetDeviceId)) {
+          next = await ensureInternetGeneralPort(targetDeviceId, ports)
+          if (cancelled) return
+          if (next.length === 1 && !targetPortId) setTargetPortId(next[0].id)
+        }
+        setTargetPorts(next)
+      })
       .catch(() => { if (!cancelled) setTargetPorts([]) })
     return () => { cancelled = true }
-  }, [isOpen, targetDeviceId])
+  }, [isOpen, targetDeviceId, devices])
+
+  useEffect(() => {
+    if (!isOpen || isEdit) return
+    if (isCloudDeviceId(devices, sourceDeviceId) || isCloudDeviceId(devices, targetDeviceId)) {
+      setMediumType('internet')
+    }
+  }, [isOpen, isEdit, devices, sourceDeviceId, targetDeviceId])
 
   useEffect(() => {
     if (!isOpen || connectionType !== 'logical' || isEdit) return
@@ -326,14 +374,12 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
   useEffect(() => {
     if (!isPhysical) return
     if (sourcePortId && usedPhysicalPortIds.has(sourcePortId)) {
-      const p = sourcePorts.find((x) => x.id === sourcePortId)
-      if (p && !allowsMultiplePhysicalConnectionsPerPort(devices, p.deviceId)) setSourcePortId('')
+      setSourcePortId('')
     }
     if (targetPortId && usedPhysicalPortIds.has(targetPortId)) {
-      const p = targetPorts.find((x) => x.id === targetPortId)
-      if (p && !allowsMultiplePhysicalConnectionsPerPort(devices, p.deviceId)) setTargetPortId('')
+      setTargetPortId('')
     }
-  }, [isPhysical, usedPhysicalPortIds, sourcePortId, targetPortId, devices, sourcePorts, targetPorts])
+  }, [isPhysical, usedPhysicalPortIds, sourcePortId, targetPortId])
 
   useEffect(() => {
     if (!sourcePortId) return
@@ -351,10 +397,7 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
     (ports: Port[]): SelectOption[] =>
       ports.map((p) => {
         const portDown = p.status !== 'up'
-        const occupied =
-          isPhysical &&
-          usedPhysicalPortIds.has(p.id) &&
-          !allowsMultiplePhysicalConnectionsPerPort(devices, p.deviceId)
+        const occupied = isPhysical && usedPhysicalPortIds.has(p.id)
         const blocked = portDown || occupied
         let reason: string | undefined
         if (portDown && occupied) reason = `${p.status} · En uso`
@@ -362,7 +405,7 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
         else if (occupied) reason = 'En uso'
         return { value: p.id, label: portOptionLabel(p), disabled: blocked, disabledReason: reason }
       }),
-    [isPhysical, usedPhysicalPortIds, devices]
+    [isPhysical, usedPhysicalPortIds]
   )
 
   const sourcePortOptions = useMemo(() => buildPortOptions(sourcePorts), [buildPortOptions, sourcePorts])
@@ -449,6 +492,7 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
         targetPortId,
         connectionType,
         mediumType,
+        cableTypeId: cableTypeId || null,
         cableCategory: mediumType === 'utp' && cableCategory ? cableCategory as CableCategory : null,
         fiberType: mediumType === 'fiber' && fiberType ? fiberType as FiberType : null,
         fiberConnector: mediumType === 'fiber' && fiberConnector ? fiberConnector as FiberConnector : null,
@@ -466,7 +510,7 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
       if (isEdit && edge) {
         await topologyService.updateConnection(edge.id, commonPayload)
       } else {
-        await topologyService.createConnection({ companyId, ...commonPayload })
+        await topologyService.createConnection({ projectId, ...commonPayload })
       }
       onSaved()
       onClose()
@@ -511,12 +555,30 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
                 onChange={(e) => { setTargetDeviceId(e.target.value); setTargetPortId('') }} required />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Select label="Puerto origen" placeholder={sourceDeviceId ? 'Seleccionar puerto' : 'Selecciona dispositivo primero'} options={sourcePortOptions}
-                value={sourcePortId} onChange={(e) => setSourcePortId(e.target.value)} disabled={!sourceDeviceId} required
-                hint={sourceDeviceId && sourceDisabledStats.total > 0 ? formatPortHint(sourceDisabledStats) : undefined} />
-              <Select label="Puerto destino" placeholder={targetDeviceId ? 'Seleccionar puerto' : 'Selecciona dispositivo primero'} options={targetPortOptions}
-                value={targetPortId} onChange={(e) => setTargetPortId(e.target.value)} disabled={!targetDeviceId} required
-                hint={targetDeviceId && targetDisabledStats.total > 0 ? formatPortHint(targetDisabledStats) : undefined} />
+              {isCloudDeviceId(devices, sourceDeviceId) && sourcePorts.length === 1 ? (
+                <div className="space-y-1.5">
+                  <p className="block text-sm font-medium text-gray-700 dark:text-gray-300">Puerto origen</p>
+                  <p className="rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-sm text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                    Puerto general de Internet (invisible en el diagrama)
+                  </p>
+                </div>
+              ) : (
+                <Select label="Puerto origen" placeholder={sourceDeviceId ? 'Seleccionar puerto' : 'Selecciona dispositivo primero'} options={sourcePortOptions}
+                  value={sourcePortId} onChange={(e) => setSourcePortId(e.target.value)} disabled={!sourceDeviceId} required
+                  hint={sourceDeviceId && sourceDisabledStats.total > 0 ? formatPortHint(sourceDisabledStats) : undefined} />
+              )}
+              {isCloudDeviceId(devices, targetDeviceId) && targetPorts.length === 1 ? (
+                <div className="space-y-1.5">
+                  <p className="block text-sm font-medium text-gray-700 dark:text-gray-300">Puerto destino</p>
+                  <p className="rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-sm text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                    Puerto general de Internet (invisible en el diagrama)
+                  </p>
+                </div>
+              ) : (
+                <Select label="Puerto destino" placeholder={targetDeviceId ? 'Seleccionar puerto' : 'Selecciona dispositivo primero'} options={targetPortOptions}
+                  value={targetPortId} onChange={(e) => setTargetPortId(e.target.value)} disabled={!targetDeviceId} required
+                  hint={targetDeviceId && targetDisabledStats.total > 0 ? formatPortHint(targetDisabledStats) : undefined} />
+              )}
             </div>
 
             {(sourcePortId || targetPortId) && (
@@ -571,7 +633,9 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
                   <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
                     <Lock className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Los puertos asignados a una conexión están bloqueados (excepto en dispositivos <span className="font-semibold">Cableado Estructurado</span>, donde un mismo puerto puede tener varios enlaces).
+                      Un puerto solo puede tener{' '}
+                      <span className="font-semibold">una conexión física activa</span>. Desconectá
+                      el enlace existente antes de crear otro.
                     </p>
                   </div>
                 )}
@@ -581,6 +645,33 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
             {/* Medio de conexión */}
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
               <p className="text-xs uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">Medio de conexión</p>
+              <Select
+                label="Tipo de cable (catálogo)"
+                options={[
+                  { value: '', label: 'Sin catálogo (usar medio manual)' },
+                  ...cableTypes.map((ct) => ({ value: ct.id, label: ct.name })),
+                ]}
+                value={cableTypeId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setCableTypeId(id)
+                  const ct = cableTypes.find((c) => c.id === id)
+                  if (!ct) return
+                  const family = ct.mediumFamily
+                  if (
+                    family === 'utp' ||
+                    family === 'fiber' ||
+                    family === 'wifi' ||
+                    family === 'internet'
+                  ) {
+                    setMediumType(family)
+                  } else {
+                    setMediumType('utp')
+                  }
+                  if (ct.defaultCategory) setCableCategory(ct.defaultCategory as CableCategory)
+                  if (ct.defaultFiberType) setFiberType(ct.defaultFiberType as FiberType)
+                }}
+              />
               <Select label="Tipo de medio" options={MEDIUM_OPTIONS} value={mediumType}
                 onChange={(e) => setMediumType(e.target.value as MediumType)} />
 
@@ -669,6 +760,16 @@ export function ConnectionModal({ isOpen, onClose, companyId, edge, onSaved, mod
         )}
 
         {formError && <p className="text-sm text-red-500" role="alert">{formError}</p>}
+
+        {isEdit && edge?.id && (
+          <div className="pt-2">
+            <ObjectDocsPanel
+              attachableType="connection"
+              attachableId={edge.id}
+              title="Documentación de la conexión"
+            />
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</Button>

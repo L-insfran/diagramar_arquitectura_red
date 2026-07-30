@@ -1,0 +1,34 @@
+---
+description: Arquitectura en capas y mapa de carpetas del monorepo
+alwaysApply: true
+---
+
+# Arquitectura
+
+## Capas obligatorias (backend)
+
+```
+Controller → Service → Repository → DTO → Validator
+```
+
+- **Nunca** acceder a la base desde el Controller.
+- **Nunca** colocar lógica de negocio en React; vive en Services.
+- Repository + DTO: ADR 0002 aceptado. Piloto: `devices`. Resto: al crear/tocar módulos.
+- Controllers que aún consultan modelos directo: migrarlos al tocarlos, no dejar más deuda.
+
+## Mapa real del repo
+
+| Área | Ruta |
+|------|------|
+| Backend | `backend/` (AdonisJS 7 + Lucid + VineJS + PostgreSQL) |
+| Controllers / Models / Services / Validators | `backend/app/{controllers,models,services,validators}/` |
+| Repositories / DTOs | `backend/app/{repositories,dtos}/` |
+| Migraciones | `backend/database/migrations/` (siguiente: `0034_...`) |
+| Frontend | `fronted/` (typo histórico del nombre; no renombrar sin plan) |
+| Páginas / Componentes / Services | `fronted/src/{pages,components,services}/` |
+| Contextos / Hooks / Types | `fronted/src/{contexts,hooks,types}/` |
+| Docs y ADRs | `docs/`, `docs/adr/` |
+
+## Request flow actual
+
+Auth por access token → contexto de proyecto (`requireProjectContext` / `requireMutateProjectContext`) → Controller → Service → Repository → Model Lucid. Respuestas: `{ success, data }` / `{ success, message }`.

@@ -1,5 +1,6 @@
 import type { Node } from '@xyflow/react'
 import type { DeviceFlowNodeType } from '../components/topology/DeviceFlowNode'
+import type { CloudFlowNodeType } from '../components/topology/CloudFlowNode'
 import {
   clampWorkAreaTitleFontSize,
   WORK_AREA_TITLE_FONT_DEFAULT,
@@ -16,14 +17,58 @@ export type TopologyWorkAreaPersist = {
   titleFontSize?: number
 }
 
-export type TopologyCanvasNode = DeviceFlowNodeType | WorkAreaFlowNodeType
+/** Dispositivos del diagrama (tarjeta o nube Internet). */
+export type TopologyDeviceNode = DeviceFlowNodeType | CloudFlowNodeType
+
+export type TopologyCanvasNode = TopologyDeviceNode | WorkAreaFlowNodeType
+
+function isValidWorkAreaPersist(v: unknown): v is TopologyWorkAreaPersist {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
+  const o = v as TopologyWorkAreaPersist
+  if (
+    typeof o.id !== 'string' ||
+    typeof o.name !== 'string' ||
+    !o.name.trim() ||
+    typeof o.x !== 'number' ||
+    typeof o.y !== 'number' ||
+    typeof o.width !== 'number' ||
+    typeof o.height !== 'number' ||
+    o.width < 40 ||
+    o.height < 40
+  ) {
+    return false
+  }
+  if (
+    o.titleFontSize !== undefined &&
+    (typeof o.titleFontSize !== 'number' || !Number.isFinite(o.titleFontSize))
+  ) {
+    return false
+  }
+  return true
+}
+
+/** Acepta array, objeto suelto o JSON string y siempre devuelve un array válido. */
+export function coerceWorkAreasArray(value: unknown): TopologyWorkAreaPersist[] {
+  let raw = value
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw) as unknown
+    } catch {
+      return []
+    }
+  }
+  if (raw == null) return []
+  if (Array.isArray(raw)) return raw.filter(isValidWorkAreaPersist)
+  if (isValidWorkAreaPersist(raw)) return [raw]
+  return []
+}
 
 export function isWorkAreaNode(node: Node): node is WorkAreaFlowNodeType {
   return node.type === 'workArea'
 }
 
-export function isDeviceNode(node: Node): node is DeviceFlowNodeType {
-  return node.type === 'device' || node.type == null
+export function isDeviceNode(node: Node): node is TopologyDeviceNode {
+  return node.type === 'device' || node.type === 'cloud' || node.type == null
 }
 
 export function absoluteNodePosition(
@@ -129,19 +174,21 @@ export function snapshotNodeParents(nodes: readonly Node[]): Record<string, stri
 /** Antepone nodos área y asigna parentId. Las posiciones de dispositivos deben
  *  estar ya en coords relativas si tienen padre (tal como se persistieron). */
 export function applyWorkAreaHierarchy(
-  devices: DeviceFlowNodeType[],
-  workAreas: TopologyWorkAreaPersist[],
+  devices: TopologyDeviceNode[],
+  workAreas: unknown,
   parents: Readonly<Record<string, string>>,
 ): TopologyCanvasNode[] {
-  const areaNodes = workAreas.map(createWorkAreaNode)
+  const normalizedAreas = coerceWorkAreasArray(workAreas)
+  const areaNodes = normalizedAreas.map(createWorkAreaNode)
   const areaIds = new Set(areaNodes.map((a) => a.id))
 
-  const nextDevices: DeviceFlowNodeType[] = devices.map((device) => {
+  // No usar extent:'parent': bloquearía sacar el dispositivo del área al arrastrar.
+  const nextDevices: TopologyDeviceNode[] = devices.map((device) => {
     const parentId = parents[device.id]
     if (!parentId || !areaIds.has(parentId)) {
       return { ...device, parentId: undefined, extent: undefined }
     }
-    return { ...device, parentId, extent: 'parent' as const }
+    return { ...device, parentId, extent: undefined }
   })
 
   return [...areaNodes, ...nextDevices]
@@ -173,11 +220,13 @@ export function reparentDevicesAfterDrag(nodes: TopologyCanvasNode[]): TopologyC
     }
 
     if (containing) {
-      if (node.parentId === containing.id) return node
+      if (node.parentId === containing.id) {
+        return node.extent === undefined ? node : { ...node, extent: undefined }
+      }
       return {
         ...node,
         parentId: containing.id,
-        extent: 'parent' as const,
+        extent: undefined,
         position: {
           x: abs.x - containing.position.x,
           y: abs.y - containing.position.y,

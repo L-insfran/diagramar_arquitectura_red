@@ -15,7 +15,7 @@ import {
 interface ExportOptions {
   title: string
   subtitle?: string
-  companyName?: string
+  projectName?: string
   authorName?: string
   date?: string
   /** Requerido solo si `content` es `full`. */
@@ -52,7 +52,7 @@ function resolveNodeDisplay(nodes: TopologyNode[], id: string): string {
 }
 
 export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
-  const { title, companyName, authorName, topology } = options
+  const { title, projectName, authorName, topology } = options
   const content = options.content ?? 'table'
   const orientation: PrintOrientation = options.orientation ?? 'landscape'
   const dateStr = options.date ?? new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -60,7 +60,7 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
   if (content === 'table') {
     await exportConnectionsTablePdf({
       title,
-      companyName,
+      projectName,
       authorName,
       dateStr,
       topology,
@@ -74,22 +74,22 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
 
 async function exportConnectionsTablePdf(opts: {
   title: string
-  companyName?: string
+  projectName?: string
   authorName?: string
   dateStr: string
   topology: TopologyData
   orientation: PrintOrientation
 }): Promise<void> {
-  const { title, companyName, authorName, dateStr, topology, orientation } = opts
+  const { title, projectName, authorName, dateStr, topology, orientation } = opts
   const edges = topology.edges
   const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()
 
   if (!edges.length) {
-    drawHeader(pdf, pageW, 'Tabla de conexiones', companyName, 'Sin conexiones documentadas', authorName, dateStr)
+    drawHeader(pdf, pageW, 'Tabla de conexiones', projectName, 'Sin conexiones documentadas', authorName, dateStr)
     drawFooter(pdf, pageW, pageH, 1, 1, dateStr, 'Tabla de conexiones')
-    const safeName = (companyName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
+    const safeName = (projectName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
     pdf.save(`${safeName}_Conexiones_${new Date().toISOString().slice(0, 10)}.pdf`)
     return
   }
@@ -107,7 +107,7 @@ async function exportConnectionsTablePdf(opts: {
       pdf,
       pw,
       pageLabel,
-      companyName,
+      projectName,
       `${edges.length} conexiones documentadas`,
       authorName,
       dateStr
@@ -121,7 +121,7 @@ async function exportConnectionsTablePdf(opts: {
     drawFooter(pdf, pw, ph, ci + 1, totalPages, dateStr, pageLabel)
   }
 
-  const safeName = (companyName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
+  const safeName = (projectName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
   pdf.save(`${safeName}_Conexiones_${new Date().toISOString().slice(0, 10)}.pdf`)
 }
 
@@ -130,7 +130,7 @@ async function exportFullArchitecturePdf(
   dateStr: string,
   orientation: PrintOrientation
 ): Promise<void> {
-  const { title, subtitle, companyName, authorName, topology, prepareHighResCanvas } = options
+  const { title, subtitle, projectName, authorName, topology, prepareHighResCanvas } = options
   const canvasElement = options.canvasElement
   if (!canvasElement) {
     throw new Error('canvasElement es requerido para exportar el diagrama completo')
@@ -195,7 +195,7 @@ async function exportFullArchitecturePdf(
   const totalPages = 1 + totalDiagramPages + tablePages
 
   // --- Page 1: Cover / overview ---
-  drawHeader(pdf, pageW, title, companyName, subtitle, authorName, dateStr)
+  drawHeader(pdf, pageW, title, projectName, subtitle, authorName, dateStr)
 
   const overviewMaxH = usableH
   const imgAspect = imgW / imgH
@@ -233,7 +233,7 @@ async function exportFullArchitecturePdf(
       const sectorNum = row * cols + col + 1
       const sectorLabel = `Sector ${sectorNum} de ${totalDiagramPages} (fila ${row + 1}, columna ${col + 1})`
 
-      drawSectorHeader(pdf, pw, title, companyName, sectorLabel)
+      drawSectorHeader(pdf, pw, title, projectName, sectorLabel)
 
       const sectorUsableW = pw - MARGIN * 2
       const sectorUsableH = ph - 30 - FOOTER_H - 4
@@ -273,7 +273,7 @@ async function exportFullArchitecturePdf(
       const pw = pdf.internal.pageSize.getWidth()
       const ph = pdf.internal.pageSize.getHeight()
       const pageLabel = pages.length > 1 ? `Tabla de conexiones (${ci + 1}/${pages.length})` : 'Tabla de conexiones'
-      drawHeader(pdf, pw, pageLabel, companyName, `${topology.edges.length} conexiones documentadas`, authorName, dateStr)
+      drawHeader(pdf, pw, pageLabel, projectName, `${topology.edges.length} conexiones documentadas`, authorName, dateStr)
       drawConnectionsTablePage(pdf, pw, ph, topology.nodes, pages[ci])
 
       if (ci === pages.length - 1) {
@@ -284,11 +284,11 @@ async function exportFullArchitecturePdf(
     }
   }
 
-  const safeName = (companyName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
+  const safeName = (projectName ?? title).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_')
   pdf.save(`${safeName}_Arquitectura_${new Date().toISOString().slice(0, 10)}.pdf`)
 }
 
-function drawHeader(pdf: jsPDF, pageW: number, title: string, companyName: string | undefined, subtitle: string | undefined, authorName: string | undefined, dateStr: string) {
+function drawHeader(pdf: jsPDF, pageW: number, title: string, projectName: string | undefined, subtitle: string | undefined, authorName: string | undefined, dateStr: string) {
   pdf.setFillColor(15, 23, 42)
   pdf.rect(0, 0, pageW, HEADER_H - 4, 'F')
 
@@ -296,8 +296,8 @@ function drawHeader(pdf: jsPDF, pageW: number, title: string, companyName: strin
   pdf.setFontSize(14)
   pdf.setFont('helvetica', 'bold')
 
-  if (companyName) {
-    pdf.text(companyName, MARGIN, 13)
+  if (projectName) {
+    pdf.text(projectName, MARGIN, 13)
     pdf.setFontSize(10)
     pdf.setFont('helvetica', 'normal')
     pdf.text(title, MARGIN, 21)
@@ -309,7 +309,7 @@ function drawHeader(pdf: jsPDF, pageW: number, title: string, companyName: strin
     pdf.setFontSize(8)
     pdf.setFont('helvetica', 'normal')
     pdf.setTextColor(200, 200, 200)
-    pdf.text(subtitle, MARGIN, companyName ? 28 : 24)
+    pdf.text(subtitle, MARGIN, projectName ? 28 : 24)
   }
 
   pdf.setTextColor(255, 255, 255)
@@ -327,14 +327,14 @@ function drawHeader(pdf: jsPDF, pageW: number, title: string, companyName: strin
   pdf.line(0, HEADER_H - 4, pageW, HEADER_H - 4)
 }
 
-function drawSectorHeader(pdf: jsPDF, pageW: number, title: string, companyName: string | undefined, sectorLabel: string) {
+function drawSectorHeader(pdf: jsPDF, pageW: number, title: string, projectName: string | undefined, sectorLabel: string) {
   pdf.setFillColor(30, 41, 59)
   pdf.rect(0, 0, pageW, 24, 'F')
 
   pdf.setTextColor(255, 255, 255)
   pdf.setFontSize(9)
   pdf.setFont('helvetica', 'bold')
-  pdf.text(companyName ? `${companyName} — ${title}` : title, MARGIN, 10)
+  pdf.text(projectName ? `${projectName} — ${title}` : title, MARGIN, 10)
 
   pdf.setFontSize(7)
   pdf.setFont('helvetica', 'normal')

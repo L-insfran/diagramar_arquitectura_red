@@ -1,36 +1,40 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import Company from '#models/company'
-import CompanyMembership from '#models/company_membership'
+import Project from '#models/project'
+import ProjectMembership from '#models/project_membership'
 import Device from '#models/device'
 import Connection from '#models/connection'
 import SystemUser from '#models/system_user'
 
 export default class MeController {
-  /** Companies accessible by the current user, with role and inventory counts. */
-  async companies({ auth, response }: HttpContext) {
+  /** Projects accessible by the current user, with role and inventory counts. */
+  async projects({ auth, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
 
     if (user.role === 'admin') {
-      const companies = await Company.query().orderBy('name', 'asc')
-      const existing = await CompanyMembership.query().where('system_user_id', user.id)
-      const byCompany = new Map(existing.map((m) => [m.companyId, m]))
+      const projects = await Project.query().orderBy('name', 'asc')
+      const existing = await ProjectMembership.query().where('system_user_id', user.id)
+      const byProject = new Map(existing.map((m) => [m.projectId, m]))
 
       const payload = await Promise.all(
-        companies.map(async (company) => {
-          const membership = byCompany.get(company.id)
-          const deviceCount = await Device.query().where('company_id', company.id).count('* as total')
+        projects.map(async (project) => {
+          const membership = byProject.get(project.id)
+          const deviceCount = await Device.query()
+            .where('project_id', project.id)
+            .whereNull('deleted_at')
+            .count('* as total')
           const connectionCount = await Connection.query()
-            .where('company_id', company.id)
+            .where('project_id', project.id)
+            .whereNull('deleted_at')
             .count('* as total')
           return {
-            id: company.id,
-            name: company.name,
-            domain: company.domain,
-            address: company.address,
-            phone: company.phone,
-            isActive: company.isActive,
+            id: project.id,
+            name: project.name,
+            domain: project.domain,
+            address: project.address,
+            phone: project.phone,
+            isActive: project.isActive,
             role: (membership?.role ?? 'admin') as 'admin' | 'operator' | 'viewer',
-            isDefault: membership?.isDefault ?? company.id === user.companyId,
+            isDefault: membership?.isDefault ?? project.id === user.projectId,
             deviceCount: Number(deviceCount[0].$extras.total ?? 0),
             connectionCount: Number(connectionCount[0].$extras.total ?? 0),
           }
@@ -39,28 +43,32 @@ export default class MeController {
       return response.ok({ success: true, data: payload })
     }
 
-    const memberships = await CompanyMembership.query()
+    const memberships = await ProjectMembership.query()
       .where('system_user_id', user.id)
-      .preload('company')
+      .preload('project')
       .orderBy('created_at', 'asc')
 
-    if (!memberships.length && user.companyId) {
-      const company = await Company.find(user.companyId)
-      if (company) {
-        const deviceCount = await Device.query().where('company_id', company.id).count('* as total')
+    if (!memberships.length && user.projectId) {
+      const project = await Project.find(user.projectId)
+      if (project) {
+        const deviceCount = await Device.query()
+            .where('project_id', project.id)
+            .whereNull('deleted_at')
+            .count('* as total')
         const connectionCount = await Connection.query()
-          .where('company_id', company.id)
+          .where('project_id', project.id)
+          .whereNull('deleted_at')
           .count('* as total')
         return response.ok({
           success: true,
           data: [
             {
-              id: company.id,
-              name: company.name,
-              domain: company.domain,
-              address: company.address,
-              phone: company.phone,
-              isActive: company.isActive,
+              id: project.id,
+              name: project.name,
+              domain: project.domain,
+              address: project.address,
+              phone: project.phone,
+              isActive: project.isActive,
               role: user.role,
               isDefault: true,
               deviceCount: Number(deviceCount[0].$extras.total ?? 0),
@@ -73,18 +81,22 @@ export default class MeController {
 
     const payload = await Promise.all(
       memberships.map(async (m) => {
-        const company = m.company
-        const deviceCount = await Device.query().where('company_id', company.id).count('* as total')
+        const project = m.project
+        const deviceCount = await Device.query()
+            .where('project_id', project.id)
+            .whereNull('deleted_at')
+            .count('* as total')
         const connectionCount = await Connection.query()
-          .where('company_id', company.id)
+          .where('project_id', project.id)
+          .whereNull('deleted_at')
           .count('* as total')
         return {
-          id: company.id,
-          name: company.name,
-          domain: company.domain,
-          address: company.address,
-          phone: company.phone,
-          isActive: company.isActive,
+          id: project.id,
+          name: project.name,
+          domain: project.domain,
+          address: project.address,
+          phone: project.phone,
+          isActive: project.isActive,
           role: m.role,
           isDefault: m.isDefault,
           deviceCount: Number(deviceCount[0].$extras.total ?? 0),

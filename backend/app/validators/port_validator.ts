@@ -1,6 +1,12 @@
 import vine from '@vinejs/vine'
 
-const portType = vine.enum(['ethernet', 'fiber', 'serial', 'wireless', 'wan', 'sfp'] as const)
+const portType = vine
+  .string()
+  .trim()
+  .toLowerCase()
+  .minLength(1)
+  .maxLength(50)
+  .regex(/^[a-z][a-z0-9_-]*$/)
 const portStatus = vine.enum(['up', 'down', 'disabled'] as const)
 
 const vlanAssignment = vine.object({

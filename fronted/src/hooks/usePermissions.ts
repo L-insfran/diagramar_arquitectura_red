@@ -1,24 +1,24 @@
 import { useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useCompany } from '../contexts/CompanyContext'
+import { useProject } from '../contexts/ProjectContext'
 
 export interface Permissions {
   role: 'admin' | 'operator' | 'viewer'
   isAdmin: boolean
   isOperator: boolean
   isViewer: boolean
-  /** Admin and operator can mutate most resources in the active company. */
+  /** Admin and operator can mutate most resources in the active project. */
   canMutate: boolean
-  /** Global platform admin (can manage all clients). */
+  /** Global platform admin (can manage all projects). */
   isGlobalAdmin: boolean
 }
 
 export function usePermissions(): Permissions {
   const { user } = useAuth()
-  const { roleInActiveCompany } = useCompany()
+  const { roleInActiveProject } = useProject()
   return useMemo(() => {
     const globalRole = user?.role ?? 'viewer'
-    const role = roleInActiveCompany || globalRole
+    const role = roleInActiveProject || globalRole
     return {
       role,
       isAdmin: role === 'admin',
@@ -27,5 +27,5 @@ export function usePermissions(): Permissions {
       canMutate: role === 'admin' || role === 'operator',
       isGlobalAdmin: globalRole === 'admin',
     }
-  }, [user?.role, roleInActiveCompany])
+  }, [user?.role, roleInActiveProject])
 }

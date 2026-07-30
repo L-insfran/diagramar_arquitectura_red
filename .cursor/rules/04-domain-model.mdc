@@ -1,0 +1,34 @@
+---
+description: Modelo de dominio — qué existe hoy y qué es objetivo
+alwaysApply: true
+---
+
+# Modelo de dominio
+
+## Jerarquía objetivo
+
+Proyecto → Sitios → Áreas → Racks → Equipos (desde Template) → Puertos → Conexiones. También: VLANs, Redes, Documentación. Todo bajo el scope raíz.
+
+## Qué EXISTE hoy (no inventar lo contrario)
+
+- `projects`, `project_memberships`, `system_users`, `departments`, `employees`
+- `device_types` (catálogo icono/nombre — **no** es Device Template)
+- `device_templates`, `device_template_ports` (SKU por proyecto; soft delete en templates)
+- `sites`, `areas`, `racks` (inventario físico; soft delete) — **distinto** de `work_areas` del canvas
+- `devices` (template + `site_id`/`area_id`/`rack_id` + `rack_unit_start`/`rack_face`; `location` legacy), `ports`, `port_types` (speed/color/icon/direction)
+- `cable_types` (catálogo; FK opcional en connections)
+- `vlans`, `networks`, `port_vlans`
+- `connections` (entidad real: puertos, medio, cable_type, longitud, estado, metadata; 1 física activa/puerto)
+- `attachments`, `secrets` (docs/secretos polimórficos; archivos en `storage/attachments`)
+- `topology_canvas_layouts` (posiciones, work_areas JSON visual)
+- Credenciales: `device_credentials`, `employee_credentials`
+
+## Qué NO existe aún
+
+Object storage cloud (S3/Drive/Blobs — hoy disco local).
+
+## Reglas de modelado
+
+- Conexiones = entidades. Nunca texto libre.
+- Templates definen marca/modelo/puertos/U/imagen; la instancia solo edita identidad operativa (nombre, serie, IP, MAC, hostname, estado, site/area/rack, notas).
+- Scope: `project_id` / `X-Project-Id`. Detalle: `docs/DOMAIN-MODEL.md`.

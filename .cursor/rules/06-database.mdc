@@ -1,0 +1,27 @@
+---
+description: Estándares de base de datos, migraciones, auditoría y soft delete
+globs: backend/database/**/*.ts
+alwaysApply: false
+---
+
+# Base de datos
+
+## Diseño
+
+- Normalizar. Evitar duplicación. Usar claves foráneas e índices.
+- Pensar en crecimiento (SNMP, LLDP, importación, monitoreo) sin rehacer el esquema.
+- Driver: PostgreSQL (`pg`). IDs UUID en tablas principales.
+- Scope raíz: tabla `projects`; FKs `project_id`.
+
+## Toda tabla nueva debe incluir
+
+- `created_at`, `updated_at`
+- Auditoría cuando corresponda: `created_by`, `updated_by`, `deleted_by` (FK a `system_users`)
+- Soft delete cuando el dominio lo requiera: `deleted_at` (hoy **no** existe en ninguna tabla — no asumir filtros soft-delete en queries actuales)
+
+## Migraciones
+
+- Prefijo numérico secuencial; siguiente disponible: **`0034_`**.
+- No modificar migraciones ya corridas.
+- Seeds de catálogo pueden vivir en migración o en `database/seeders/`.
+- No editar a mano `database/schema.ts` (auto-generado por Lucid).

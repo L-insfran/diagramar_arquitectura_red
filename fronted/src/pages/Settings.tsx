@@ -1,4 +1,4 @@
-import { Sun, Moon, Users, ChevronRight, Tags } from 'lucide-react'
+import { Sun, Moon, Users, ChevronRight, Tags, Cable, Box, Building2, HardDrive, Network } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -10,7 +10,7 @@ import { Button } from '../components/Button'
 export default function SettingsPage() {
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
-  const { isAdmin } = usePermissions()
+  const { isAdmin, canMutate } = usePermissions()
   const navigate = useNavigate()
 
   return (
@@ -58,6 +58,90 @@ export default function SettingsPage() {
           </div>
         </Card>
 
+        {/* Sites & Areas — mutate roles */}
+        {canMutate && (
+          <Card title="Sitios y áreas">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                  <Building2 className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    Ubicación física
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Sedes y áreas de inventario (distinto de zonas del diagrama)
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => navigate('/settings/sites')}
+              >
+                Administrar
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Racks */}
+        {canMutate && (
+          <Card title="Racks">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
+                  <HardDrive className="w-5 h-5 text-slate-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    Gabinetes y ocupación U
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Visor de ocupación U y montaje de equipos
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => navigate('/racks')}
+              >
+                Administrar
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Device templates — mutate roles */}
+        {canMutate && (
+          <Card title="Templates de dispositivo">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                  <Box className="w-5 h-5 text-violet-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    Catálogo de templates
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Marca, modelo, U y puertos reutilizables por proyecto
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => navigate('/settings/device-templates')}
+              >
+                Administrar
+              </Button>
+            </div>
+          </Card>
+        )}
+
         {/* Device types — admin only */}
         {isAdmin && (
           <Card title="Tipos de dispositivo">
@@ -79,6 +163,62 @@ export default function SettingsPage() {
                 variant="secondary"
                 icon={<ChevronRight className="w-4 h-4" />}
                 onClick={() => navigate('/settings/device-types')}
+              >
+                Administrar
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Port types — admin only */}
+        {isAdmin && (
+          <Card title="Tipos de puerto">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                  <Cable className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    Catálogo de puertos
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Velocidad, color, dirección e icono por tipo
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => navigate('/settings/port-types')}
+              >
+                Administrar
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Cable types — admin only */}
+        {isAdmin && (
+          <Card title="Tipos de cable">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                  <Network className="w-5 h-5 text-orange-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    Catálogo de cables
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    UTP, fibra, DAC y otros medios documentables
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => navigate('/settings/cable-types')}
               >
                 Administrar
               </Button>

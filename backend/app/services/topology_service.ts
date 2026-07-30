@@ -1,27 +1,39 @@
 import { Exception } from '@adonisjs/core/exceptions'
-import Connection, {
-  type ConnectionMetadata,
-  type MediumType,
-  type CableCategory,
-  type FiberType,
-  type FiberConnector,
-  type WifiStandard,
-  type WifiBand,
-  type WifiSecurity,
-  type ConnectionStatus,
+import type Connection from '#models/connection'
+import type {
+  CableCategory,
+  ConnectionMetadata,
+  FiberType,
+  MediumType,
+  ConnectionStatus,
 } from '#models/connection'
+import CableType from '#models/cable_type'
 import Device from '#models/device'
-import Port from '#models/port'
+import type Port from '#models/port'
+import ConnectionRepository from '#repositories/connection_repository'
+import type {
+  CreateConnectionInput,
+  UpdateConnectionInput,
+  UpsertCanvasLayoutInput,
+} from '#dtos/connection_dto'
+
+function mapFamilyToMediumType(family: string): MediumType {
+  if (family === 'fiber' || family === 'wifi' || family === 'internet' || family === 'utp') {
+    return family
+  }
+  return 'utp'
+}
 
 type MediumInfo = {
   mediumType: MediumType
-  cableCategory: CableCategory | null
-  fiberType: FiberType | null
-  fiberConnector: FiberConnector | null
+  cableTypeId: string | null
+  cableCategory: Connection['cableCategory']
+  fiberType: Connection['fiberType']
+  fiberConnector: Connection['fiberConnector']
   wifiSsid: string | null
-  wifiStandard: WifiStandard | null
-  wifiBand: WifiBand | null
-  wifiSecurity: WifiSecurity | null
+  wifiStandard: Connection['wifiStandard']
+  wifiBand: Connection['wifiBand']
+  wifiSecurity: Connection['wifiSecurity']
   cableLength: string | null
 }
 
@@ -144,7 +156,9 @@ const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopolo
     (network) => network.id
   )
   const portsInUse = ports.filter((port) => portsInUseIds.has(port.id)).length
-  const sortedPorts = [...ports].sort((a, b) => a.portNumber - b.portNumber || a.name.localeCompare(b.name))
+  const sortedPorts = [...ports].sort(
+    (a, b) => a.portNumber - b.portNumber || a.name.localeCompare(b.name)
+  )
 
   return {
     id: device.id,
@@ -177,6 +191,7 @@ const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopolo
 
 const buildMediumInfo = (conn: Connection): MediumInfo => ({
   mediumType: conn.mediumType ?? 'utp',
+  cableTypeId: conn.cableTypeId ?? null,
   cableCategory: conn.cableCategory ?? null,
   fiberType: conn.fiberType ?? null,
   fiberConnector: conn.fiberConnector ?? null,
@@ -187,42 +202,107 @@ const buildMediumInfo = (conn: Connection): MediumInfo => ({
   cableLength: conn.cableLength ?? null,
 })
 
+function serializeCanvasLayout(row: {
+  nodePositions: Record<string, unknown>
+  labelOffsets: Record<string, unknown>
+  workAreas: unknown
+  nodeParents: Record<string, unknown> | null
+} | null) {
+  return {
+    nodePositions: row?.nodePositions ?? {},
+    labelOffsets: row?.labelOffsets ?? {},
+    workAreas: Array.isArray(row?.workAreas) ? row.workAreas : [],
+    nodeParents: row?.nodeParents ?? {},
+  }
+}
+
 export default class TopologyService {
-  private async assertValidPortPair(companyId: string, sourcePortId: string, targetPortId: string) {
+  private connections = new ConnectionRepository()
+
+  private async assertValidPortPair(projectId: string, sourcePortId: string, targetPortId: string) {
     if (sourcePortId === targetPortId) {
       throw new Exception('Source and target ports must be different', { status: 400 })
     }
-    const source = await Port.query().where('id', sourcePortId).preload('device').firstOrFail()
-    const target = await Port.query().where('id', targetPortId).preload('device').firstOrFail()
-    if (source.device.companyId !== companyId || target.device.companyId !== companyId) {
-      throw new Exception('Both ports must belong to the same company as the connection', {
+    const source = await this.connections.findPortWithDeviceOrFail(sourcePortId)
+    const target = await this.connections.findPortWithDeviceOrFail(targetPortId)
+    if (source.device.deletedAt || target.device.deletedAt) {
+      throw new Exception('Cannot connect ports on a deleted device', { status: 400 })
+    }
+    if (source.device.projectId !== projectId || target.device.projectId !== projectId) {
+      throw new Exception('Both ports must belong to the same project as the connection', {
         status: 400,
       })
     }
   }
 
-  async getTopology(companyId: string) {
-    const connections = await Connection.query()
-      .where('company_id', companyId)
-      .preload('sourcePort', (query) => {
-        query
-          .preload('device', (dq) => dq.preload('deviceType'))
-          .preload('vlans', (q) => q.preload('networks'))
-      })
-      .preload('targetPort', (query) => {
-        query
-          .preload('device', (dq) => dq.preload('deviceType'))
-          .preload('vlans', (q) => q.preload('networks'))
-      })
+  /** One active physical connection per port (vision). Soft-deleted do not count. */
+  private async assertPortsAvailable(
+    sourcePortId: string,
+    targetPortId: string,
+    excludeConnectionId?: string
+  ) {
+    for (const portId of [sourcePortId, targetPortId]) {
+      const existing = await this.connections.findActivePhysicalByPortId(
+        portId,
+        excludeConnectionId
+      )
+      if (existing) {
+        throw new Exception(
+          'El puerto ya tiene una conexión física activa. Desconectalo antes de crear otra.',
+          { status: 409 }
+        )
+      }
+    }
+  }
+
+  private async resolveCableTypeFields(
+    data: CreateConnectionInput | UpdateConnectionInput
+  ): Promise<Partial<CreateConnectionInput>> {
+    if (data.cableTypeId === undefined) return {}
+    if (data.cableTypeId === null) {
+      return { cableTypeId: null }
+    }
+    const cableType = await CableType.find(data.cableTypeId)
+    if (!cableType) {
+      throw new Exception('Tipo de cable no encontrado', { status: 422 })
+    }
+    const patch: Partial<CreateConnectionInput> = {
+      cableTypeId: cableType.id,
+      mediumType: data.mediumType ?? mapFamilyToMediumType(cableType.mediumFamily),
+    }
+    if (data.cableCategory === undefined && cableType.defaultCategory) {
+      patch.cableCategory = cableType.defaultCategory as CableCategory
+    }
+    if (data.fiberType === undefined && cableType.defaultFiberType) {
+      patch.fiberType = cableType.defaultFiberType as FiberType
+    }
+    return patch
+  }
+
+  async getActiveConnectionSummary(id: string) {
+    return this.connections.findActiveSummaryOrFail(id)
+  }
+
+  async getTopology(projectId: string) {
+    const connections = await this.connections.findAllByProjectWithPorts(projectId)
+
+    const activeConnections = connections.filter((conn) => {
+      const sourceDevice = conn.sourcePort?.device
+      const targetDevice = conn.targetPort?.device
+      if (!sourceDevice || !targetDevice) return false
+      if (sourceDevice.deletedAt || targetDevice.deletedAt) return false
+      return true
+    })
 
     const portsInUseIds = new Set<string>()
-    for (const conn of connections) {
+    for (const conn of activeConnections) {
       portsInUseIds.add(conn.sourcePortId)
       portsInUseIds.add(conn.targetPortId)
     }
 
     const allDevices = await Device.query()
-      .where('company_id', companyId)
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
       .preload('deviceType')
       .preload('ports', (p) => p.preload('vlans', (v) => v.preload('networks')))
 
@@ -235,20 +315,22 @@ export default class TopologyService {
     const edges: FlowTopologyEdge[] = []
     const allVlans = new Map<string, VlanSummary>()
     const allNetworks = new Map<string, NetworkSummary>()
-    const byMedium: Record<MediumType, number> = { utp: 0, fiber: 0, wifi: 0 }
+    const byMedium: Record<MediumType, number> = { utp: 0, fiber: 0, wifi: 0, internet: 0 }
     const byStatus: Record<ConnectionStatus, number> = {
       planned: 0,
       implemented: 0,
       verified: 0,
     }
 
-    for (const conn of connections) {
+    for (const conn of activeConnections) {
       const sourceDevice = conn.sourcePort.device
       const targetDevice = conn.targetPort.device
       const medium = buildMediumInfo(conn)
 
-      const sourceNode = deviceNodes.get(sourceDevice.id) ?? buildDeviceNode(sourceDevice, portsInUseIds)
-      const targetNode = deviceNodes.get(targetDevice.id) ?? buildDeviceNode(targetDevice, portsInUseIds)
+      const sourceNode =
+        deviceNodes.get(sourceDevice.id) ?? buildDeviceNode(sourceDevice, portsInUseIds)
+      const targetNode =
+        deviceNodes.get(targetDevice.id) ?? buildDeviceNode(targetDevice, portsInUseIds)
       graphNodes.set(sourceDevice.id, sourceNode)
       graphNodes.set(targetDevice.id, targetNode)
 
@@ -301,7 +383,6 @@ export default class TopologyService {
       })
     }
 
-    // Include device-level VLANs/networks in summary even if not on a connection
     for (const node of deviceNodes.values()) {
       for (const vlan of node.data.vlans) allVlans.set(vlan.id, vlan)
       for (const network of node.data.networks) allNetworks.set(network.id, network)
@@ -327,96 +408,67 @@ export default class TopologyService {
     }
   }
 
-  async createConnection(data: {
-    companyId: string
-    sourcePortId: string
-    targetPortId: string
-    connectionType?: 'physical' | 'logical'
-    mediumType?: MediumType
-    cableCategory?: CableCategory | null
-    fiberType?: FiberType | null
-    fiberConnector?: FiberConnector | null
-    wifiSsid?: string | null
-    wifiStandard?: WifiStandard | null
-    wifiBand?: WifiBand | null
-    wifiSecurity?: WifiSecurity | null
-    cableLength?: string | null
-    connectionStatus?: ConnectionStatus
-    bandwidth?: string | null
-    description?: string | null
-    metadata?: ConnectionMetadata | null
-  }) {
-    await this.assertValidPortPair(data.companyId, data.sourcePortId, data.targetPortId)
-    return Connection.create({
-      companyId: data.companyId,
-      sourcePortId: data.sourcePortId,
-      targetPortId: data.targetPortId,
-      connectionType: data.connectionType ?? 'physical',
-      mediumType: data.mediumType ?? 'utp',
-      cableCategory: data.cableCategory ?? null,
-      fiberType: data.fiberType ?? null,
-      fiberConnector: data.fiberConnector ?? null,
-      wifiSsid: data.wifiSsid ?? null,
-      wifiStandard: data.wifiStandard ?? null,
-      wifiBand: data.wifiBand ?? null,
-      wifiSecurity: data.wifiSecurity ?? null,
-      cableLength: data.cableLength ?? null,
-      connectionStatus: data.connectionStatus ?? 'implemented',
-      bandwidth: data.bandwidth ?? null,
-      description: data.description ?? null,
-      metadata: data.metadata ?? null,
+  async createConnection(data: CreateConnectionInput, actorId: string) {
+    await this.assertValidPortPair(data.projectId, data.sourcePortId, data.targetPortId)
+    const connectionType = data.connectionType ?? 'physical'
+    if (connectionType === 'physical') {
+      await this.assertPortsAvailable(data.sourcePortId, data.targetPortId)
+    }
+    const cablePatch = await this.resolveCableTypeFields(data)
+    return this.connections.create({
+      ...data,
+      ...cablePatch,
+      connectionType,
+      createdBy: actorId,
+      updatedBy: actorId,
     })
   }
 
-  async updateConnection(
-    id: string,
-    data: {
-      sourcePortId?: string
-      targetPortId?: string
-      connectionType?: 'physical' | 'logical'
-      mediumType?: MediumType
-      cableCategory?: CableCategory | null
-      fiberType?: FiberType | null
-      fiberConnector?: FiberConnector | null
-      wifiSsid?: string | null
-      wifiStandard?: WifiStandard | null
-      wifiBand?: WifiBand | null
-      wifiSecurity?: WifiSecurity | null
-      cableLength?: string | null
-      connectionStatus?: ConnectionStatus
-      bandwidth?: string | null
-      description?: string | null
-      metadata?: ConnectionMetadata | null
-    }
-  ) {
-    const conn = await Connection.findOrFail(id)
+  async updateConnection(id: string, data: UpdateConnectionInput, actorId: string) {
+    const conn = await this.connections.findByIdOrFail(id)
     const nextSource = data.sourcePortId ?? conn.sourcePortId
     const nextTarget = data.targetPortId ?? conn.targetPortId
-    await this.assertValidPortPair(conn.companyId, nextSource, nextTarget)
-
-    if (data.sourcePortId !== undefined) conn.sourcePortId = data.sourcePortId
-    if (data.targetPortId !== undefined) conn.targetPortId = data.targetPortId
-    if (data.connectionType !== undefined) conn.connectionType = data.connectionType
-    if (data.mediumType !== undefined) conn.mediumType = data.mediumType
-    if (data.cableCategory !== undefined) conn.cableCategory = data.cableCategory
-    if (data.fiberType !== undefined) conn.fiberType = data.fiberType
-    if (data.fiberConnector !== undefined) conn.fiberConnector = data.fiberConnector
-    if (data.wifiSsid !== undefined) conn.wifiSsid = data.wifiSsid
-    if (data.wifiStandard !== undefined) conn.wifiStandard = data.wifiStandard
-    if (data.wifiBand !== undefined) conn.wifiBand = data.wifiBand
-    if (data.wifiSecurity !== undefined) conn.wifiSecurity = data.wifiSecurity
-    if (data.cableLength !== undefined) conn.cableLength = data.cableLength
-    if (data.connectionStatus !== undefined) conn.connectionStatus = data.connectionStatus
-    if (data.bandwidth !== undefined) conn.bandwidth = data.bandwidth
-    if (data.description !== undefined) conn.description = data.description
-    if (data.metadata !== undefined) conn.metadata = data.metadata
-
-    await conn.save()
-    return conn
+    await this.assertValidPortPair(conn.projectId, nextSource, nextTarget)
+    const nextType = data.connectionType ?? conn.connectionType
+    if (nextType === 'physical') {
+      await this.assertPortsAvailable(nextSource, nextTarget, conn.id)
+    }
+    const cablePatch = await this.resolveCableTypeFields(data)
+    return this.connections.update(conn, { ...data, ...cablePatch, updatedBy: actorId })
   }
 
-  async deleteConnection(id: string) {
-    const conn = await Connection.findOrFail(id)
-    await conn.delete()
+  async deleteConnection(id: string, actorId: string) {
+    const conn = await this.connections.findActiveSummaryOrFail(id)
+    await this.connections.softDelete(conn, actorId)
+  }
+
+  async getCanvasLayout(projectId: string, scope: string) {
+    const row = await this.connections.findCanvasLayout(projectId, scope)
+    return serializeCanvasLayout(row)
+  }
+
+  async upsertCanvasLayout(scope: string, data: UpsertCanvasLayoutInput) {
+    const workAreas = Array.isArray(data.workAreas) ? data.workAreas : []
+    const nodeParents = data.nodeParents ?? {}
+    let row = await this.connections.findCanvasLayout(data.projectId, scope)
+    if (!row) {
+      row = await this.connections.createCanvasLayout(scope, {
+        ...data,
+        workAreas,
+        nodeParents,
+      })
+    } else {
+      row.nodePositions = data.nodePositions
+      row.labelOffsets = data.labelOffsets
+      row.workAreas = workAreas
+      row.nodeParents = nodeParents
+      await this.connections.saveCanvasLayout(row)
+    }
+    return serializeCanvasLayout(row)
+  }
+
+  async deleteCanvasLayout(projectId: string, scope: string) {
+    const row = await this.connections.findCanvasLayout(projectId, scope)
+    if (row) await this.connections.deleteCanvasLayout(row)
   }
 }

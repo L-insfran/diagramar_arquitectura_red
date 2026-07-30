@@ -2,8 +2,8 @@ import api from './api'
 import type { ApiResponse, Vlan } from '../types'
 
 export const vlansService = {
-  async getAll(companyId?: string): Promise<Vlan[]> {
-    const params = companyId ? `?company_id=${companyId}` : ''
+  async getAll(projectId?: string): Promise<Vlan[]> {
+    const params = projectId ? `?project_id=${projectId}` : ''
     const { data } = await api.get<ApiResponse<Vlan[]>>(`/vlans${params}`)
     return data.data
   },

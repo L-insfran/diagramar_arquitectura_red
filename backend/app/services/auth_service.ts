@@ -1,10 +1,10 @@
 import SystemUser from '#models/system_user'
-import CompanyMembership from '#models/company_membership'
+import ProjectMembership from '#models/project_membership'
 
 async function serializeUserWithMemberships(user: SystemUser) {
-  const memberships = await CompanyMembership.query()
+  const memberships = await ProjectMembership.query()
     .where('system_user_id', user.id)
-    .preload('company')
+    .preload('project')
     .orderBy('created_at', 'asc')
 
   const serialized = user.serialize() as Record<string, unknown>
@@ -14,15 +14,15 @@ async function serializeUserWithMemberships(user: SystemUser) {
     ...serialized,
     memberships: memberships.map((m) => ({
       id: m.id,
-      companyId: m.companyId,
+      projectId: m.projectId,
       role: m.role,
       isDefault: m.isDefault,
-      company: m.company
+      project: m.project
         ? {
-            id: m.company.id,
-            name: m.company.name,
-            domain: m.company.domain,
-            isActive: m.company.isActive,
+            id: m.project.id,
+            name: m.project.name,
+            domain: m.project.domain,
+            isActive: m.project.isActive,
           }
         : null,
     })),
@@ -45,7 +45,7 @@ export default class AuthService {
     password: string
     firstName: string
     lastName: string
-    companyId: string
+    projectId: string
     role?: string
   }) {
     const role = (data.role as 'admin' | 'operator' | 'viewer') ?? 'viewer'
@@ -55,9 +55,9 @@ export default class AuthService {
       isActive: true,
     })
 
-    await CompanyMembership.create({
+    await ProjectMembership.create({
       systemUserId: user.id,
-      companyId: data.companyId,
+      projectId: data.projectId,
       role,
       isDefault: true,
     })

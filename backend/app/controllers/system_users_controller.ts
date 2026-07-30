@@ -1,8 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import SystemUser from '#models/system_user'
-import CompanyMembership from '#models/company_membership'
-import { canAccessCompany, isAdmin } from '#services/authorization_service'
-import { requireCompanyContext } from '#services/company_context_service'
+import ProjectMembership from '#models/project_membership'
+import { canAccessProject, isAdmin } from '#services/authorization_service'
+import { requireProjectContext } from '#services/project_context_service'
 import {
   createSystemUserValidator,
   updateSystemUserValidator,
@@ -23,12 +23,12 @@ export default class SystemUsersController {
         message: 'Only administrators can manage users',
       })
     }
-    const context = await requireCompanyContext(ctx)
+    const context = await requireProjectContext(ctx)
     if (!context) return
 
     const users = await SystemUser.query()
-      .where('company_id', context.companyId)
-      .preload('company')
+      .where('project_id', context.projectId)
+      .preload('project')
       .orderBy('last_name', 'asc')
     return ctx.response.ok({ success: true, data: users.map(userJson) })
   }
@@ -50,14 +50,14 @@ export default class SystemUsersController {
       isActive: data.isActive ?? true,
     })
 
-    await CompanyMembership.create({
+    await ProjectMembership.create({
       systemUserId: user.id,
-      companyId: data.companyId,
+      projectId: data.projectId,
       role: data.role,
       isDefault: true,
     })
 
-    await user.load('company')
+    await user.load('project')
     return response.created({ success: true, data: userJson(user) })
   }
 
@@ -68,9 +68,9 @@ export default class SystemUsersController {
     }
     const user = await SystemUser.query()
       .where('id', params.id)
-      .preload('company')
+      .preload('project')
       .firstOrFail()
-    if (user.companyId && !(await canAccessCompany(currentUser, user.companyId))) {
+    if (user.projectId && !(await canAccessProject(currentUser, user.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
     return response.ok({ success: true, data: userJson(user) })
@@ -100,7 +100,7 @@ export default class SystemUsersController {
     const { password: _omit, ...safeData } = data
     user.merge(safeData)
     await user.save()
-    await user.load('company')
+    await user.load('project')
     return response.ok({ success: true, data: userJson(user) })
   }
 

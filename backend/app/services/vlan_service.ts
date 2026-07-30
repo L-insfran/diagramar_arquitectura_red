@@ -9,11 +9,11 @@ export default class VlanService {
     'System-native VLAN (802.1Q ID 1). Auto-created for untagged / default network association.'
 
   /**
-   * Ensures the company has VLAN 1 in inventory (idempotent, race-safe).
+   * Ensures the project has VLAN 1 in inventory (idempotent, race-safe).
    */
-  async ensureNativeVlan(companyId: string): Promise<Vlan> {
+  async ensureNativeVlan(projectId: string): Promise<Vlan> {
     const found = await Vlan.query()
-      .where('company_id', companyId)
+      .where('project_id', projectId)
       .where('vlan_id', NATIVE_VLAN_TAG)
       .first()
 
@@ -27,7 +27,7 @@ export default class VlanService {
 
     try {
       return await Vlan.create({
-        companyId,
+        projectId,
         vlanId: NATIVE_VLAN_TAG,
         name: VlanService.nativeVlanName,
         description: VlanService.nativeVlanDescription,
@@ -36,7 +36,7 @@ export default class VlanService {
       const code = (error as { code?: string }).code
       if (code === '23505') {
         return await Vlan.query()
-          .where('company_id', companyId)
+          .where('project_id', projectId)
           .where('vlan_id', NATIVE_VLAN_TAG)
           .firstOrFail()
       }

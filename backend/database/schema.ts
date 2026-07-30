@@ -32,48 +32,101 @@ export class AccessTokenSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
-export class CompanySchema extends BaseModel {
-  static $columns = ['address', 'createdAt', 'domain', 'id', 'isActive', 'name', 'phone', 'updatedAt'] as const
-  $columns = CompanySchema.$columns
-  @column()
-  declare address: string | null
+export class AreaSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'id', 'name', 'notes', 'siteId', 'updatedAt', 'updatedBy'] as const
+  $columns = AreaSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
-  declare domain: string | null
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
   @column({ isPrimary: true })
   declare id: string
-  @column()
-  declare isActive: boolean
   @column()
   declare name: string
   @column()
-  declare phone: string | null
+  declare notes: string | null
+  @column()
+  declare siteId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
 }
 
-export class CompanyMembershipSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'id', 'isDefault', 'role', 'systemUserId', 'updatedAt'] as const
-  $columns = CompanyMembershipSchema.$columns
+export class AttachmentSchema extends BaseModel {
+  static $columns = ['attachableId', 'attachableType', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'id', 'kind', 'mimeType', 'originalFilename', 'projectId', 'sizeBytes', 'storagePath', 'title', 'updatedAt', 'updatedBy', 'url'] as const
+  $columns = AttachmentSchema.$columns
   @column()
-  declare companyId: string
+  declare attachableId: string
+  @column()
+  declare attachableType: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare description: string | null
   @column({ isPrimary: true })
   declare id: string
   @column()
-  declare isDefault: boolean
+  declare kind: string
   @column()
-  declare role: any
+  declare mimeType: string | null
   @column()
-  declare systemUserId: string
+  declare originalFilename: string | null
+  @column()
+  declare projectId: string
+  @column()
+  declare sizeBytes: bigint | number | null
+  @column()
+  declare storagePath: string | null
+  @column()
+  declare title: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+  @column()
+  declare url: string | null
+}
+
+export class CableTypeSchema extends BaseModel {
+  static $columns = ['code', 'color', 'createdAt', 'defaultCategory', 'defaultFiberType', 'description', 'id', 'mediumFamily', 'name', 'sortOrder', 'updatedAt'] as const
+  $columns = CableTypeSchema.$columns
+  @column()
+  declare code: string
+  @column()
+  declare color: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare defaultCategory: string | null
+  @column()
+  declare defaultFiberType: string | null
+  @column()
+  declare description: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare mediumFamily: string
+  @column()
+  declare name: string
+  @column()
+  declare sortOrder: number
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }
 
 export class ConnectionSchema extends BaseModel {
-  static $columns = ['bandwidth', 'cableCategory', 'cableLength', 'companyId', 'connectionStatus', 'connectionType', 'createdAt', 'description', 'fiberConnector', 'fiberType', 'id', 'mediumType', 'metadata', 'sourcePortId', 'targetPortId', 'updatedAt', 'wifiBand', 'wifiSecurity', 'wifiSsid', 'wifiStandard'] as const
+  static $columns = ['bandwidth', 'cableCategory', 'cableLength', 'cableTypeId', 'connectionStatus', 'connectionType', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'fiberConnector', 'fiberType', 'id', 'mediumType', 'metadata', 'projectId', 'sourcePortId', 'targetPortId', 'updatedAt', 'updatedBy', 'wifiBand', 'wifiSecurity', 'wifiSsid', 'wifiStandard'] as const
   $columns = ConnectionSchema.$columns
   @column()
   declare bandwidth: string | null
@@ -82,13 +135,19 @@ export class ConnectionSchema extends BaseModel {
   @column()
   declare cableLength: string | null
   @column()
-  declare companyId: string
+  declare cableTypeId: string | null
   @column()
   declare connectionStatus: string
   @column()
   declare connectionType: any
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
   @column()
   declare description: string | null
   @column()
@@ -102,11 +161,15 @@ export class ConnectionSchema extends BaseModel {
   @column()
   declare metadata: any | null
   @column()
+  declare projectId: string
+  @column()
   declare sourcePortId: string
   @column()
   declare targetPortId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
   @column()
   declare wifiBand: string | null
   @column()
@@ -118,10 +181,8 @@ export class ConnectionSchema extends BaseModel {
 }
 
 export class DepartmentSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'description', 'id', 'name', 'updatedAt'] as const
+  static $columns = ['createdAt', 'description', 'id', 'name', 'projectId', 'updatedAt'] as const
   $columns = DepartmentSchema.$columns
-  @column()
-  declare companyId: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -130,6 +191,8 @@ export class DepartmentSchema extends BaseModel {
   declare id: string
   @column()
   declare name: string
+  @column()
+  declare projectId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }
@@ -159,6 +222,74 @@ export class DeviceCredentialSchema extends BaseModel {
   declare username: string | null
 }
 
+export class DeviceTemplatePortSchema extends BaseModel {
+  static $columns = ['createdAt', 'description', 'deviceTemplateId', 'id', 'name', 'portNumber', 'portType', 'speed', 'updatedAt'] as const
+  $columns = DeviceTemplatePortSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare description: string | null
+  @column()
+  declare deviceTemplateId: string
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column()
+  declare portNumber: number
+  @column()
+  declare portType: string
+  @column()
+  declare speed: string | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class DeviceTemplateSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'customFields', 'deletedAt', 'deletedBy', 'deviceTypeId', 'frontViewUrl', 'id', 'imageUrl', 'manufacturer', 'model', 'name', 'notes', 'powerConsumptionW', 'projectId', 'rackUnits', 'rearViewUrl', 'updatedAt', 'updatedBy', 'weightKg'] as const
+  $columns = DeviceTemplateSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column()
+  declare customFields: any
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare deviceTypeId: string
+  @column()
+  declare frontViewUrl: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare imageUrl: string | null
+  @column()
+  declare manufacturer: string | null
+  @column()
+  declare model: string | null
+  @column()
+  declare name: string
+  @column()
+  declare notes: string | null
+  @column()
+  declare powerConsumptionW: string | null
+  @column()
+  declare projectId: string
+  @column()
+  declare rackUnits: number | null
+  @column()
+  declare rearViewUrl: string | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+  @column()
+  declare weightKg: string | null
+}
+
 export class DeviceTypeSchema extends BaseModel {
   static $columns = ['createdAt', 'description', 'icon', 'id', 'name', 'updatedAt'] as const
   $columns = DeviceTypeSchema.$columns
@@ -177,12 +308,20 @@ export class DeviceTypeSchema extends BaseModel {
 }
 
 export class DeviceSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'deviceTypeId', 'firmwareVersion', 'hostname', 'id', 'ipAddress', 'location', 'macAddress', 'manufacturer', 'model', 'name', 'notes', 'serialNumber', 'status', 'updatedAt'] as const
+  static $columns = ['areaId', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'deviceTemplateId', 'deviceTypeId', 'firmwareVersion', 'hostname', 'id', 'ipAddress', 'location', 'macAddress', 'manufacturer', 'model', 'name', 'notes', 'projectId', 'rackFace', 'rackId', 'rackUnitStart', 'serialNumber', 'siteId', 'status', 'updatedAt', 'updatedBy'] as const
   $columns = DeviceSchema.$columns
   @column()
-  declare companyId: string
+  declare areaId: string | null
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare deviceTemplateId: string
   @column()
   declare deviceTypeId: string
   @column()
@@ -206,18 +345,28 @@ export class DeviceSchema extends BaseModel {
   @column()
   declare notes: string | null
   @column()
+  declare projectId: string
+  @column()
+  declare rackFace: string | null
+  @column()
+  declare rackId: string | null
+  @column()
+  declare rackUnitStart: number | null
+  @column()
   declare serialNumber: string | null
+  @column()
+  declare siteId: string | null
   @column()
   declare status: any
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
 }
 
 export class EmployeeCredentialSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'employeeId', 'id', 'kind', 'label', 'notes', 'passwordCiphertext', 'updatedAt', 'username'] as const
+  static $columns = ['createdAt', 'employeeId', 'id', 'kind', 'label', 'notes', 'passwordCiphertext', 'projectId', 'updatedAt', 'username'] as const
   $columns = EmployeeCredentialSchema.$columns
-  @column()
-  declare companyId: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -232,6 +381,8 @@ export class EmployeeCredentialSchema extends BaseModel {
   declare notes: string | null
   @column()
   declare passwordCiphertext: string
+  @column()
+  declare projectId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
   @column()
@@ -258,10 +409,8 @@ export class EmployeeDeviceSchema extends BaseModel {
 }
 
 export class EmployeeSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'departmentId', 'email', 'firstName', 'id', 'lastName', 'phone', 'position', 'updatedAt'] as const
+  static $columns = ['createdAt', 'departmentId', 'email', 'firstName', 'id', 'lastName', 'phone', 'position', 'projectId', 'updatedAt'] as const
   $columns = EmployeeSchema.$columns
-  @column()
-  declare companyId: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -278,15 +427,15 @@ export class EmployeeSchema extends BaseModel {
   declare phone: string | null
   @column()
   declare position: string | null
+  @column()
+  declare projectId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }
 
 export class NetworkSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'description', 'dhcpEnabled', 'dnsPrimary', 'dnsSecondary', 'gateway', 'id', 'name', 'subnet', 'updatedAt', 'vlanId'] as const
+  static $columns = ['createdAt', 'description', 'dhcpEnabled', 'dnsPrimary', 'dnsSecondary', 'gateway', 'id', 'name', 'projectId', 'subnet', 'updatedAt', 'vlanId'] as const
   $columns = NetworkSchema.$columns
-  @column()
-  declare companyId: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -304,11 +453,38 @@ export class NetworkSchema extends BaseModel {
   @column()
   declare name: string
   @column()
+  declare projectId: string
+  @column()
   declare subnet: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
   @column()
   declare vlanId: string | null
+}
+
+export class PortTypeSchema extends BaseModel {
+  static $columns = ['code', 'color', 'createdAt', 'defaultSpeed', 'description', 'direction', 'icon', 'id', 'name', 'updatedAt'] as const
+  $columns = PortTypeSchema.$columns
+  @column()
+  declare code: string
+  @column()
+  declare color: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare defaultSpeed: string | null
+  @column()
+  declare description: string | null
+  @column()
+  declare direction: string
+  @column()
+  declare icon: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
 }
 
 export class PortVlanSchema extends BaseModel {
@@ -344,7 +520,7 @@ export class PortSchema extends BaseModel {
   @column()
   declare portNumber: number
   @column()
-  declare portType: any
+  declare portType: string
   @column()
   declare speed: string | null
   @column()
@@ -353,11 +529,146 @@ export class PortSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
-export class SystemUserSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'password', 'role', 'updatedAt'] as const
-  $columns = SystemUserSchema.$columns
+export class ProjectMembershipSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'isDefault', 'projectId', 'role', 'systemUserId', 'updatedAt'] as const
+  $columns = ProjectMembershipSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
   @column()
-  declare companyId: string
+  declare isDefault: boolean
+  @column()
+  declare projectId: string
+  @column()
+  declare role: any
+  @column()
+  declare systemUserId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class ProjectSchema extends BaseModel {
+  static $columns = ['address', 'createdAt', 'domain', 'id', 'isActive', 'name', 'phone', 'updatedAt'] as const
+  $columns = ProjectSchema.$columns
+  @column()
+  declare address: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare domain: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare isActive: boolean
+  @column()
+  declare name: string
+  @column()
+  declare phone: string | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class RackSchema extends BaseModel {
+  static $columns = ['areaId', 'code', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'heightU', 'id', 'manufacturer', 'model', 'name', 'notes', 'projectId', 'updatedAt', 'updatedBy'] as const
+  $columns = RackSchema.$columns
+  @column()
+  declare areaId: string
+  @column()
+  declare code: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare heightU: number
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare manufacturer: string | null
+  @column()
+  declare model: string | null
+  @column()
+  declare name: string
+  @column()
+  declare notes: string | null
+  @column()
+  declare projectId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
+export class SecretSchema extends BaseModel {
+  static $columns = ['attachableId', 'attachableType', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'id', 'kind', 'label', 'notes', 'projectId', 'updatedAt', 'updatedBy', 'username', 'valueCiphertext'] as const
+  $columns = SecretSchema.$columns
+  @column()
+  declare attachableId: string
+  @column()
+  declare attachableType: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare kind: string
+  @column()
+  declare label: string
+  @column()
+  declare notes: string | null
+  @column()
+  declare projectId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+  @column()
+  declare username: string | null
+  @column()
+  declare valueCiphertext: string
+}
+
+export class SiteSchema extends BaseModel {
+  static $columns = ['address', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'id', 'name', 'notes', 'projectId', 'updatedAt', 'updatedBy'] as const
+  $columns = SiteSchema.$columns
+  @column()
+  declare address: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column()
+  declare notes: string | null
+  @column()
+  declare projectId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
+export class SystemUserSchema extends BaseModel {
+  static $columns = ['createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'password', 'projectId', 'role', 'updatedAt'] as const
+  $columns = SystemUserSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -373,16 +684,16 @@ export class SystemUserSchema extends BaseModel {
   @column({ serializeAs: null })
   declare password: string
   @column()
+  declare projectId: string
+  @column()
   declare role: any
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }
 
 export class TopologyCanvasLayoutSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'id', 'labelOffsets', 'layer', 'nodeParents', 'nodePositions', 'scope', 'updatedAt', 'workAreas'] as const
+  static $columns = ['createdAt', 'id', 'labelOffsets', 'layer', 'nodeParents', 'nodePositions', 'projectId', 'scope', 'updatedAt', 'workAreas'] as const
   $columns = TopologyCanvasLayoutSchema.$columns
-  @column()
-  declare companyId: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column({ isPrimary: true })
@@ -396,6 +707,8 @@ export class TopologyCanvasLayoutSchema extends BaseModel {
   @column()
   declare nodePositions: any
   @column()
+  declare projectId: string
+  @column()
   declare scope: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
@@ -404,10 +717,8 @@ export class TopologyCanvasLayoutSchema extends BaseModel {
 }
 
 export class VlanSchema extends BaseModel {
-  static $columns = ['companyId', 'createdAt', 'description', 'id', 'name', 'updatedAt', 'vlanId'] as const
+  static $columns = ['createdAt', 'description', 'id', 'name', 'projectId', 'updatedAt', 'vlanId'] as const
   $columns = VlanSchema.$columns
-  @column()
-  declare companyId: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -416,6 +727,8 @@ export class VlanSchema extends BaseModel {
   declare id: string
   @column()
   declare name: string
+  @column()
+  declare projectId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
   @column()
