@@ -19,13 +19,39 @@ export const COMPACT_PORT_CELL_HEIGHT = 48
 export const PORT_GAP = 48
 export const PORT_PANEL_PADDING = 28
 export const PORT_PANEL_HEADER_HEIGHT = 20
-/** Etiquetas "1–12" / "13–24" entre filas. */
+/** Etiquetas de fila superior/inferior en layout físico. */
 export const PORT_ROW_LABEL_HEIGHT = 18
 /** Espacio bajo la última fila (salida visible de cables). */
 export const PORT_DOT_OVERFLOW = 56
 
-/** Columnas estándar en patch panel / switch 24 puertos. */
+/**
+ * Columnas de referencia (patch panel / banco de 24).
+ * En switches ≥18 puertos el layout físico usa `ceil(n/2)` columnas × 2 filas.
+ */
 export const PATCH_PANEL_COLS = 12
+
+/** A partir de este conteo: numeración tipo switch (pares verticales). */
+export const SWITCH_PHYSICAL_LAYOUT_MIN_PORTS = 18
+
+/**
+ * Patch panel Ethernet (faceplate): una fila lineal 1…N, bloques de 6.
+ * Celdas compactas para caber 24 puertos en el ancho del rack / nodo.
+ */
+export const ETHERNET_FACEPLATE_BLOCK_SIZE = 6
+export const ETHERNET_FACEPLATE_CELL_W = 22
+export const ETHERNET_FACEPLATE_CELL_H = 28
+export const ETHERNET_FACEPLATE_GAP = 3
+export const ETHERNET_FACEPLATE_BLOCK_GAP = 12
+
+/** Modo de disposición de puertos físicos. */
+export type PortPanelLayoutMode = 'default' | 'switchPairs' | 'ethernetFaceplate'
+
+export type PortPanelLayoutHints = {
+  deviceType?: string | null
+  ports?: Array<Pick<TopologyPortSummary, 'portType' | 'isPassthrough'>>
+  /** Fuerza faceplate Ethernet (tests / override). */
+  ethernetFaceplate?: boolean
+}
 
 /** Chips SSID (sección WiFi, no se ven como puertos RJ45). */
 export const WIFI_CHIP_WIDTH = 108
@@ -73,6 +99,98 @@ export function isStructuredCablingDeviceType(deviceType: string | null | undefi
     t.includes('patch') ||
     t.includes('cableado estructurado')
   )
+}
+
+function isEthernetPortType(portType: string | null | undefined): boolean {
+  const t = (portType ?? '').trim().toLowerCase()
+  if (!t) return false
+  return t === 'ethernet' || t === 'rj45' || t.includes('ethernet')
+}
+
+function isNonEthernetPanelPortType(portType: string | null | undefined): boolean {
+  const t = (portType ?? '').trim().toLowerCase()
+  if (!t) return false
+  return (
+    t === 'coaxial' ||
+    t === 'coax' ||
+    t.includes('coax') ||
+    t === 'fiber' ||
+    t.includes('fiber') ||
+    t === 'sfp' ||
+    t.includes('sfp')
+  )
+}
+
+/**
+ * Patch panel RJ45: numeración lineal 1…N en una fila, bloques de 6.
+ * Aplica a cableado estructurado / patch (salvo mayoría coax/fibra) y a
+ * paneles passthrough con mayoría de puertos ethernet.
+ */
+export function shouldUseEthernetFaceplateLayout(
+  deviceType: string | null | undefined,
+  ports: Array<Pick<TopologyPortSummary, 'portType' | 'isPassthrough'>> = [],
+): boolean {
+  const physical = ports.filter((p) => !isWirelessPort(p))
+  const ethCount = physical.filter((p) => isEthernetPortType(p.portType)).length
+  const otherPanelCount = physical.filter((p) => isNonEthernetPanelPortType(p.portType)).length
+
+  if (isStructuredCablingDeviceType(deviceType)) {
+    if (physical.length === 0) return true
+    if (otherPanelCount > ethCount && otherPanelCount > physical.length / 2) return false
+    return true
+  }
+
+  const typeName = (deviceType ?? '').trim().toLowerCase()
+  if (typeName.includes('ethernet') && physical.length >= 12) {
+    const passthrough = physical.filter((p) => p.isPassthrough).length
+    if (passthrough >= physical.length * 0.5) return true
+  }
+
+  if (physical.length < 12) return false
+  const ethPass = physical.filter((p) => p.isPassthrough && isEthernetPortType(p.portType)).length
+  return ethPass >= physical.length * 0.5
+}
+
+export function resolvePortPanelLayoutMode(
+  totalPhysicalPortCount: number,
+  hints?: PortPanelLayoutHints,
+): PortPanelLayoutMode {
+  if (
+    hints?.ethernetFaceplate === true ||
+    (hints &&
+      shouldUseEthernetFaceplateLayout(hints.deviceType, hints.ports ?? []))
+  ) {
+    return 'ethernetFaceplate'
+  }
+  if (totalPhysicalPortCount >= SWITCH_PHYSICAL_LAYOUT_MIN_PORTS) return 'switchPairs'
+  return 'default'
+}
+
+/** Presupuesto de gaps horizontales (intra-bloque + entre bloques). */
+export function faceplateHorizontalGaps(
+  cols: number,
+  gap: number,
+  blockGap: number,
+  blockSize = ETHERNET_FACEPLATE_BLOCK_SIZE,
+): number {
+  if (cols <= 1) return 0
+  const blocks = Math.ceil(cols / blockSize)
+  const inBlockGaps = cols - blocks
+  const betweenBlocks = Math.max(0, blocks - 1)
+  return inBlockGaps * gap + betweenBlocks * blockGap
+}
+
+/** Offset X de la columna `col` (0-based) en layout faceplate con bloques. */
+export function faceplateColumnOffsetX(
+  col: number,
+  cellW: number,
+  gap: number,
+  blockGap: number,
+  blockSize = ETHERNET_FACEPLATE_BLOCK_SIZE,
+): number {
+  if (col <= 0) return 0
+  const blocksBefore = Math.floor(col / blockSize)
+  return col * (cellW + gap) + blocksBefore * (blockGap - gap)
 }
 
 /** ISP / Internet / nube: forma de nube y puerto general oculto en el canvas. */
@@ -166,15 +284,28 @@ export function isCompactPortPanel(_portCount: number, totalPortCount: number): 
 }
 
 /**
- * Layout físico 1–12 / 13–24 solo en paneles grandes.
- * En equipos chicos (p. ej. puestos con puertos 13–16) se usa índice secuencial
- * para no empujar celdas y handles fuera del nodo.
+ * Layout físico tipo switch (pares verticales) en paneles ≥18 puertos.
+ * En equipos chicos se usa índice secuencial fila a fila.
+ * Patch panels Ethernet usan faceplate lineal (no pares verticales).
  */
-export function usesPhysicalPortLayout(layout: Pick<PortPanelLayout, 'cols' | 'totalPortCount'>): boolean {
-  return layout.cols === PATCH_PANEL_COLS && layout.totalPortCount > 12
+export function usesPhysicalPortLayout(
+  layout: Pick<PortPanelLayout, 'totalPortCount' | 'layoutMode'>,
+): boolean {
+  if (layout.layoutMode === 'ethernetFaceplate') return false
+  if (layout.layoutMode === 'switchPairs') return true
+  return layout.totalPortCount >= SWITCH_PHYSICAL_LAYOUT_MIN_PORTS
 }
 
-/** Fila/columna según número de puerto (físico) o índice en la lista ordenada. */
+export function usesEthernetFaceplateLayout(
+  layout: Pick<PortPanelLayout, 'layoutMode'>,
+): boolean {
+  return layout.layoutMode === 'ethernetFaceplate'
+}
+
+/**
+ * Fila/columna según número de puerto (físico) o índice en la lista ordenada.
+ * Físico: columnas de a pares — 1 arriba, 2 abajo, 3 a la derecha de 1, etc.
+ */
 export function portGridSlot(
   portNumber: number,
   cols: number,
@@ -184,19 +315,35 @@ export function portGridSlot(
   const idx = physical
     ? Math.max(0, portNumber - 1)
     : Math.max(0, sequentialIndex ?? portNumber - 1)
-  return { row: Math.floor(idx / cols), col: idx % cols }
+  if (physical) {
+    return { row: idx % 2, col: Math.floor(idx / 2) }
+  }
+  const safeCols = Math.max(1, cols)
+  return { row: Math.floor(idx / safeCols), col: idx % safeCols }
+}
+
+/** Grilla 2 filas × N columnas para switches con numeración en pares verticales. */
+export function computeSwitchPhysicalGrid(portCount: number): { cols: number; rows: number } {
+  if (portCount <= 0) return { cols: 0, rows: 0 }
+  if (portCount === 1) return { cols: 1, rows: 1 }
+  return { cols: Math.ceil(portCount / 2), rows: 2 }
 }
 
 export function computePortGrid(
   portCount: number,
   compact = false,
   totalPortCount = portCount,
+  layoutMode: PortPanelLayoutMode = 'default',
 ): { cols: number; rows: number } {
   if (portCount <= 0) return { cols: 0, rows: 0 }
 
-  if (totalPortCount > 12) {
+  if (layoutMode === 'ethernetFaceplate') {
+    return { cols: portCount, rows: 1 }
+  }
+
+  if (layoutMode === 'switchPairs' || totalPortCount >= SWITCH_PHYSICAL_LAYOUT_MIN_PORTS) {
     const slots = Math.max(totalPortCount, portCount)
-    return { cols: PATCH_PANEL_COLS, rows: Math.ceil(slots / PATCH_PANEL_COLS) }
+    return computeSwitchPhysicalGrid(slots)
   }
 
   if (compact || !compact) {
@@ -249,12 +396,25 @@ export type PortPanelLayout = {
   portPanelPad?: number
   /** Alto de la subcabecera WiFi en rack (0 = oculta). */
   wifiPanelHeaderH?: number
+  /** Disposición: switch pares / faceplate Ethernet / secuencial. */
+  layoutMode?: PortPanelLayoutMode
+  /** Tamaño de bloque en faceplate (default 6). */
+  blockSize?: number
+  /** Gap extra entre bloques faceplate. */
+  blockGap?: number
 }
 
-function cellMetrics(compact: boolean): { cellW: number; cellH: number } {
-  return compact
-    ? { cellW: COMPACT_PORT_CELL_WIDTH, cellH: COMPACT_PORT_CELL_HEIGHT }
-    : { cellW: PORT_CELL_WIDTH, cellH: PORT_CELL_HEIGHT }
+function cellMetrics(compact: boolean, cols = PATCH_PANEL_COLS): { cellW: number; cellH: number } {
+  if (!compact) return { cellW: PORT_CELL_WIDTH, cellH: PORT_CELL_HEIGHT }
+  // Switches anchos (p. ej. 48 → 24 cols): achicar celdas para no inflar el nodo.
+  if (cols > PATCH_PANEL_COLS) {
+    const scale = PATCH_PANEL_COLS / cols
+    return {
+      cellW: Math.max(40, Math.round(COMPACT_PORT_CELL_WIDTH * scale)),
+      cellH: Math.max(30, Math.round(COMPACT_PORT_CELL_HEIGHT * Math.min(1, 0.7 + scale * 0.3))),
+    }
+  }
+  return { cellW: COMPACT_PORT_CELL_WIDTH, cellH: COMPACT_PORT_CELL_HEIGHT }
 }
 
 function emptyWifiMetrics(): Pick<
@@ -288,8 +448,9 @@ function emptyWifiMetrics(): Pick<
 
 /**
  * @param physicalCount Puertos no-wireless visibles en la grilla
- * @param totalPhysicalPortCount Total físico del equipo (para layout patch 1–12 / 13–24)
+ * @param totalPhysicalPortCount Total físico del equipo (para layout switch pares verticales)
  * @param wirelessCount Interfaces `portType: wireless` (SSID)
+ * @param hints deviceType / ports para elegir faceplate Ethernet vs switch
  */
 export function computePortPanelLayout(
   physicalCount: number,
@@ -297,9 +458,12 @@ export function computePortPanelLayout(
   totalPhysicalPortCount = physicalCount,
   headerHeight = TOPOLOGY_HEADER_HEIGHT,
   wirelessCount = 0,
+  hints?: PortPanelLayoutHints,
 ): PortPanelLayout {
   const hasPhysical = physicalCount > 0
   const hasWireless = wirelessCount > 0
+  const layoutMode = resolvePortPanelLayoutMode(totalPhysicalPortCount, hints)
+  const faceplate = layoutMode === 'ethernetFaceplate'
 
   if (!hasPhysical && !hasWireless) {
     return {
@@ -315,17 +479,40 @@ export function computePortPanelLayout(
       gridTop: headerHeight,
       totalPortCount: totalPhysicalPortCount,
       headerHeight,
+      layoutMode,
       ...emptyWifiMetrics(),
     }
   }
 
   const { cols, rows } = hasPhysical
-    ? computePortGrid(physicalCount, compact, totalPhysicalPortCount)
+    ? computePortGrid(physicalCount, compact, totalPhysicalPortCount, layoutMode)
     : { cols: 0, rows: 0 }
-  const { cellW, cellH } = hasPhysical ? cellMetrics(compact) : { cellW: 0, cellH: 0 }
-  const gridWidth = hasPhysical ? cols * cellW + (cols - 1) * PORT_GAP : 0
-  const gridHeight = hasPhysical ? rows * cellH + (rows - 1) * PORT_GAP : 0
-  const rowLabelsH = hasPhysical && rows > 1 && cols === PATCH_PANEL_COLS ? PORT_ROW_LABEL_HEIGHT : 0
+
+  const portGap = faceplate ? ETHERNET_FACEPLATE_GAP : PORT_GAP
+  const blockSize = faceplate ? ETHERNET_FACEPLATE_BLOCK_SIZE : undefined
+  const blockGap = faceplate ? ETHERNET_FACEPLATE_BLOCK_GAP : undefined
+
+  let cellW = 0
+  let cellH = 0
+  if (hasPhysical) {
+    if (faceplate) {
+      cellW = ETHERNET_FACEPLATE_CELL_W
+      cellH = ETHERNET_FACEPLATE_CELL_H
+    } else {
+      const m = cellMetrics(compact, cols)
+      cellW = m.cellW
+      cellH = m.cellH
+    }
+  }
+
+  const gridWidth = hasPhysical
+    ? faceplate
+      ? cols * cellW + faceplateHorizontalGaps(cols, portGap, blockGap!, blockSize!)
+      : cols * cellW + (cols - 1) * portGap
+    : 0
+  const gridHeight = hasPhysical ? rows * cellH + (rows - 1) * portGap : 0
+  const rowLabelsH =
+    hasPhysical && rows > 1 && layoutMode === 'switchPairs' ? PORT_ROW_LABEL_HEIGHT : 0
 
   const { cols: wifiCols, rows: wifiRows } = computeWifiGrid(wirelessCount)
   const wifiCellW = WIFI_CHIP_WIDTH
@@ -364,7 +551,7 @@ export function computePortPanelLayout(
     : 0
 
   return {
-    compact,
+    compact: faceplate ? true : compact,
     cols,
     rows,
     cellW,
@@ -387,6 +574,9 @@ export function computePortPanelLayout(
     wifiGridTop,
     hasPhysical,
     hasWireless,
+    ...(faceplate
+      ? { portGap, blockSize, blockGap, layoutMode }
+      : { layoutMode }),
   }
 }
 
@@ -398,9 +588,11 @@ const RACK_PORT_GAP = 2
 const RACK_PORT_GAP_ROOMY = 3
 const RACK_PORT_PAD = 2
 const RACK_PORT_PAD_ROOMY = 4
-const RACK_PORT_CELL_W_MIN = 12
+/** Mínimos de referencia; el layout puede bajar de estos para encajar. */
+const RACK_PORT_CELL_W_MIN = 10
 const RACK_PORT_CELL_H_MIN = 8
-const RACK_PORT_CELL_H_MAX = 28
+const RACK_PORT_CELL_H_MAX = 22
+const RACK_PORT_CELL_W_MAX = 28
 const RACK_PORT_HEADER_H = 12
 const RACK_WIFI_CELL_H_MIN = 14
 const RACK_WIFI_CELL_H_MAX = 22
@@ -419,15 +611,21 @@ export function computeRackMountedPortPanelLayout(
   wirelessCount = 0,
   targetWidth: number,
   targetHeight: number,
+  hints?: PortPanelLayoutHints,
 ): PortPanelLayout {
   const width = Math.max(80, targetWidth)
   const height = Math.max(RACK_MOUNTED_HEADER_HEIGHT_DENSE, targetHeight)
   const dense = height <= RACK_DENSE_HEIGHT_PX
   const headerHeight = dense ? RACK_MOUNTED_HEADER_HEIGHT_DENSE : RACK_MOUNTED_HEADER_HEIGHT
   const portPad = dense ? RACK_PORT_PAD : RACK_PORT_PAD_ROOMY
-  const portGap = dense ? RACK_PORT_GAP : RACK_PORT_GAP_ROOMY
+  const portGapBase = dense ? RACK_PORT_GAP : RACK_PORT_GAP_ROOMY
   const hasPhysical = physicalCount > 0
   const hasWireless = wirelessCount > 0
+  const layoutMode = resolvePortPanelLayoutMode(totalPhysicalPortCount, hints)
+  const faceplate = layoutMode === 'ethernetFaceplate'
+  const portGap = faceplate ? Math.min(portGapBase, 2) : portGapBase
+  const blockSize = faceplate ? ETHERNET_FACEPLATE_BLOCK_SIZE : undefined
+  const blockGap = faceplate ? Math.max(portGap + 3, dense ? 5 : 7) : undefined
 
   if (!hasPhysical && !hasWireless) {
     return {
@@ -446,6 +644,7 @@ export function computeRackMountedPortPanelLayout(
       panelHeaderH: 0,
       portPanelPad: portPad,
       wifiPanelHeaderH: 0,
+      layoutMode,
       ...emptyWifiMetrics(),
     }
   }
@@ -474,8 +673,14 @@ export function computeRackMountedPortPanelLayout(
   let cols = 0
   let rows = 0
   if (hasPhysical) {
-    if (totalPhysicalPortCount > 12) {
-      cols = PATCH_PANEL_COLS
+    if (faceplate) {
+      cols = Math.max(1, physicalCount)
+      rows = 1
+    } else if (layoutMode === 'switchPairs') {
+      const slots = Math.max(totalPhysicalPortCount, physicalCount)
+      const grid = computeSwitchPhysicalGrid(slots)
+      cols = grid.cols
+      rows = grid.rows
     } else {
       cols = Math.max(
         1,
@@ -484,8 +689,8 @@ export function computeRackMountedPortPanelLayout(
           Math.min(physicalCount, Math.floor((availableW + portGap) / (RACK_PORT_CELL_W_MIN + portGap))),
         ),
       )
+      rows = Math.max(1, Math.ceil(physicalCount / cols))
     }
-    rows = Math.max(1, Math.ceil(physicalCount / cols))
   }
 
   const { cols: wifiCols, rows: wifiRows } = computeWifiGrid(wirelessCount)
@@ -505,15 +710,28 @@ export function computeRackMountedPortPanelLayout(
     wifiBudget = gridsBudget
   }
 
+  // Encajar en el ancho disponible (priorizar no desbordar sobre el mínimo estético).
+  const gapBudget = faceplate
+    ? faceplateHorizontalGaps(cols, portGap, blockGap!, blockSize!)
+    : (cols - 1) * portGap
   const cellW = hasPhysical
-    ? Math.max(RACK_PORT_CELL_W_MIN, Math.floor((availableW - (cols - 1) * portGap) / cols))
+    ? Math.min(
+        faceplate ? 16 : RACK_PORT_CELL_W_MAX,
+        Math.max(1, Math.floor((availableW - gapBudget) / Math.max(1, cols))),
+      )
     : 0
   let cellH = 0
   if (hasPhysical && rows > 0) {
     const raw = Math.floor((physBudget - (rows - 1) * portGap) / rows)
-    cellH = Math.max(RACK_PORT_CELL_H_MIN, Math.min(RACK_PORT_CELL_H_MAX, raw))
+    // Faceplate 1U: celdas bajas y anchas-relativas; cap más bajo para parecer jacks.
+    const maxH = faceplate ? Math.min(RACK_PORT_CELL_H_MAX, dense ? 14 : 18) : RACK_PORT_CELL_H_MAX
+    cellH = Math.max(1, Math.min(maxH, raw))
   }
-  const gridWidth = hasPhysical ? cols * cellW + (cols - 1) * portGap : 0
+  const gridWidth = hasPhysical
+    ? faceplate
+      ? cols * cellW + faceplateHorizontalGaps(cols, portGap, blockGap!, blockSize!)
+      : cols * cellW + (cols - 1) * portGap
+    : 0
   const gridHeight = hasPhysical ? rows * cellH + (rows - 1) * portGap : 0
 
   const wifiCellW = hasWireless
@@ -574,6 +792,8 @@ export function computeRackMountedPortPanelLayout(
     panelHeaderH,
     portPanelPad: portPad,
     wifiPanelHeaderH,
+    layoutMode,
+    ...(faceplate ? { blockSize, blockGap } : {}),
   }
 }
 
@@ -583,6 +803,7 @@ export function computeNodeDimensions(
   totalPhysicalPortCount = physicalCount,
   headerHeight = TOPOLOGY_HEADER_HEIGHT,
   wirelessCount = 0,
+  hints?: PortPanelLayoutHints,
 ): { width: number; height: number } {
   const layout = computePortPanelLayout(
     physicalCount,
@@ -590,6 +811,7 @@ export function computeNodeDimensions(
     totalPhysicalPortCount,
     headerHeight,
     wirelessCount,
+    hints,
   )
   return { width: layout.width, height: layout.height }
 }
@@ -616,7 +838,11 @@ function portGridMetrics(
   const gap = layout.portGap ?? PORT_GAP
   const { row, col } = portGridSlot(portNumber, layout.cols, sequentialIndex, physical)
   const gridStartX = (nodeWidth - layout.gridWidth) / 2
-  const cellLeft = gridStartX + col * (layout.cellW + gap)
+  const cellLeft =
+    usesEthernetFaceplateLayout(layout) && layout.blockGap != null && layout.blockSize != null
+      ? gridStartX +
+        faceplateColumnOffsetX(col, layout.cellW, gap, layout.blockGap, layout.blockSize)
+      : gridStartX + col * (layout.cellW + gap)
   const cellTop = layout.gridTop + row * (layout.cellH + gap)
   const centerX = cellLeft + layout.cellW / 2
   return { cellLeft, cellTop, centerX, cellH: layout.cellH, row, col }
@@ -774,28 +1000,48 @@ export function indexOfPortInSection(
   return { index: physIdx, section: 'physical' }
 }
 
-export function portCellClasses(port: TopologyPortSummary): string {
+export type PortCellDensity = 'default' | 'rack'
+
+export function portCellClasses(port: TopologyPortSummary, density: PortCellDensity = 'default'): string {
+  const rack = density === 'rack'
   if (port.status === 'disabled') {
-    return 'border-gray-300 bg-gray-100 text-gray-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-500'
+    return rack
+      ? 'border-slate-700/80 bg-slate-900/60 text-slate-600'
+      : 'border-gray-300 bg-gray-100 text-gray-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-500'
   }
   const front = portFaceConnected(port, 'front')
   const rear = port.isPassthrough ? portFaceConnected(port, 'rear') : false
   const both = front && rear
   const any = front || rear || port.connected
   if (both) {
+    if (rack) {
+      return port.status === 'up'
+        ? 'border-emerald-500/80 bg-emerald-900/55 text-emerald-100'
+        : 'border-amber-500/70 bg-amber-900/45 text-amber-100'
+    }
     return port.status === 'up'
-      ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-500/50 dark:border-emerald-500 dark:bg-emerald-950/60 dark:text-emerald-100'
-      : 'border-amber-500 bg-amber-50 text-amber-900 ring-1 ring-amber-400/50 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100'
+      ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-500/80 dark:bg-emerald-950/55 dark:text-emerald-100'
+      : 'border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-600/80 dark:bg-amber-950/45 dark:text-amber-100'
   }
   if (any && port.isPassthrough) {
-    return 'border-sky-500 bg-sky-50/90 text-sky-900 ring-1 ring-sky-400/40 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100'
+    return rack
+      ? 'border-sky-500/70 bg-sky-950/50 text-sky-100'
+      : 'border-sky-500 bg-sky-50/90 text-sky-900 dark:border-sky-500/80 dark:bg-sky-950/40 dark:text-sky-100'
   }
   if (any) {
+    if (rack) {
+      return port.status === 'up'
+        ? 'border-emerald-500/80 bg-emerald-900/55 text-emerald-100'
+        : 'border-amber-500/70 bg-amber-900/45 text-amber-100'
+    }
     return port.status === 'up'
-      ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-500/50 dark:border-emerald-500 dark:bg-emerald-950/60 dark:text-emerald-100'
-      : 'border-amber-500 bg-amber-50 text-amber-900 ring-1 ring-amber-400/50 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100'
+      ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-500/80 dark:bg-emerald-950/55 dark:text-emerald-100'
+      : 'border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-600/80 dark:bg-amber-950/45 dark:text-amber-100'
   }
-  return 'border-dashed border-gray-300 bg-gray-50/90 text-gray-400 dark:border-gray-600 dark:bg-gray-900/40 dark:text-gray-500'
+  // Libre: borde sólido sutil (sin dashed) — menos ruido en grillas densas.
+  return rack
+    ? 'border-slate-600/70 bg-slate-800/70 text-slate-400'
+    : 'border-gray-300/90 bg-gray-50/90 text-gray-400 dark:border-gray-600/80 dark:bg-gray-800/50 dark:text-gray-500'
 }
 
 export function wifiChipClasses(port: TopologyPortSummary): string {
@@ -804,10 +1050,10 @@ export function wifiChipClasses(port: TopologyPortSummary): string {
   }
   if (port.connected) {
     return port.status === 'up'
-      ? 'border-sky-500 bg-sky-50 text-sky-900 ring-1 ring-sky-400/40 dark:border-sky-400 dark:bg-sky-950/50 dark:text-sky-100'
-      : 'border-amber-500 bg-amber-50 text-amber-900 ring-1 ring-amber-400/50 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100'
+      ? 'border-sky-500 bg-sky-50 text-sky-900 dark:border-sky-400/80 dark:bg-sky-950/50 dark:text-sky-100'
+      : 'border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-600/80 dark:bg-amber-950/45 dark:text-amber-100'
   }
-  return 'border-dashed border-sky-300/80 bg-sky-50/40 text-sky-600/70 dark:border-sky-700 dark:bg-sky-950/20 dark:text-sky-400'
+  return 'border-sky-300/70 bg-sky-50/50 text-sky-600/80 dark:border-sky-700/70 dark:bg-sky-950/25 dark:text-sky-400'
 }
 
 /** Etiqueta corta para celdas densas; conserva el nombre del puerto (campo `port` / `name`). */
@@ -815,4 +1061,12 @@ export function abbreviatePortName(name: string): string {
   const trimmed = name.trim()
   if (trimmed.length <= 8) return trimmed
   return `${trimmed.slice(0, 7)}…`
+}
+
+/**
+ * Etiqueta para celdas de rack: solo el número (estilo faceplate).
+ * El nombre completo queda en el `title` / tooltip.
+ */
+export function rackPortLabel(port: Pick<TopologyPortSummary, 'portNumber'>): string {
+  return String(port.portNumber)
 }

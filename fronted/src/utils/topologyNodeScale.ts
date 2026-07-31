@@ -11,6 +11,7 @@ import {
   isInternetCloudDeviceType,
   isStructuredCablingDeviceType,
   partitionDiagramPorts,
+  shouldUseEthernetFaceplateLayout,
 } from './topologyPortPanel'
 
 /** Escala visual de nodos de dispositivo / nube en el diagrama. */
@@ -69,15 +70,18 @@ export function naturalDeviceNodeSize(node: TopologyDeviceNode): { width: number
   const total = node.data.totalPortCount ?? node.data.portCount ?? allPorts.length
   const totalPhysical = Math.max(0, total - wireless.length)
   const compact = isCompactPortPanel(physical.length, totalPhysical)
-  const headerHeight = isStructuredCablingDeviceType(node.data.deviceType)
-    ? TOPOLOGY_HEADER_HEIGHT_PATCH
-    : TOPOLOGY_HEADER_HEIGHT
+  const headerHeight =
+    isStructuredCablingDeviceType(node.data.deviceType) ||
+    shouldUseEthernetFaceplateLayout(node.data.deviceType, allPorts)
+      ? TOPOLOGY_HEADER_HEIGHT_PATCH
+      : TOPOLOGY_HEADER_HEIGHT
   const layout = computePortPanelLayout(
     physical.length,
     compact,
     totalPhysical,
     headerHeight,
     wireless.length,
+    { deviceType: node.data.deviceType, ports: allPorts },
   )
   return { width: layout.width, height: layout.height }
 }

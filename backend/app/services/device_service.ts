@@ -110,15 +110,16 @@ export default class DeviceService {
     })
 
     for (const port of template.ports ?? []) {
+      const isPassthrough = port.isPassthrough ?? false
       await this.devices.createPort({
         deviceId: device.id,
         name: port.name,
         portNumber: port.portNumber,
         portType: port.portType,
         speed: port.speed,
-        status: 'down',
+        status: isPassthrough ? 'up' : 'down',
         description: port.description,
-        isPassthrough: port.isPassthrough ?? false,
+        isPassthrough,
       })
     }
 

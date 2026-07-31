@@ -5,11 +5,14 @@ import Device from '#models/device'
 import Vlan from '#models/vlan'
 import SystemUser from '#models/system_user'
 import { canAccessProject, canMutateInProject } from '#services/authorization_service'
+import PortService from '#services/port_service'
 import { createPortValidator, updatePortValidator } from '#validators/port_validator'
 
 type VlanAssignment = { vlanId: string; isTagged?: boolean }
 
 export default class PortsController {
+  private portService = new PortService()
+
   private async assertPortTypeExists(code: string | undefined) {
     if (!code) return
     const exists = await PortType.query().where('code', code).first()
@@ -85,7 +88,10 @@ export default class PortsController {
         message: err instanceof Error ? err.message : 'Tipo de puerto inválido',
       })
     }
-    const port = await Port.create(portData)
+
+    const isPassthrough = portData.isPassthrough ?? false
+    const status = this.portService.resolveStatusForCreate(isPassthrough, portData.status)
+    const port = await Port.create({ ...portData, isPassthrough, status })
 
     if (vlanAssignments) {
       try {
@@ -142,6 +148,26 @@ export default class PortsController {
         message: err instanceof Error ? err.message : 'Tipo de puerto inválido',
       })
     }
+
+    const resultingPassthrough =
+      portData.isPassthrough !== undefined ? portData.isPassthrough : port.isPassthrough
+    try {
+      this.portService.assertPassthroughStatusAllowed(resultingPassthrough, portData.status)
+    } catch (err: unknown) {
+      const status = err && typeof err === 'object' && 'status' in err ? Number(err.status) : 0
+      if (status === 422) {
+        return response.unprocessableEntity({
+          success: false,
+          message: err instanceof Error ? err.message : 'Un puerto puente siempre está Up',
+        })
+      }
+      throw err
+    }
+
+    if (resultingPassthrough) {
+      portData.status = 'up'
+    }
+
     port.merge(portData)
     await port.save()
 

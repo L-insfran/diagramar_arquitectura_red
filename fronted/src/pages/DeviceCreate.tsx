@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { PageHeader } from '../components/PageHeader'
 import { Select } from '../components/Select'
+import { RackUnitPicker } from '../components/racks/RackUnitPicker'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
@@ -13,7 +14,8 @@ import { devicesService } from '../services/devices.service'
 import { deviceTemplatesService } from '../services/device-templates.service'
 import { sitesService } from '../services/sites.service'
 import { racksService } from '../services/racks.service'
-import type { DeviceTemplate, Rack, Site } from '../types'
+import type { DeviceTemplate, Rack, RackFace, RackOccupancy, Site } from '../types'
+import { canPlaceAt, occupiedRangesForFace } from '../utils/rackPlacement'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
 
@@ -63,6 +65,31 @@ const initialFormState: DeviceFormState = {
   notes: '',
 }
 
+function formatApiError(error: unknown, fallback: string): string {
+  const err = error as { response?: { data?: { message?: string } }; message?: string }
+  return err?.response?.data?.message || err?.message || fallback
+}
+
+function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <section className="space-y-4">
+      <div className="border-b border-gray-200 dark:border-gray-800 pb-2">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
+      </div>
+      {children}
+    </section>
+  )
+}
+
 export default function DeviceCreate() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -99,6 +126,9 @@ export default function DeviceCreate() {
   }))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [occupancy, setOccupancy] = useState<RackOccupancy | null>(null)
+  const [occupancyLoading, setOccupancyLoading] = useState(false)
+  const [occupancyError, setOccupancyError] = useState<string | null>(null)
 
   const selectedTemplate = useMemo(
     () => templates?.find((t) => t.id === form.deviceTemplateId) ?? null,
@@ -132,8 +162,15 @@ export default function DeviceCreate() {
     [racks, form.rackId]
   )
 
-  const templateHeightU =
-    selectedTemplate?.rackUnits ?? existingDevice?.deviceTemplate?.rackUnits ?? null
+  const templateHeightU = Math.max(
+    1,
+    selectedTemplate?.rackUnits ?? existingDevice?.deviceTemplate?.rackUnits ?? 1
+  )
+
+  const activeFace: RackFace = form.rackFace === 'rear' ? 'rear' : 'front'
+  const parsedUnit = form.rackUnitStart.trim()
+    ? Number.parseInt(form.rackUnitStart, 10)
+    : null
 
   useEffect(() => {
     if (!existingDevice) {
@@ -158,6 +195,64 @@ export default function DeviceCreate() {
       notes: existingDevice.notes ?? '',
     })
   }, [existingDevice])
+
+  useEffect(() => {
+    if (!form.rackId) {
+      setOccupancy(null)
+      setOccupancyError(null)
+      setOccupancyLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setOccupancyLoading(true)
+    setOccupancyError(null)
+
+    racksService
+      .getOccupancy(form.rackId)
+      .then((data) => {
+        if (!cancelled) setOccupancy(data)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setOccupancy(null)
+          setOccupancyError(formatApiError(error, 'No se pudo cargar la ocupación del rack'))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setOccupancyLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [form.rackId])
+
+  // Clear invalid U when face, height, or occupancy changes
+  useEffect(() => {
+    if (!form.rackId || !occupancy) return
+    setForm((prev) => {
+      if (!prev.rackId || !prev.rackUnitStart.trim()) return prev
+      const unit = Number.parseInt(prev.rackUnitStart, 10)
+      if (Number.isNaN(unit)) return { ...prev, rackUnitStart: '' }
+      const face: RackFace = prev.rackFace === 'rear' ? 'rear' : 'front'
+      const check = canPlaceAt({
+        start: unit,
+        heightU: templateHeightU,
+        rackHeightU: occupancy.heightU,
+        occupied: occupiedRangesForFace(occupancy, face, id),
+      })
+      return check.ok ? prev : { ...prev, rackUnitStart: '' }
+    })
+  }, [form.rackId, activeFace, occupancy, templateHeightU, id])
+
+  const manufacturerModel = isEditMode
+    ? [existingDevice?.manufacturer, existingDevice?.model].filter(Boolean).join(' ') || '—'
+    : [selectedTemplate?.manufacturer, selectedTemplate?.model].filter(Boolean).join(' ') || '—'
+
+  const typeLabel = isEditMode
+    ? existingDevice?.deviceType?.name || '—'
+    : selectedTemplate?.deviceType?.name || '—'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -184,14 +279,27 @@ export default function DeviceCreate() {
     }
 
     if (form.rackId && !form.rackUnitStart.trim()) {
-      setFormError('Indica la U de inicio al montar en rack.')
+      setFormError('Seleccioná la U de inicio en el rack.')
       return
     }
 
-    const parsedUnit = form.rackId ? Number.parseInt(form.rackUnitStart, 10) : null
-    if (form.rackId && (parsedUnit == null || Number.isNaN(parsedUnit) || parsedUnit < 1)) {
+    const unit = form.rackId ? Number.parseInt(form.rackUnitStart, 10) : null
+    if (form.rackId && (unit == null || Number.isNaN(unit) || unit < 1)) {
       setFormError('La U de inicio debe ser un número ≥ 1.')
       return
+    }
+
+    if (form.rackId && occupancy && unit != null) {
+      const check = canPlaceAt({
+        start: unit,
+        heightU: templateHeightU,
+        rackHeightU: occupancy.heightU,
+        occupied: occupiedRangesForFace(occupancy, activeFace, id),
+      })
+      if (!check.ok) {
+        setFormError(check.reason)
+        return
+      }
     }
 
     try {
@@ -206,8 +314,8 @@ export default function DeviceCreate() {
         siteId: form.siteId || null,
         areaId: form.areaId || null,
         rackId: form.rackId || null,
-        rackUnitStart: form.rackId ? parsedUnit : null,
-        rackFace: form.rackId ? (form.rackFace || 'front') : null,
+        rackUnitStart: form.rackId ? unit : null,
+        rackFace: form.rackId ? activeFace : null,
         status: form.status,
         notes: form.notes.trim() || undefined,
       }
@@ -222,11 +330,12 @@ export default function DeviceCreate() {
         })
       }
       navigate('/devices')
-    } catch (error: any) {
+    } catch (error: unknown) {
       setFormError(
-        error?.response?.data?.message ||
-          error?.message ||
+        formatApiError(
+          error,
           `No se pudo ${isEditMode ? 'actualizar' : 'crear'} el dispositivo`
+        )
       )
     } finally {
       setIsSubmitting(false)
@@ -250,14 +359,16 @@ export default function DeviceCreate() {
     existingDevice?.deviceType?.name ||
     '—'
 
+  const showTemplateDetails = isEditMode || Boolean(selectedTemplate)
+
   return (
     <div className="space-y-6">
       <PageHeader
         title={isEditMode ? 'Editar dispositivo' : 'Agregar dispositivo'}
         subtitle={
           isEditMode
-            ? 'Actualiza la identidad operativa del equipo'
-            : 'Instancia un equipo desde un template del proyecto'
+            ? 'Actualiza la identidad operativa y la ubicación del equipo'
+            : 'Instancia un equipo desde un template e identifica su ubicación operativa'
         }
         actions={
           <Button variant="ghost" onClick={backToList} size="sm">
@@ -267,206 +378,249 @@ export default function DeviceCreate() {
       />
 
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6">
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Input
-              label="Nombre"
-              value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-              required
-            />
-            {isEditMode ? (
-              <Input label="Template" value={templateLabel} disabled />
-            ) : (
-              <Select
-                label="Template"
-                value={form.deviceTemplateId}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, deviceTemplateId: event.target.value }))
-                }
-                options={(templates || []).map((tpl) => ({
-                  value: tpl.id,
-                  label: `${tpl.name}${tpl.deviceType?.name ? ` (${tpl.deviceType.name})` : ''}`,
-                }))}
-                placeholder={
-                  templatesLoading
-                    ? 'Cargando templates...'
-                    : templates && templates.length === 0
-                      ? 'No hay templates — créalos en Configuración'
-                      : 'Selecciona un template'
-                }
-                disabled={templatesLoading || !(templates && templates.length > 0)}
-                required
-              />
-            )}
-            {!isEditMode && selectedTemplate && (
-              <>
-                <Input
-                  label="Tipo (del template)"
-                  value={selectedTemplate.deviceType?.name || '—'}
-                  disabled
-                />
-                <Input
-                  label="Fabricante / Modelo"
-                  value={
-                    [selectedTemplate.manufacturer, selectedTemplate.model]
-                      .filter(Boolean)
-                      .join(' ') || '—'
-                  }
-                  disabled
-                />
-              </>
-            )}
-            {isEditMode && (
-              <Input
-                label="Fabricante / Modelo"
-                value={
-                  [existingDevice?.manufacturer, existingDevice?.model]
-                    .filter(Boolean)
-                    .join(' ') || '—'
-                }
-                disabled
-              />
-            )}
-            <Select
-              label="Sitio"
-              value={form.siteId}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  siteId: event.target.value,
-                  areaId: '',
-                  rackId: '',
-                  rackUnitStart: '',
-                }))
-              }
-              options={[
-                { value: '', label: 'Sin sitio' },
-                ...(sites || []).map((s) => ({ value: s.id, label: s.name })),
-              ]}
-              placeholder="Selecciona un sitio"
-              disabled={Boolean(form.rackId)}
-            />
-            <Select
-              label="Área"
-              value={form.areaId}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  areaId: event.target.value,
-                  rackId: '',
-                  rackUnitStart: '',
-                }))
-              }
-              options={[{ value: '', label: 'Sin área' }, ...areaOptions]}
-              placeholder={form.siteId ? 'Selecciona un área' : 'Primero elige un sitio'}
-              disabled={!form.siteId || Boolean(form.rackId)}
-            />
-            <Select
-              label="Rack"
-              value={form.rackId}
-              onChange={(event) => {
-                const rackId = event.target.value
-                const rack = racks?.find((r) => r.id === rackId)
-                setForm((prev) => ({
-                  ...prev,
-                  rackId,
-                  rackUnitStart: rackId ? prev.rackUnitStart || '1' : '',
-                  rackFace: rackId ? prev.rackFace || 'front' : '',
-                  siteId: rack?.area?.siteId || rack?.area?.site?.id || prev.siteId,
-                  areaId: rack?.areaId || prev.areaId,
-                }))
-              }}
-              options={[{ value: '', label: 'Sin rack' }, ...rackOptions]}
-              placeholder="Opcional"
-            />
-            {form.rackId && (
-              <>
-                <Input
-                  label={`U inicio${templateHeightU ? ` (${templateHeightU}U del template)` : ''}`}
-                  type="number"
-                  min={1}
-                  max={selectedRack?.heightU ?? 60}
-                  value={form.rackUnitStart}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, rackUnitStart: event.target.value }))
-                  }
-                  placeholder="ej. 20"
-                  required
-                />
+        <form className="space-y-8" onSubmit={handleSubmit}>
+          <FormSection
+            title="Del template"
+            description="Datos del catálogo; no se editan en la instancia."
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {isEditMode ? (
+                <Input label="Template" value={templateLabel} disabled />
+              ) : (
                 <Select
-                  label="Cara"
-                  value={form.rackFace || 'front'}
+                  label="Template"
+                  value={form.deviceTemplateId}
                   onChange={(event) =>
                     setForm((prev) => ({
                       ...prev,
-                      rackFace: event.target.value as 'front' | 'rear',
+                      deviceTemplateId: event.target.value,
+                      // U may become invalid if height changes
+                      rackUnitStart: prev.rackId ? '' : prev.rackUnitStart,
                     }))
                   }
-                  options={faceOptions}
+                  options={(templates || []).map((tpl) => ({
+                    value: tpl.id,
+                    label: `${tpl.name}${tpl.deviceType?.name ? ` (${tpl.deviceType.name})` : ''}`,
+                  }))}
+                  placeholder={
+                    templatesLoading
+                      ? 'Cargando templates...'
+                      : templates && templates.length === 0
+                        ? 'No hay templates — créalos en Configuración'
+                        : 'Selecciona un template'
+                  }
+                  disabled={templatesLoading || !(templates && templates.length > 0)}
+                  required
                 />
-                {selectedRack && (
+              )}
+              {showTemplateDetails && (
+                <>
+                  <Input label="Tipo (del template)" value={typeLabel} disabled />
+                  <Input label="Fabricante / Modelo" value={manufacturerModel} disabled />
                   <Input
-                    label="Capacidad rack"
-                    value={`${selectedRack.heightU}U`}
+                    label="Altura en rack"
+                    value={`${templateHeightU}U`}
                     disabled
+                    hint="Definida por el template; determina cuántas U ocupa al montar."
+                  />
+                </>
+              )}
+            </div>
+          </FormSection>
+
+          <FormSection
+            title="Identidad operativa"
+            description="Datos de este equipo concreto (no vienen del template)."
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Input
+                label="Nombre"
+                value={form.name}
+                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                required
+              />
+              <Select
+                label="Estado"
+                value={form.status}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    status: event.target.value as DeviceFormState['status'],
+                  }))
+                }
+                options={statusOptions}
+              />
+              <Input
+                label="Dirección IP"
+                value={form.ipAddress}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, ipAddress: event.target.value }))
+                }
+                placeholder="ej. 192.168.1.10"
+                hint="Opcional. IP de gestión de esta instancia."
+              />
+              <Input
+                label="Hostname"
+                value={form.hostname}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, hostname: event.target.value }))
+                }
+                placeholder="ej. sw-oficina-01"
+                hint="Nombre DNS/red de este equipo (opcional). No viene del template."
+              />
+              <Input
+                label="MAC Address"
+                value={form.macAddress}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, macAddress: event.target.value }))
+                }
+              />
+              <Input
+                label="Número de serie"
+                value={form.serialNumber}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, serialNumber: event.target.value }))
+                }
+              />
+              <Input
+                label="Versión de firmware"
+                value={form.firmwareVersion}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, firmwareVersion: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Notas
+              </label>
+              <textarea
+                className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors resize-vertical min-h-[120px]"
+                value={form.notes}
+                onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
+                rows={4}
+              />
+            </div>
+          </FormSection>
+
+          <FormSection
+            title="Ubicación"
+            description="Sitio, área y montaje en rack (frontal o trasera)."
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Select
+                label="Sitio"
+                value={form.siteId}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    siteId: event.target.value,
+                    areaId: '',
+                    rackId: '',
+                    rackUnitStart: '',
+                  }))
+                }
+                options={[
+                  { value: '', label: 'Sin sitio' },
+                  ...(sites || []).map((s) => ({ value: s.id, label: s.name })),
+                ]}
+                placeholder="Selecciona un sitio"
+                disabled={Boolean(form.rackId)}
+              />
+              <Select
+                label="Área"
+                value={form.areaId}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    areaId: event.target.value,
+                    rackId: '',
+                    rackUnitStart: '',
+                  }))
+                }
+                options={[{ value: '', label: 'Sin área' }, ...areaOptions]}
+                placeholder={form.siteId ? 'Selecciona un área' : 'Primero elige un sitio'}
+                disabled={!form.siteId || Boolean(form.rackId)}
+              />
+              <Select
+                label="Rack"
+                value={form.rackId}
+                onChange={(event) => {
+                  const rackId = event.target.value
+                  const rack = racks?.find((r) => r.id === rackId)
+                  setForm((prev) => ({
+                    ...prev,
+                    rackId,
+                    rackUnitStart: '',
+                    rackFace: rackId ? prev.rackFace || 'front' : '',
+                    siteId: rack?.area?.siteId || rack?.area?.site?.id || prev.siteId,
+                    areaId: rack?.areaId || prev.areaId,
+                  }))
+                }}
+                options={[{ value: '', label: 'Sin rack' }, ...rackOptions]}
+                placeholder="Opcional"
+              />
+              {form.rackId && (
+                <>
+                  <Select
+                    label="Cara"
+                    value={form.rackFace || 'front'}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        rackFace: event.target.value as 'front' | 'rear',
+                        rackUnitStart: '',
+                      }))
+                    }
+                    options={faceOptions}
+                    hint="Frontal y trasera son caras independientes; un equipo no se pisa con otro de la cara opuesta."
+                  />
+                  {selectedRack && (
+                    <Input
+                      label="Capacidad rack"
+                      value={`${selectedRack.heightU}U`}
+                      disabled
+                    />
+                  )}
+                </>
+              )}
+            </div>
+
+            {form.rackId && (
+              <div className="mt-2">
+                {occupancyLoading && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Cargando ocupación del rack…
+                  </p>
+                )}
+                {occupancyError && (
+                  <p className="text-sm text-red-500" role="alert">
+                    {occupancyError}
+                  </p>
+                )}
+                {!occupancyLoading && occupancy && (
+                  <RackUnitPicker
+                    occupancy={occupancy}
+                    face={activeFace}
+                    heightU={templateHeightU}
+                    value={
+                      parsedUnit != null && !Number.isNaN(parsedUnit) ? parsedUnit : null
+                    }
+                    excludeDeviceId={id}
+                    onChange={(unit) =>
+                      setForm((prev) => ({ ...prev, rackUnitStart: String(unit) }))
+                    }
                   />
                 )}
-              </>
+              </div>
             )}
-            <Select
-              label="Estado"
-              value={form.status}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  status: event.target.value as DeviceFormState['status'],
-                }))
-              }
-              options={statusOptions}
-            />
-            <Input
-              label="Dirección IP"
-              value={form.ipAddress}
-              onChange={(event) => setForm((prev) => ({ ...prev, ipAddress: event.target.value }))}
-            />
-            <Input
-              label="Hostname"
-              value={form.hostname}
-              onChange={(event) => setForm((prev) => ({ ...prev, hostname: event.target.value }))}
-            />
-            <Input
-              label="MAC Address"
-              value={form.macAddress}
-              onChange={(event) => setForm((prev) => ({ ...prev, macAddress: event.target.value }))}
-            />
-            <Input
-              label="Número de serie"
-              value={form.serialNumber}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, serialNumber: event.target.value }))
-              }
-            />
-            <Input
-              label="Versión de firmware"
-              value={form.firmwareVersion}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, firmwareVersion: event.target.value }))
-              }
-            />
-          </div>
+          </FormSection>
 
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notas</label>
-            <textarea
-              className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors resize-vertical min-h-[120px]"
-              value={form.notes}
-              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-              rows={4}
-            />
-          </div>
-
-          {formError && <p className="text-sm text-red-500">{formError}</p>}
+          {formError && (
+            <p className="text-sm text-red-500" role="alert">
+              {formError}
+            </p>
+          )}
 
           <div className="flex justify-end gap-3">
             <Button variant="ghost" size="md" onClick={backToList} type="button">

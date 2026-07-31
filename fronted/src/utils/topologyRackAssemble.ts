@@ -17,6 +17,7 @@ import {
   isInternetCloudDeviceType,
   isStructuredCablingDeviceType,
   partitionDiagramPorts,
+  shouldUseEthernetFaceplateLayout,
   CLOUD_NODE_HEIGHT,
   CLOUD_NODE_WIDTH,
   TOPOLOGY_HEADER_HEIGHT,
@@ -101,15 +102,18 @@ export function buildDeviceFlowNodes(data: TopologyData): TopologyDeviceNode[] {
     const totalPortCount = n.data.portCount ?? allPorts.length
     const totalPhysicalCount = Math.max(0, totalPortCount - wireless.length)
     const compact = isCompactPortPanel(physical.length, totalPhysicalCount)
-    const headerHeight = isStructuredCablingDeviceType(n.data.deviceType)
-      ? TOPOLOGY_HEADER_HEIGHT_PATCH
-      : TOPOLOGY_HEADER_HEIGHT
+    const headerHeight =
+      isStructuredCablingDeviceType(n.data.deviceType) ||
+      shouldUseEthernetFaceplateLayout(n.data.deviceType, allPorts)
+        ? TOPOLOGY_HEADER_HEIGHT_PATCH
+        : TOPOLOGY_HEADER_HEIGHT
     const portLayout = computePortPanelLayout(
       physical.length,
       compact,
       totalPhysicalCount,
       headerHeight,
       wireless.length,
+      { deviceType: n.data.deviceType, ports: allPorts },
     )
     const { width, height } = portLayout
     return {
@@ -247,6 +251,7 @@ export function applyRackHierarchy(
       wireless.length,
       slot.width,
       slot.height,
+      { deviceType: device.data.deviceType, ports: device.data.ports ?? [] },
     )
 
     return {

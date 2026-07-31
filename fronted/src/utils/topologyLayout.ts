@@ -1,6 +1,6 @@
 import dagre from 'dagre'
 import type { Edge, Node } from '@xyflow/react'
-import { TOPOLOGY_NODE_MIN_WIDTH, TOPOLOGY_HEADER_HEIGHT, TOPOLOGY_HEADER_HEIGHT_PATCH, CLOUD_NODE_WIDTH, CLOUD_NODE_HEIGHT, computePortPanelLayout, isCompactPortPanel, isInternetCloudDeviceType, isStructuredCablingDeviceType, partitionDiagramPorts } from './topologyPortPanel'
+import { TOPOLOGY_NODE_MIN_WIDTH, TOPOLOGY_HEADER_HEIGHT, TOPOLOGY_HEADER_HEIGHT_PATCH, CLOUD_NODE_WIDTH, CLOUD_NODE_HEIGHT, computePortPanelLayout, isCompactPortPanel, isInternetCloudDeviceType, isStructuredCablingDeviceType, partitionDiagramPorts, shouldUseEthernetFaceplateLayout } from './topologyPortPanel'
 import type { TopologyPortSummary } from '../types'
 
 /** @deprecated Use TOPOLOGY_NODE_MIN_WIDTH */
@@ -40,15 +40,18 @@ function nodeDimensions(node: Node): { width: number; height: number } {
   const total = data?.totalPortCount ?? data?.portCount ?? allPorts.length
   const totalPhysical = Math.max(0, total - wireless.length)
   const compact = isCompactPortPanel(physical.length, totalPhysical)
-  const headerHeight = isStructuredCablingDeviceType(data?.deviceType)
-    ? TOPOLOGY_HEADER_HEIGHT_PATCH
-    : TOPOLOGY_HEADER_HEIGHT
+  const headerHeight =
+    isStructuredCablingDeviceType(data?.deviceType) ||
+    shouldUseEthernetFaceplateLayout(data?.deviceType, allPorts)
+      ? TOPOLOGY_HEADER_HEIGHT_PATCH
+      : TOPOLOGY_HEADER_HEIGHT
   const layout = computePortPanelLayout(
     physical.length,
     compact,
     totalPhysical,
     headerHeight,
     wireless.length,
+    { deviceType: data?.deviceType, ports: allPorts },
   )
   const scale = typeof data?.nodeScale === 'number' && data.nodeScale > 0 ? data.nodeScale : 1
   return { width: Math.round(layout.width * scale), height: Math.round(layout.height * scale) }

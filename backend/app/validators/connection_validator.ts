@@ -10,6 +10,7 @@ const wifiBand = vine.enum(['2.4GHz', '5GHz', '6GHz'] as const)
 const wifiSecurity = vine.enum(['WPA2', 'WPA3', 'WPA2/WPA3', 'Open'] as const)
 const connectionStatus = vine.enum(['planned', 'implemented', 'verified'] as const)
 const logicalStatus = vine.enum(['active', 'down'] as const)
+const portFace = vine.enum(['front', 'rear'] as const)
 
 const metadataSchema = vine
   .object({
@@ -26,6 +27,9 @@ export const createConnectionValidator = vine.compile(
     projectId: vine.string().uuid(),
     sourcePortId: vine.string().uuid(),
     targetPortId: vine.string().uuid(),
+    /** Passthrough (patch panel): 1 conexión física activa por (puerto, cara). */
+    sourceFace: portFace.optional(),
+    targetFace: portFace.optional(),
     // Kept optional for backwards compatibility; new UI always creates physical links
     connectionType: connectionType.optional(),
     mediumType: mediumType.optional(),
@@ -49,6 +53,8 @@ export const updateConnectionValidator = vine.compile(
   vine.object({
     sourcePortId: vine.string().uuid().optional(),
     targetPortId: vine.string().uuid().optional(),
+    sourceFace: portFace.optional(),
+    targetFace: portFace.optional(),
     connectionType: connectionType.optional(),
     mediumType: mediumType.optional(),
     cableTypeId: vine.string().uuid().optional().nullable(),

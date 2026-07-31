@@ -23,14 +23,17 @@ import {
   WIFI_GAP,
   WIFI_PANEL_HEADER_HEIGHT,
   WIFI_SECTION_GAP,
+  ETHERNET_FACEPLATE_BLOCK_SIZE,
   computePortPanelLayout,
   computeRackMountedPortPanelLayout,
   computePortConnectAnchor,
   computePortSourceAnchor,
   computePortTargetAnchor,
+  faceplateColumnOffsetX,
   isCompactPortPanel,
   isStructuredCablingDeviceType,
   partitionDiagramPorts,
+  abbreviatePortName,
   portCellClasses,
   portConnectSourceHandleId,
   portConnectTargetHandleId,
@@ -39,7 +42,10 @@ import {
   portGridSlot,
   portSourceHandleId,
   portTargetHandleId,
+  rackPortLabel,
+  shouldUseEthernetFaceplateLayout,
   sortTopologyPorts,
+  usesEthernetFaceplateLayout,
   usesPhysicalPortLayout,
   wifiChipClasses,
   type PortPanelSection,
@@ -98,6 +104,8 @@ function PortCell({
   cellW,
   cellH,
   compact,
+  rackMounted,
+  faceplate,
   selected,
   onSelect,
   connectable,
@@ -106,6 +114,9 @@ function PortCell({
   cellW: number
   cellH: number
   compact: boolean
+  rackMounted?: boolean
+  /** Patch panel Ethernet: etiqueta numérica densa sin chrome de rack. */
+  faceplate?: boolean
   selected: boolean
   onSelect: (portId: string) => void
   connectable: boolean
@@ -114,13 +125,38 @@ function PortCell({
   const frontOn = portFaceConnected(port, 'front')
   const rearOn = port.isPassthrough ? portFaceConnected(port, 'rear') : false
   const anyConnected = frontOn || rearOn || port.connected
+  const density = rackMounted ? 'rack' : 'default'
+  const denseLabel = rackMounted || !!faceplate
+  const label = denseLabel
+    ? rackPortLabel(port)
+    : compact
+      ? abbreviatePortName(displayName)
+      : displayName
+  const fontSize =
+    denseLabel
+      ? cellW >= 20 && cellH >= 12
+        ? 8
+        : cellW >= 14
+          ? 7
+          : 6
+      : compact
+        ? 11
+        : 8
 
   return (
     <button
       type="button"
-      className={`nodrag nopan relative box-border flex flex-col items-center justify-center rounded border leading-none transition ${portCellClasses(port)} ${
-        compact ? 'gap-0.5 px-1 py-1' : 'px-0.5'
-      } ${selected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900 z-20' : ''} ${
+      className={`nodrag nopan relative box-border flex flex-col items-center justify-center overflow-hidden border leading-none transition ${
+        rackMounted || faceplate ? 'rounded-[2px]' : 'rounded'
+      } ${portCellClasses(port, density)} ${
+        rackMounted || faceplate ? 'px-px' : compact ? 'gap-0.5 px-1 py-1' : 'px-0.5'
+      } ${
+        selected
+          ? rackMounted
+            ? 'z-20 ring-1 ring-amber-400/90'
+            : 'z-20 ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900'
+          : ''
+      } ${
         anyConnected
           ? 'cursor-pointer hover:brightness-110'
           : connectable
@@ -144,42 +180,64 @@ function PortCell({
         if (anyConnected) onSelect(port.id)
       }}
     >
-      {compact ? (
+      {denseLabel ? (
+        <span
+          className="max-w-full truncate text-center font-mono font-semibold tabular-nums tracking-tight opacity-90"
+          style={{ fontSize }}
+        >
+          {label}
+        </span>
+      ) : compact ? (
         <>
-          <span className="max-w-full truncate text-center text-[11px] font-bold leading-none tracking-tight">
-            {displayName}
+          <span className="max-w-full truncate text-center text-[11px] font-semibold leading-none tracking-tight">
+            {label}
           </span>
-          <span className="text-[8px] font-medium tabular-nums opacity-70 leading-none">
+          <span className="text-[8px] font-medium tabular-nums leading-none opacity-60">
             #{port.portNumber}
           </span>
         </>
       ) : (
-        <span className="max-w-full truncate text-center text-[8px] font-bold leading-none tracking-tight">
-          {displayName}
+        <span className="max-w-full truncate text-center text-[8px] font-semibold leading-none tracking-tight">
+          {label}
         </span>
       )}
       {port.isPassthrough ? (
-        <span className="absolute bottom-0 left-1/2 flex -translate-x-1/2 translate-y-1/2 gap-1" aria-hidden>
+        <span
+          className={`absolute bottom-0 left-1/2 flex -translate-x-1/2 ${
+            denseLabel ? 'translate-y-0 gap-px pb-px' : 'translate-y-1/2 gap-1'
+          }`}
+          aria-hidden
+        >
           <span
-            className={`size-1.5 rounded-full ring-1 ring-white dark:ring-gray-900 ${
+            className={`${denseLabel ? 'h-0.5 w-1.5' : 'size-1.5'} rounded-full ring-1 ring-white dark:ring-gray-900 ${
               rearOn ? 'bg-violet-600' : 'bg-gray-300 dark:bg-gray-600'
             }`}
             title="Rear"
           />
           <span
-            className={`size-1.5 rounded-full ring-1 ring-white dark:ring-gray-900 ${
+            className={`${denseLabel ? 'h-0.5 w-1.5' : 'size-1.5'} rounded-full ring-1 ring-white dark:ring-gray-900 ${
               frontOn ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
             }`}
             title="Front"
           />
         </span>
       ) : (
-        anyConnected && (
-          <span
-            className="absolute left-1/2 -translate-x-1/2 bottom-0 translate-y-1/2 size-1.5 rounded-full bg-blue-600 ring-1 ring-white dark:ring-gray-900"
-            aria-hidden
-          />
-        )
+        <>
+          {!denseLabel && anyConnected && (
+            <span
+              className="absolute bottom-0 left-1/2 size-1.5 -translate-x-1/2 translate-y-1/2 rounded-full bg-blue-600 ring-1 ring-white dark:ring-gray-900"
+              aria-hidden
+            />
+          )}
+          {denseLabel && anyConnected && (
+            <span
+              className={`absolute inset-x-0 bottom-0 h-0.5 ${
+                port.status === 'up' ? 'bg-emerald-400/80' : 'bg-amber-400/70'
+              }`}
+              aria-hidden
+            />
+          )}
+        </>
       )}
     </button>
   )
@@ -253,11 +311,14 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
 
   const rackMounted = !!data.rackMounted
   const isRearMounted = rackMounted && data.rackFace === 'rear'
-  const isPatchPanel = isStructuredCablingDeviceType(data.deviceType)
-  const freeHeaderHeight = isPatchPanel ? TOPOLOGY_HEADER_HEIGHT_PATCH : TOPOLOGY_HEADER_HEIGHT
 
   const allPorts = sortTopologyPorts(data.ports ?? [])
   const { physical: physicalPorts, wireless: wirelessPorts } = partitionDiagramPorts(allPorts)
+  const layoutHints = { deviceType: data.deviceType, ports: allPorts }
+  const isPatchPanel =
+    isStructuredCablingDeviceType(data.deviceType) ||
+    shouldUseEthernetFaceplateLayout(data.deviceType, allPorts)
+  const freeHeaderHeight = isPatchPanel ? TOPOLOGY_HEADER_HEIGHT_PATCH : TOPOLOGY_HEADER_HEIGHT
   const totalPhysicalCount =
     data.totalPortCount != null
       ? Math.max(0, data.totalPortCount - wirelessPorts.length)
@@ -277,6 +338,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
         wirelessPorts.length,
         slotW,
         slotH,
+        layoutHints,
       )
     : computePortPanelLayout(
         physicalPorts.length,
@@ -284,10 +346,18 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
         totalPhysicalCount,
         freeHeaderHeight,
         wirelessPorts.length,
+        layoutHints,
       )
   const headerHeight = layout.headerHeight
   const physicalGrid = usesPhysicalPortLayout(layout)
-  const portGap = rackMounted ? (layout.portGap ?? 2) : PORT_GAP
+  const faceplate = usesEthernetFaceplateLayout(layout)
+  const portGap = rackMounted
+    ? (layout.portGap ?? 2)
+    : faceplate
+      ? (layout.portGap ?? PORT_GAP)
+      : PORT_GAP
+  const blockSize = layout.blockSize ?? ETHERNET_FACEPLATE_BLOCK_SIZE
+  const blockGap = layout.blockGap ?? portGap
   const panelPad = rackMounted ? (layout.portPanelPad ?? 2) : PORT_PANEL_PADDING
   const panelHeaderH = rackMounted
     ? (layout.panelHeaderH ?? 0)
@@ -717,7 +787,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           <div
             className={
               rackMounted
-                ? 'pointer-events-none absolute inset-0 bg-slate-900/90'
+                ? 'pointer-events-none absolute inset-0 bg-slate-950/50'
                 : 'pointer-events-none absolute inset-x-0 top-0 rounded-b-[7px] bg-slate-50 dark:bg-gray-900/80'
             }
             style={rackMounted ? undefined : { bottom: dotOverflow }}
@@ -759,47 +829,86 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
 
               {!rackMounted && layout.rows > 1 && physicalGrid && (
                 <div
-                  className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-between text-[9px] font-semibold text-gray-500 dark:text-gray-400"
+                  className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-center text-[9px] font-semibold text-gray-500 dark:text-gray-400"
                   style={{ height: PORT_ROW_LABEL_HEIGHT, minHeight: PORT_ROW_LABEL_HEIGHT }}
                 >
-                  <span>1 – 12</span>
-                  <span>13 – 24</span>
+                  <span>Pares verticales · 1↑ 2↓</span>
                 </div>
               )}
 
-              {!rackMounted && layout.rows > 1 && !physicalGrid && layout.cols === PATCH_PANEL_COLS && (
+              {!rackMounted && layout.rows > 1 && !physicalGrid && !faceplate && layout.cols === PATCH_PANEL_COLS && (
                 <div className="relative z-[1] mb-1 flex w-full shrink-0 justify-between text-[8px] font-semibold text-gray-400 dark:text-gray-500">
                   <span>Fila sup.</span>
                   <span>Fila inf.</span>
                 </div>
               )}
 
-              <div
-                className="relative z-[1] grid shrink-0"
-                style={{
-                  width: layout.gridWidth,
-                  gridTemplateColumns: `repeat(${layout.cols}, ${layout.cellW}px)`,
-                  gridTemplateRows: layout.rows > 1 ? `repeat(${layout.rows}, ${layout.cellH}px)` : undefined,
-                  gap: portGap,
-                }}
-              >
-                {physicalPorts.map((port, index) => {
-                  const { row, col } = portGridSlot(port.portNumber, layout.cols, index, physicalGrid)
-                  return (
-                    <div key={port.id} style={{ gridColumn: col + 1, gridRow: row + 1 }}>
-                      <PortCell
-                        port={port}
-                        cellW={layout.cellW}
-                        cellH={layout.cellH}
-                        compact={layout.compact && !rackMounted}
-                        selected={highlightedPortIds?.has(port.id) ?? false}
-                        onSelect={onPortSelect}
-                        connectable={portIsConnectable(port, readOnly)}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
+              {faceplate ? (
+                <div
+                  className="relative z-[1] shrink-0"
+                  style={{ width: layout.gridWidth, height: layout.cellH }}
+                >
+                  {physicalPorts.map((port, index) => {
+                    const { col } = portGridSlot(port.portNumber, layout.cols, index, false)
+                    const left = faceplateColumnOffsetX(
+                      col,
+                      layout.cellW,
+                      portGap,
+                      blockGap,
+                      blockSize,
+                    )
+                    return (
+                      <div key={port.id} className="absolute top-0" style={{ left }}>
+                        <PortCell
+                          port={port}
+                          cellW={layout.cellW}
+                          cellH={layout.cellH}
+                          compact={false}
+                          rackMounted={rackMounted}
+                          faceplate
+                          selected={highlightedPortIds?.has(port.id) ?? false}
+                          onSelect={onPortSelect}
+                          connectable={portIsConnectable(port, readOnly)}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div
+                  className="relative z-[1] grid shrink-0"
+                  style={{
+                    width: layout.gridWidth,
+                    gridTemplateColumns: `repeat(${layout.cols}, ${layout.cellW}px)`,
+                    gridTemplateRows:
+                      layout.rows > 1 ? `repeat(${layout.rows}, ${layout.cellH}px)` : undefined,
+                    gap: portGap,
+                  }}
+                >
+                  {physicalPorts.map((port, index) => {
+                    const { row, col } = portGridSlot(
+                      port.portNumber,
+                      layout.cols,
+                      index,
+                      physicalGrid,
+                    )
+                    return (
+                      <div key={port.id} style={{ gridColumn: col + 1, gridRow: row + 1 }}>
+                        <PortCell
+                          port={port}
+                          cellW={layout.cellW}
+                          cellH={layout.cellH}
+                          compact={layout.compact && !rackMounted}
+                          rackMounted={rackMounted}
+                          selected={highlightedPortIds?.has(port.id) ?? false}
+                          onSelect={onPortSelect}
+                          connectable={portIsConnectable(port, readOnly)}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </>
           )}
 

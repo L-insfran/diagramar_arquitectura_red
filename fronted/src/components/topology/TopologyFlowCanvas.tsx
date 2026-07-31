@@ -46,6 +46,7 @@ import {
   portSourceLaneOffsetX,
   portTargetHandleId,
   portTargetLaneOffsetX,
+  shouldUseEthernetFaceplateLayout,
   TOPOLOGY_HEADER_HEIGHT,
   TOPOLOGY_HEADER_HEIGHT_PATCH,
   type PortPanelLayout,
@@ -235,9 +236,11 @@ function buildPortLayoutMaps(nodes: TopologyDeviceNode[]): {
         ? Math.max(0, n.data.totalPortCount - wireless.length)
         : physical.length
     const compact = isCompactPortPanel(physical.length, totalPhysical)
-    const headerHeight = isStructuredCablingDeviceType(n.data.deviceType)
-      ? TOPOLOGY_HEADER_HEIGHT_PATCH
-      : TOPOLOGY_HEADER_HEIGHT
+    const headerHeight =
+      isStructuredCablingDeviceType(n.data.deviceType) ||
+      shouldUseEthernetFaceplateLayout(n.data.deviceType, n.data.ports ?? [])
+        ? TOPOLOGY_HEADER_HEIGHT_PATCH
+        : TOPOLOGY_HEADER_HEIGHT
     layoutByNodeId.set(
       n.id,
       n.data.rackMounted
@@ -247,8 +250,16 @@ function buildPortLayoutMaps(nodes: TopologyDeviceNode[]): {
             wireless.length,
             n.width ?? n.data.nodeWidth ?? 380,
             n.height ?? n.data.nodeHeight ?? 44,
+            { deviceType: n.data.deviceType, ports: n.data.ports ?? [] },
           )
-        : computePortPanelLayout(physical.length, compact, totalPhysical, headerHeight, wireless.length),
+        : computePortPanelLayout(
+            physical.length,
+            compact,
+            totalPhysical,
+            headerHeight,
+            wireless.length,
+            { deviceType: n.data.deviceType, ports: n.data.ports ?? [] },
+          ),
     )
     const byId = new Map<string, number>()
     const sectionById = new Map<string, PortPanelSection>()
@@ -291,9 +302,11 @@ function topologyToFlowElements(data: TopologyData): {
     const totalPortCount = n.data.totalPortCount ?? allPorts.length
     const totalPhysicalCount = Math.max(0, totalPortCount - wireless.length)
     const compact = isCompactPortPanel(physical.length, totalPhysicalCount)
-    const headerHeight = isStructuredCablingDeviceType(n.data.deviceType)
-      ? TOPOLOGY_HEADER_HEIGHT_PATCH
-      : TOPOLOGY_HEADER_HEIGHT
+    const headerHeight =
+      isStructuredCablingDeviceType(n.data.deviceType) ||
+      shouldUseEthernetFaceplateLayout(n.data.deviceType, allPorts)
+        ? TOPOLOGY_HEADER_HEIGHT_PATCH
+        : TOPOLOGY_HEADER_HEIGHT
     layoutByNodeId.set(
       n.id,
       n.data.rackMounted
@@ -303,6 +316,7 @@ function topologyToFlowElements(data: TopologyData): {
             wireless.length,
             n.data.nodeWidth ?? 380,
             n.data.nodeHeight ?? 44,
+            { deviceType: n.data.deviceType, ports: allPorts },
           )
         : computePortPanelLayout(
             physical.length,
@@ -310,6 +324,7 @@ function topologyToFlowElements(data: TopologyData): {
             totalPhysicalCount,
             headerHeight,
             wireless.length,
+            { deviceType: n.data.deviceType, ports: allPorts },
           ),
     )
   }

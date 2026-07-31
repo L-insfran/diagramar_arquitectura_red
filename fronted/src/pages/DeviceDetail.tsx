@@ -82,6 +82,21 @@ export default function DeviceDetail() {
     [device?.ports]
   )
 
+  const allPortsPassthrough = useMemo(
+    () => portsSorted.length > 0 && portsSorted.every((p) => !!p.isPassthrough),
+    [portsSorted]
+  )
+
+  const hasPassthroughPorts = useMemo(
+    () => portsSorted.some((p) => !!p.isPassthrough),
+    [portsSorted]
+  )
+
+  const nonPassthroughCount = useMemo(
+    () => portsSorted.filter((p) => !p.isPassthrough).length,
+    [portsSorted]
+  )
+
   const vlanOptions = useMemo(
     () =>
       [...(companyVlans ?? [])].sort(
@@ -129,15 +144,16 @@ export default function DeviceDetail() {
   }
 
   const openEditPortModal = (port: Port) => {
+    const isPassthrough = !!port.isPassthrough
     setEditingPortId(port.id)
     setPortForm({
       name: port.name,
       portNumber: String(port.portNumber),
       portType: port.portType,
       speed: port.speed ?? '',
-      status: port.status,
+      status: isPassthrough ? 'up' : port.status,
       description: port.description ?? '',
-      isPassthrough: !!port.isPassthrough,
+      isPassthrough,
     })
     setPortVlanAssignments(
       (port.vlans ?? []).map((vlan) => ({
@@ -184,13 +200,14 @@ export default function DeviceDetail() {
     try {
       setPortSubmitting(true)
       setPortFormError(null)
+      const status = portForm.isPassthrough ? 'up' : portForm.status
       if (editingPortId) {
         await portsService.update(editingPortId, {
           name: portForm.name.trim(),
           portNumber: num,
           portType: portForm.portType,
           speed: portForm.speed.trim() || null,
-          status: portForm.status,
+          status,
           description: portForm.description.trim() || undefined,
           isPassthrough: portForm.isPassthrough,
           vlanAssignments,
@@ -202,7 +219,7 @@ export default function DeviceDetail() {
           portNumber: num,
           portType: portForm.portType,
           speed: portForm.speed.trim() || undefined,
-          status: portForm.status,
+          status,
           description: portForm.description.trim() || undefined,
           isPassthrough: portForm.isPassthrough,
           vlanAssignments,
@@ -223,10 +240,18 @@ export default function DeviceDetail() {
 
   const handleBulkPortStatus = async (status: 'up' | 'down') => {
     if (!device?.id || portsSorted.length === 0) return
+    if (allPortsPassthrough) return
 
     const label = status === 'up' ? 'Up' : 'Down'
+    const targetCount = status === 'down' ? nonPassthroughCount : portsSorted.length
+    if (targetCount === 0) return
+
+    const exceptNote =
+      status === 'down' && hasPassthroughPorts
+        ? ` (${nonPassthroughCount} activos; los puertos puente se mantienen Up)`
+        : ''
     const ok = window.confirm(
-      `¿Poner los ${portsSorted.length} puertos de este dispositivo en ${label}?`
+      `¿Poner ${targetCount} puerto${targetCount === 1 ? '' : 's'} de este dispositivo en ${label}?${exceptNote}`
     )
     if (!ok) return
 
@@ -493,28 +518,36 @@ export default function DeviceDetail() {
             <div className="flex flex-wrap items-center gap-2">
               {portsSorted.length > 0 && (
                 <>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    icon={<ArrowUp className="w-4 h-4" />}
-                    isLoading={bulkStatusSubmitting === 'up'}
-                    disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
-                    onClick={() => handleBulkPortStatus('up')}
-                  >
-                    All Up
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="danger"
-                    size="sm"
-                    icon={<ArrowDown className="w-4 h-4" />}
-                    isLoading={bulkStatusSubmitting === 'down'}
-                    disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
-                    onClick={() => handleBulkPortStatus('down')}
-                  >
-                    All Down
-                  </Button>
+                  {!allPortsPassthrough && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        icon={<ArrowUp className="w-4 h-4" />}
+                        isLoading={bulkStatusSubmitting === 'up'}
+                        disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
+                        onClick={() => handleBulkPortStatus('up')}
+                      >
+                        All Up
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        size="sm"
+                        icon={<ArrowDown className="w-4 h-4" />}
+                        isLoading={bulkStatusSubmitting === 'down'}
+                        disabled={
+                          bulkStatusSubmitting !== null ||
+                          bulkPassthroughSubmitting ||
+                          nonPassthroughCount === 0
+                        }
+                        onClick={() => handleBulkPortStatus('down')}
+                      >
+                        All Down
+                      </Button>
+                    </>
+                  )}
                   <Button
                     type="button"
                     variant="secondary"
@@ -582,14 +615,28 @@ export default function DeviceDetail() {
               }
               options={portTypeOptions.map((o) => ({ value: o.value, label: o.label }))}
             />
-            <Select
-              label="Status"
-              value={portForm.status}
-              onChange={(e) =>
-                setPortForm((p) => ({ ...p, status: e.target.value as Port['status'] }))
-              }
-              options={portStatusOptions.map((o) => ({ value: o.value, label: o.label }))}
-            />
+            {portForm.isPassthrough ? (
+              <div>
+                <p className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Status
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-300 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/40 px-3 py-2">
+                  Up
+                  <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Los puertos puente no se pueden bajar.
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <Select
+                label="Status"
+                value={portForm.status}
+                onChange={(e) =>
+                  setPortForm((p) => ({ ...p, status: e.target.value as Port['status'] }))
+                }
+                options={portStatusOptions.map((o) => ({ value: o.value, label: o.label }))}
+              />
+            )}
             <Input
               label="Speed"
               value={portForm.speed}
@@ -603,14 +650,20 @@ export default function DeviceDetail() {
               type="checkbox"
               className="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
               checked={portForm.isPassthrough}
-              onChange={(e) =>
-                setPortForm((p) => ({ ...p, isPassthrough: e.target.checked }))
-              }
+              onChange={(e) => {
+                const checked = e.target.checked
+                setPortForm((p) => ({
+                  ...p,
+                  isPassthrough: checked,
+                  status: checked ? 'up' : p.status,
+                }))
+              }}
             />
             <span className="text-sm text-gray-800 dark:text-gray-100">
               <span className="font-medium">Puerto puente (front/rear)</span>
               <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Patch panel / jack passthrough: admite una conexión física por cara.
+                Patch panel / jack passthrough: admite una conexión física por cara. Status fijo en
+                Up.
               </span>
             </span>
           </label>
