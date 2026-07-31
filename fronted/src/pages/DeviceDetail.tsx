@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
-import { ArrowLeft, Server, Cpu, MapPin, Hash, Clock, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, Server, Cpu, MapPin, Hash, Clock, Pencil, Plus, ArrowUp, ArrowDown } from 'lucide-react'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
 import { DataTable, type Column } from '../components/DataTable'
@@ -14,6 +14,7 @@ import { ObjectDocsPanel } from '../components/ObjectDocsPanel'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
 import { useProject } from '../contexts/ProjectContext'
+import { useToast } from '../contexts/ToastContext'
 import { devicesService } from '../services/devices.service'
 import { portsService } from '../services/ports.service'
 import { portTypesService } from '../services/port-types.service'
@@ -45,6 +46,7 @@ export default function DeviceDetail() {
   const navigate = useNavigate()
   const { canMutate, isViewer } = usePermissions()
   const { activeProjectId } = useProject()
+  const toast = useToast()
   const { data: device, isLoading, refetch } = useApi(
     () => (id ? devicesService.getById(id) : Promise.reject(new Error('Missing device id'))),
     [id]
@@ -67,10 +69,13 @@ export default function DeviceDetail() {
     speed: '',
     status: 'down' as Port['status'],
     description: '',
+    isPassthrough: false,
   })
   const [portVlanAssignments, setPortVlanAssignments] = useState<PortVlanFormRow[]>([])
   const [portSubmitting, setPortSubmitting] = useState(false)
   const [portFormError, setPortFormError] = useState<string | null>(null)
+  const [bulkStatusSubmitting, setBulkStatusSubmitting] = useState<'up' | 'down' | null>(null)
+  const [bulkPassthroughSubmitting, setBulkPassthroughSubmitting] = useState(false)
 
   const portsSorted = useMemo(
     () => [...(device?.ports ?? [])].sort((a, b) => a.portNumber - b.portNumber),
@@ -105,6 +110,7 @@ export default function DeviceDetail() {
       speed: '',
       status: 'down',
       description: '',
+      isPassthrough: false,
     })
     setPortVlanAssignments([])
     setPortFormError(null)
@@ -131,6 +137,7 @@ export default function DeviceDetail() {
       speed: port.speed ?? '',
       status: port.status,
       description: port.description ?? '',
+      isPassthrough: !!port.isPassthrough,
     })
     setPortVlanAssignments(
       (port.vlans ?? []).map((vlan) => ({
@@ -185,6 +192,7 @@ export default function DeviceDetail() {
           speed: portForm.speed.trim() || null,
           status: portForm.status,
           description: portForm.description.trim() || undefined,
+          isPassthrough: portForm.isPassthrough,
           vlanAssignments,
         })
       } else {
@@ -196,6 +204,7 @@ export default function DeviceDetail() {
           speed: portForm.speed.trim() || undefined,
           status: portForm.status,
           description: portForm.description.trim() || undefined,
+          isPassthrough: portForm.isPassthrough,
           vlanAssignments,
         })
       }
@@ -212,6 +221,61 @@ export default function DeviceDetail() {
     }
   }
 
+  const handleBulkPortStatus = async (status: 'up' | 'down') => {
+    if (!device?.id || portsSorted.length === 0) return
+
+    const label = status === 'up' ? 'Up' : 'Down'
+    const ok = window.confirm(
+      `¿Poner los ${portsSorted.length} puertos de este dispositivo en ${label}?`
+    )
+    if (!ok) return
+
+    try {
+      setBulkStatusSubmitting(status)
+      const result = await portsService.bulkUpdateStatus(device.id, status)
+      toast.success(
+        `Puertos en ${label}`,
+        `Se actualizaron ${result.updatedCount} puerto${result.updatedCount === 1 ? '' : 's'}.`
+      )
+      refetch()
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined
+      toast.error('No se pudo actualizar el status', message || 'Intenta de nuevo.')
+    } finally {
+      setBulkStatusSubmitting(null)
+    }
+  }
+
+  const handleBulkPassthrough = async (isPassthrough: boolean) => {
+    if (!device?.id || portsSorted.length === 0) return
+    const label = isPassthrough ? 'puente (front/rear)' : 'normal (1 cara)'
+    const ok = window.confirm(
+      `¿Marcar los ${portsSorted.length} puertos de este dispositivo como ${label}?`
+    )
+    if (!ok) return
+
+    try {
+      setBulkPassthroughSubmitting(true)
+      const result = await portsService.bulkUpdatePassthrough(device.id, isPassthrough)
+      toast.success(
+        isPassthrough ? 'Puertos puente' : 'Marca puente quitada',
+        `Se actualizaron ${result.updatedCount} puerto${result.updatedCount === 1 ? '' : 's'}.`
+      )
+      refetch()
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined
+      toast.error('No se pudo actualizar passthrough', message || 'Intenta de nuevo.')
+    } finally {
+      setBulkPassthroughSubmitting(false)
+    }
+  }
+
   const portColumns: Column<Port>[] = [
     { key: 'name', header: 'Port', sortable: true },
     { key: 'portNumber', header: '#', sortable: true },
@@ -219,8 +283,15 @@ export default function DeviceDetail() {
       key: 'portType',
       header: 'Type',
       render: (p) => (
-        <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
-          {portTypeLabel(p.portType)}
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+            {portTypeLabel(p.portType)}
+          </span>
+          {p.isPassthrough ? (
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+              Puente
+            </span>
+          ) : null}
         </span>
       ),
     },
@@ -419,15 +490,53 @@ export default function DeviceDetail() {
             Ports ({portsSorted.length})
           </h2>
           {canMutate && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              icon={<Plus className="w-4 h-4" />}
-              onClick={openAddPortModal}
-            >
-              Add port
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {portsSorted.length > 0 && (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    icon={<ArrowUp className="w-4 h-4" />}
+                    isLoading={bulkStatusSubmitting === 'up'}
+                    disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
+                    onClick={() => handleBulkPortStatus('up')}
+                  >
+                    All Up
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    icon={<ArrowDown className="w-4 h-4" />}
+                    isLoading={bulkStatusSubmitting === 'down'}
+                    disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
+                    onClick={() => handleBulkPortStatus('down')}
+                  >
+                    All Down
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    isLoading={bulkPassthroughSubmitting}
+                    disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
+                    onClick={() => void handleBulkPassthrough(true)}
+                  >
+                    Marcar todos puente
+                  </Button>
+                </>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                icon={<Plus className="w-4 h-4" />}
+                onClick={openAddPortModal}
+              >
+                Add port
+              </Button>
+            </div>
           )}
         </div>
         <DataTable
@@ -489,6 +598,22 @@ export default function DeviceDetail() {
               className="sm:col-span-2"
             />
           </div>
+          <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/40 px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+              checked={portForm.isPassthrough}
+              onChange={(e) =>
+                setPortForm((p) => ({ ...p, isPassthrough: e.target.checked }))
+              }
+            />
+            <span className="text-sm text-gray-800 dark:text-gray-100">
+              <span className="font-medium">Puerto puente (front/rear)</span>
+              <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Patch panel / jack passthrough: admite una conexión física por cara.
+              </span>
+            </span>
+          </label>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Description

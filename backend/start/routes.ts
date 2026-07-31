@@ -57,6 +57,8 @@ router
     router.get('/devices/:id', [DevicesController, 'show'])
     router.put('/devices/:id', [DevicesController, 'update'])
     router.delete('/devices/:id', [DevicesController, 'destroy'])
+    router.put('/devices/:id/ports/status', [DevicesController, 'bulkUpdatePortsStatus'])
+    router.put('/devices/:id/ports/passthrough', [DevicesController, 'bulkUpdatePortsPassthrough'])
 
     // Ports
     router.get('/ports', [PortsController, 'index'])
@@ -116,6 +118,10 @@ router
     router.put('/device-templates/:id', [DeviceTemplatesController, 'update'])
     router.delete('/device-templates/:id', [DeviceTemplatesController, 'destroy'])
     router.get('/device-templates/:id/ports', [DeviceTemplatesController, 'portsIndex'])
+    router.put('/device-templates/:id/ports/passthrough', [
+      DeviceTemplatesController,
+      'portsBulkPassthrough',
+    ])
     router.post('/device-templates/:id/ports', [DeviceTemplatesController, 'portsStore'])
     router.put('/device-templates/:id/ports/:portId', [DeviceTemplatesController, 'portsUpdate'])
     router.delete('/device-templates/:id/ports/:portId', [

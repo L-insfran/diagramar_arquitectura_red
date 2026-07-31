@@ -133,9 +133,11 @@ Las conexiones son entidades independientes.
 
 Una conexión posee: Origen, Puerto origen, Destino, Puerto destino, Tipo de cable, Longitud, Estado, Etiqueta, Observaciones, Fecha, Usuario.
 
-Debe ser imposible conectar un puerto ocupado.
+Debe ser imposible conectar una cara de puerto ocupada.
 
-Cada puerto solamente puede tener **una conexión activa**.
+Cada **extremo de puerto** (cara) solamente puede tener **una conexión física activa**.
+Los puertos **passthrough** (patch panels) tienen dos caras (`front` / `rear`) y actúan como puente; el enlace interno no es una `Connection`.
+Los puertos endpoint (switch, router…) usan una sola cara (`front`).
 
 ### Tipos de cable
 

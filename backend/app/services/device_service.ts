@@ -118,6 +118,7 @@ export default class DeviceService {
         speed: port.speed,
         status: 'down',
         description: port.description,
+        isPassthrough: port.isPassthrough ?? false,
       })
     }
 

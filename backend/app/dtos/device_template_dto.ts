@@ -39,6 +39,7 @@ export type CreateDeviceTemplatePortInput = {
   portType: string
   speed?: string | null
   description?: string | null
+  isPassthrough?: boolean
 }
 
 export type UpdateDeviceTemplatePortInput = {
@@ -47,4 +48,5 @@ export type UpdateDeviceTemplatePortInput = {
   portType?: string
   speed?: string | null
   description?: string | null
+  isPassthrough?: boolean
 }

@@ -23,6 +23,7 @@ export const createPortValidator = vine.compile(
     speed: vine.string().trim().maxLength(50).optional().nullable(),
     status: portStatus.optional(),
     description: vine.string().trim().optional(),
+    isPassthrough: vine.boolean().optional(),
     /** Associa VLANs del inventario al puerto (access/trunk vía isTagged). */
     vlanAssignments: vine.array(vlanAssignment).optional(),
   })
@@ -37,7 +38,22 @@ export const updatePortValidator = vine.compile(
     speed: vine.string().trim().maxLength(50).optional().nullable(),
     status: portStatus.optional(),
     description: vine.string().trim().optional(),
+    isPassthrough: vine.boolean().optional(),
     /** Si se envía (aunque sea []), reemplaza las VLANs del puerto. */
     vlanAssignments: vine.array(vlanAssignment).optional(),
+  })
+)
+
+/** Bulk set all ports of a device to up or down (not disabled). */
+export const bulkUpdatePortStatusValidator = vine.compile(
+  vine.object({
+    status: vine.enum(['up', 'down'] as const),
+  })
+)
+
+/** Bulk set is_passthrough on every port of a device. */
+export const bulkUpdatePortPassthroughValidator = vine.compile(
+  vine.object({
+    isPassthrough: vine.boolean(),
   })
 )

@@ -44,7 +44,8 @@ Reglas Cursor (contexto persistente): [.cursor/rules/](.cursor/rules/)
 - **Sí** existen conexiones como entidad, topología React Flow, VLANs, networks, ports, `port_types` enriquecidos, `cable_types`, roles admin/operator/viewer.
 - **Sí** existen `attachments` + `secrets` polimórficos (Fase 6); archivos en disco local (ADR 0003).
 - **Sí** existe `GET /api/dashboard` con métricas agregadas del proyecto (Fase 7).
-- Regla: un puerto = una conexión física activa (índices parciales + service).
+- Regla: 1 conexión física activa por **(puerto, cara)**; puertos passthrough tienen `front`/`rear` (ADR 0005); marca editable en UI + bulk.
 - Frontend vive en la carpeta **`fronted/`** (typo histórico).
-- Siguiente migración tras `0034_`: **`0035_`**.
+- Siguiente migración tras `0036_`: **`0037_`**.
 - Capas: Controller → Service → Repository → DTO → Validator (ADR 0002).
+- Regla de conexiones: 1 física activa por `(port, face)`; patch panels = `is_passthrough` (ADR 0005).

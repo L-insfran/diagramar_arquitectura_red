@@ -57,7 +57,7 @@ import { RackFlowNode } from './RackFlowNode'
 import { PortLinkEdge, type PortLinkEdgeType } from './PortLinkEdge'
 import { WorkAreaFlowNode, WORK_AREA_TITLE_FONT_DEFAULT, clampWorkAreaTitleFontSize } from './WorkAreaFlowNode'
 import { TopologyCanvasInteractionContext, type TopologyLinkSelection } from './TopologyCanvasContext'
-import type { TopologyData, TopologyRackSummary, MediumType, RackFace } from '../../types'
+import type { TopologyData, TopologyRackSummary, MediumType } from '../../types'
 import { formatMediumLabel, MEDIUM_EDGE_STYLES } from '../../types'
 import { compareTopologyPortPair } from '../../utils/topologyPortSort'
 import {
@@ -65,7 +65,7 @@ import {
   buildDeviceFlowNodes,
   isIntraRackEdge,
 } from '../../utils/topologyRackAssemble'
-import { isRackFlowNodeId, normalizeRackFace } from '../../utils/topologyRackLayout'
+import { isRackFlowNodeId, normalizeRackViewFace, type RackViewFace } from '../../utils/topologyRackLayout'
 import {
   computeExportCaptureRect,
   computeTileGrid,
@@ -196,8 +196,8 @@ function orientPortEdgeHandles(
 
     return {
       ...edge,
-      sourceHandle: portSourceHandleId(d.sourcePortId, sourceSide),
-      targetHandle: portTargetHandleId(d.targetPortId, targetSide),
+      sourceHandle: portSourceHandleId(d.sourcePortId, sourceSide, d.sourceFace ?? 'front'),
+      targetHandle: portTargetHandleId(d.targetPortId, targetSide, d.targetFace ?? 'front'),
       data: {
         ...d,
         sourceExitSide: sourceSide,
@@ -393,8 +393,12 @@ function topologyToFlowElements(data: TopologyData): {
       type: 'portLink' as const,
       source: e.source,
       target: e.target,
-      sourceHandle: usePortHandles ? portSourceHandleId(e.sourcePortId, 'bottom') : undefined,
-      targetHandle: usePortHandles ? portTargetHandleId(e.targetPortId, 'top') : undefined,
+      sourceHandle: usePortHandles
+        ? portSourceHandleId(e.sourcePortId, 'bottom', e.sourceFace ?? 'front')
+        : undefined,
+      targetHandle: usePortHandles
+        ? portTargetHandleId(e.targetPortId, 'top', e.targetFace ?? 'front')
+        : undefined,
       zIndex: 1000,
       animated: isLogical || isInternetLink,
       style: {
@@ -407,6 +411,8 @@ function topologyToFlowElements(data: TopologyData): {
         targetPort: e.targetPort,
         sourcePortId: e.sourcePortId,
         targetPortId: e.targetPortId,
+        sourceFace: e.sourceFace ?? 'front',
+        targetFace: e.targetFace ?? 'front',
         sourceColor: colorById.get(e.source) ?? '#64748b',
         targetColor: colorById.get(e.target) ?? '#64748b',
         sourcePortNumber: e.sourcePortNumber,
@@ -1093,7 +1099,12 @@ interface InnerProps {
   readOnly?: boolean
   onNavigateToDevice?: (deviceId: string) => void
   onNavigateToConnection?: (connectionId: string) => void
-  onConnectPorts?: (sourcePortId: string, targetPortId: string) => void | Promise<void>
+  onConnectPorts?: (
+    sourcePortId: string,
+    targetPortId: string,
+    sourceFace: 'front' | 'rear',
+    targetFace: 'front' | 'rear',
+  ) => void | Promise<void>
   fullscreen: boolean
   onFullscreenChange: (next: boolean) => void
   canvasRef?: MutableRefObject<HTMLDivElement | null>
@@ -1122,13 +1133,13 @@ function TopologyFlowInner({
   const [selection, setSelection] = useState<TopologyLinkSelection | null>(null)
   const [drawAreaMode, setDrawAreaMode] = useState(false)
   const [draftRect, setDraftRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
-  const [rackFaces, setRackFaces] = useState<Record<string, RackFace>>({})
+  const [rackFaces, setRackFaces] = useState<Record<string, RackViewFace>>({})
   const printOrientationRef = useRef<PrintOrientation>('landscape')
   useEffect(() => { printOrientationRef.current = printOrientation }, [printOrientation])
 
-  const setRackFace = useCallback((rackNodeId: string, face: RackFace) => {
+  const setRackFace = useCallback((rackNodeId: string, face: RackViewFace) => {
     setRackFaces((prev) => {
-      if (normalizeRackFace(prev[rackNodeId]) === face) return prev
+      if (normalizeRackViewFace(prev[rackNodeId]) === face) return prev
       return { ...prev, [rackNodeId]: face }
     })
   }, [])
@@ -1177,7 +1188,9 @@ function TopologyFlowInner({
       if (!result.ok) return
       if (connectingRef.current) return
       connectingRef.current = true
-      void Promise.resolve(onConnectPorts(result.sourcePortId, result.targetPortId)).finally(() => {
+      void Promise.resolve(
+        onConnectPorts(result.sourcePortId, result.targetPortId, result.sourceFace, result.targetFace),
+      ).finally(() => {
         connectingRef.current = false
       })
     },
@@ -1681,7 +1694,12 @@ export interface TopologyFlowCanvasProps {
   readOnly?: boolean
   onNavigateToDevice?: (deviceId: string) => void
   onNavigateToConnection?: (connectionId: string) => void
-  onConnectPorts?: (sourcePortId: string, targetPortId: string) => void | Promise<void>
+  onConnectPorts?: (
+    sourcePortId: string,
+    targetPortId: string,
+    sourceFace: 'front' | 'rear',
+    targetFace: 'front' | 'rear',
+  ) => void | Promise<void>
   canvasRef?: MutableRefObject<HTMLDivElement | null>
   onExportPdf?: () => void
   exporting?: boolean

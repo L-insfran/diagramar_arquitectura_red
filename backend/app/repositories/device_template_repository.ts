@@ -125,6 +125,7 @@ export default class DeviceTemplateRepository {
       portType: data.portType,
       speed: data.speed ?? null,
       description: data.description ?? null,
+      isPassthrough: data.isPassthrough ?? false,
     })
   }
 
@@ -142,5 +143,16 @@ export default class DeviceTemplateRepository {
     return DeviceTemplatePort.query()
       .where('device_template_id', templateId)
       .orderBy('port_number', 'asc')
+  }
+
+  /** Sets is_passthrough on every port belonging to the template. */
+  async updatePassthroughByTemplateId(
+    templateId: string,
+    isPassthrough: boolean
+  ): Promise<number> {
+    const updated = await DeviceTemplatePort.query()
+      .where('device_template_id', templateId)
+      .update({ isPassthrough })
+    return Number(updated)
   }
 }

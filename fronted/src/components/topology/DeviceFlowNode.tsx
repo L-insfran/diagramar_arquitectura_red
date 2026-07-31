@@ -34,6 +34,8 @@ import {
   portCellClasses,
   portConnectSourceHandleId,
   portConnectTargetHandleId,
+  portFaceConnectable,
+  portFaceConnected,
   portGridSlot,
   portSourceHandleId,
   portTargetHandleId,
@@ -85,7 +87,10 @@ function formatVlanTooltip(vlans: TopologyVlanSummary[] | undefined): string {
 }
 
 function portIsConnectable(port: TopologyPortSummary, readOnly: boolean): boolean {
-  return !readOnly && !port.connected && port.status === 'up'
+  if (port.isPassthrough) {
+    return portFaceConnectable(port, 'front', readOnly) || portFaceConnectable(port, 'rear', readOnly)
+  }
+  return portFaceConnectable(port, 'front', readOnly)
 }
 
 function PortCell({
@@ -106,6 +111,9 @@ function PortCell({
   connectable: boolean
 }) {
   const displayName = port.name?.trim() || String(port.portNumber)
+  const frontOn = portFaceConnected(port, 'front')
+  const rearOn = port.isPassthrough ? portFaceConnected(port, 'rear') : false
+  const anyConnected = frontOn || rearOn || port.connected
 
   return (
     <button
@@ -113,7 +121,7 @@ function PortCell({
       className={`nodrag nopan relative box-border flex flex-col items-center justify-center rounded border leading-none transition ${portCellClasses(port)} ${
         compact ? 'gap-0.5 px-1 py-1' : 'px-0.5'
       } ${selected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-gray-900 z-20' : ''} ${
-        port.connected
+        anyConnected
           ? 'cursor-pointer hover:brightness-110'
           : connectable
             ? 'pointer-events-none cursor-crosshair'
@@ -121,15 +129,19 @@ function PortCell({
       }`}
       style={{ width: cellW, height: cellH, minWidth: cellW, maxWidth: cellW, minHeight: cellH, maxHeight: cellH }}
       title={
-        port.connected
-          ? `Puerto ${port.portNumber} · ${displayName} · clic para ir al dispositivo conectado`
-          : connectable
-            ? `Puerto ${port.portNumber} · ${displayName} · arrastrá a otro puerto libre para enlazar`
-            : `Puerto ${port.portNumber} · ${displayName}`
+        port.isPassthrough
+          ? `Puerto ${port.portNumber} · ${displayName} · R:${rearOn ? '●' : '○'} F:${frontOn ? '●' : '○'}${
+              connectable ? ' · arrastrá desde una cara libre' : anyConnected ? ' · clic para navegar' : ''
+            }`
+          : anyConnected
+            ? `Puerto ${port.portNumber} · ${displayName} · clic para ir al dispositivo conectado`
+            : connectable
+              ? `Puerto ${port.portNumber} · ${displayName} · arrastrá a otro puerto libre para enlazar`
+              : `Puerto ${port.portNumber} · ${displayName}`
       }
       onClick={(e) => {
         e.stopPropagation()
-        if (port.connected) onSelect(port.id)
+        if (anyConnected) onSelect(port.id)
       }}
     >
       {compact ? (
@@ -146,11 +158,28 @@ function PortCell({
           {displayName}
         </span>
       )}
-      {port.connected && (
-        <span
-          className="absolute left-1/2 -translate-x-1/2 bottom-0 translate-y-1/2 size-1.5 rounded-full bg-blue-600 ring-1 ring-white dark:ring-gray-900"
-          aria-hidden
-        />
+      {port.isPassthrough ? (
+        <span className="absolute bottom-0 left-1/2 flex -translate-x-1/2 translate-y-1/2 gap-1" aria-hidden>
+          <span
+            className={`size-1.5 rounded-full ring-1 ring-white dark:ring-gray-900 ${
+              rearOn ? 'bg-violet-600' : 'bg-gray-300 dark:bg-gray-600'
+            }`}
+            title="Rear"
+          />
+          <span
+            className={`size-1.5 rounded-full ring-1 ring-white dark:ring-gray-900 ${
+              frontOn ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+            }`}
+            title="Front"
+          />
+        </span>
+      ) : (
+        anyConnected && (
+          <span
+            className="absolute left-1/2 -translate-x-1/2 bottom-0 translate-y-1/2 size-1.5 rounded-full bg-blue-600 ring-1 ring-white dark:ring-gray-900"
+            aria-hidden
+          />
+        )
       )}
     </button>
   )
@@ -223,6 +252,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
   const selectPort = interaction?.selectPort
 
   const rackMounted = !!data.rackMounted
+  const isRearMounted = rackMounted && data.rackFace === 'rear'
   const isPatchPanel = isStructuredCablingDeviceType(data.deviceType)
   const freeHeaderHeight = isPatchPanel ? TOPOLOGY_HEADER_HEIGHT_PATCH : TOPOLOGY_HEADER_HEIGHT
 
@@ -257,10 +287,16 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       )
   const headerHeight = layout.headerHeight
   const physicalGrid = usesPhysicalPortLayout(layout)
-  const portGap = rackMounted ? 3 : PORT_GAP
-  const panelPad = rackMounted ? 4 : PORT_PANEL_PADDING
-  const panelHeaderH = rackMounted ? 12 : PORT_PANEL_HEADER_HEIGHT
-  const dotOverflow = rackMounted ? 10 : PORT_DOT_OVERFLOW
+  const portGap = rackMounted ? (layout.portGap ?? 2) : PORT_GAP
+  const panelPad = rackMounted ? (layout.portPanelPad ?? 2) : PORT_PANEL_PADDING
+  const panelHeaderH = rackMounted
+    ? (layout.panelHeaderH ?? 0)
+    : PORT_PANEL_HEADER_HEIGHT
+  const wifiPanelHeaderH = rackMounted
+    ? (layout.wifiPanelHeaderH ?? 0)
+    : WIFI_PANEL_HEADER_HEIGHT
+  const dotOverflow = rackMounted ? 0 : PORT_DOT_OVERFLOW
+  const showPortCounterInHeader = rackMounted && panelHeaderH === 0 && totalPhysicalCount > 0
 
   const vlanCount = data.vlanCount ?? data.vlans?.length ?? 0
   const primaryNetwork = data.networks?.[0]
@@ -332,121 +368,149 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
 
   const renderHandles = (ports: TopologyPortSummary[], section: PortPanelSection) =>
     ports.map((port, index) => {
-      const srcTop = computePortSourceAnchor(
-        port.portNumber,
-        layout,
-        nodeWidth,
-        nodeHeight,
-        index,
-        'top',
-        section,
-      )
-      const srcBottom = computePortSourceAnchor(
-        port.portNumber,
-        layout,
-        nodeWidth,
-        nodeHeight,
-        index,
-        'bottom',
-        section,
-      )
-      const tgtTop = computePortTargetAnchor(
-        port.portNumber,
-        layout,
-        nodeWidth,
-        nodeHeight,
-        index,
-        'top',
-        section,
-      )
-      const tgtBottom = computePortTargetAnchor(
-        port.portNumber,
-        layout,
-        nodeWidth,
-        nodeHeight,
-        index,
-        'bottom',
-        section,
-      )
-      const connect = computePortConnectAnchor(
-        port.portNumber,
-        layout,
-        nodeWidth,
-        nodeHeight,
-        index,
-        section,
-      )
-      const canConnect = portIsConnectable(port, readOnly)
+      const faces: Array<'front' | 'rear'> = port.isPassthrough ? ['rear', 'front'] : ['front']
+      const passthrough = !!port.isPassthrough
       return (
         <Fragment key={`handles-${port.id}`}>
-          <Handle
-            id={portSourceHandleId(port.id, 'top')}
-            type="source"
-            position={Position.Top}
-            isConnectable={false}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
-            style={{ position: 'absolute', left: srcTop.x, top: srcTop.y, transform: 'translate(-50%, -50%)' }}
-          />
-          <Handle
-            id={portSourceHandleId(port.id, 'bottom')}
-            type="source"
-            position={Position.Bottom}
-            isConnectable={false}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
-            style={{ position: 'absolute', left: srcBottom.x, top: srcBottom.y, transform: 'translate(-50%, -50%)' }}
-          />
-          <Handle
-            id={portTargetHandleId(port.id, 'top')}
-            type="target"
-            position={Position.Top}
-            isConnectable={false}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
-            style={{ position: 'absolute', left: tgtTop.x, top: tgtTop.y, transform: 'translate(-50%, -50%)' }}
-          />
-          <Handle
-            id={portTargetHandleId(port.id, 'bottom')}
-            type="target"
-            position={Position.Bottom}
-            isConnectable={false}
-            className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
-            style={{ position: 'absolute', left: tgtBottom.x, top: tgtBottom.y, transform: 'translate(-50%, -50%)' }}
-          />
-          {canConnect && (
-            <>
-              <Handle
-                id={portConnectTargetHandleId(port.id)}
-                type="target"
-                position={Position.Top}
-                isConnectable
-                className="!z-30 !rounded-sm !border-0 !bg-transparent"
-                style={{
-                  position: 'absolute',
-                  left: connect.x,
-                  top: connect.y,
-                  width: connect.cellW,
-                  height: connect.cellH,
-                  transform: 'translate(-50%, -50%)',
-                  cursor: 'crosshair',
-                }}
-              />
-              <Handle
-                id={portConnectSourceHandleId(port.id)}
-                type="source"
-                position={Position.Bottom}
-                isConnectable
-                className="!z-30 !rounded-sm !border !border-emerald-400/0 !bg-emerald-400/0 hover:!border-emerald-400/60 hover:!bg-emerald-400/20"
-                style={{
-                  position: 'absolute',
-                  left: connect.x,
-                  top: connect.y,
-                  width: connect.cellW,
-                  height: connect.cellH,
-                  transform: 'translate(-50%, -50%)',
-                  cursor: 'crosshair',
-                }}
-              />
-            </>
-          )}
+          {faces.map((face) => {
+            const srcTop = computePortSourceAnchor(
+              port.portNumber,
+              layout,
+              nodeWidth,
+              nodeHeight,
+              index,
+              'top',
+              section,
+              face,
+              passthrough,
+            )
+            const srcBottom = computePortSourceAnchor(
+              port.portNumber,
+              layout,
+              nodeWidth,
+              nodeHeight,
+              index,
+              'bottom',
+              section,
+              face,
+              passthrough,
+            )
+            const tgtTop = computePortTargetAnchor(
+              port.portNumber,
+              layout,
+              nodeWidth,
+              nodeHeight,
+              index,
+              'top',
+              section,
+              face,
+              passthrough,
+            )
+            const tgtBottom = computePortTargetAnchor(
+              port.portNumber,
+              layout,
+              nodeWidth,
+              nodeHeight,
+              index,
+              'bottom',
+              section,
+              face,
+              passthrough,
+            )
+            const connect = computePortConnectAnchor(
+              port.portNumber,
+              layout,
+              nodeWidth,
+              nodeHeight,
+              index,
+              section,
+              face,
+              passthrough,
+            )
+            const canConnect = portFaceConnectable(port, face, readOnly)
+            return (
+              <Fragment key={`handles-${port.id}-${face}`}>
+                <Handle
+                  id={portSourceHandleId(port.id, 'top', face)}
+                  type="source"
+                  position={Position.Top}
+                  isConnectable={false}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{ position: 'absolute', left: srcTop.x, top: srcTop.y, transform: 'translate(-50%, -50%)' }}
+                />
+                <Handle
+                  id={portSourceHandleId(port.id, 'bottom', face)}
+                  type="source"
+                  position={Position.Bottom}
+                  isConnectable={false}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{
+                    position: 'absolute',
+                    left: srcBottom.x,
+                    top: srcBottom.y,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                />
+                <Handle
+                  id={portTargetHandleId(port.id, 'top', face)}
+                  type="target"
+                  position={Position.Top}
+                  isConnectable={false}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{ position: 'absolute', left: tgtTop.x, top: tgtTop.y, transform: 'translate(-50%, -50%)' }}
+                />
+                <Handle
+                  id={portTargetHandleId(port.id, 'bottom', face)}
+                  type="target"
+                  position={Position.Bottom}
+                  isConnectable={false}
+                  className="!opacity-0 !size-1 !border-0 !bg-transparent !pointer-events-none"
+                  style={{
+                    position: 'absolute',
+                    left: tgtBottom.x,
+                    top: tgtBottom.y,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                />
+                {canConnect && (
+                  <>
+                    <Handle
+                      id={portConnectTargetHandleId(port.id, face)}
+                      type="target"
+                      position={Position.Top}
+                      isConnectable
+                      className="!z-30 !rounded-sm !border-0 !bg-transparent"
+                      style={{
+                        position: 'absolute',
+                        left: connect.x,
+                        top: connect.y,
+                        width: connect.cellW,
+                        height: connect.cellH,
+                        transform: 'translate(-50%, -50%)',
+                        cursor: 'crosshair',
+                      }}
+                    />
+                    <Handle
+                      id={portConnectSourceHandleId(port.id, face)}
+                      type="source"
+                      position={Position.Bottom}
+                      isConnectable
+                      className="!z-30 !rounded-sm !border !border-emerald-400/0 !bg-emerald-400/0 hover:!border-emerald-400/60 hover:!bg-emerald-400/20"
+                      style={{
+                        position: 'absolute',
+                        left: connect.x,
+                        top: connect.y,
+                        width: connect.cellW,
+                        height: connect.cellH,
+                        transform: 'translate(-50%, -50%)',
+                        cursor: 'crosshair',
+                      }}
+                    />
+                  </>
+                )}
+              </Fragment>
+            )
+          })}
         </Fragment>
       )
     })
@@ -459,7 +523,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       style={{
         width: displayWidth,
         height: displayHeight,
-        overflow: 'visible',
+        overflow: rackMounted ? 'hidden' : 'visible',
       }}
     >
       {!readOnly && !rackMounted && (
@@ -478,7 +542,9 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       <div
         className={`relative box-border flex flex-col ${
           rackMounted
-            ? 'rounded-sm border border-slate-500/80 bg-slate-800 shadow-sm'
+            ? isRearMounted
+              ? 'rounded-sm border border-amber-500/70 bg-slate-800 shadow-sm'
+              : 'rounded-sm border border-slate-500/80 bg-slate-800 shadow-sm'
             : `rounded-lg border border-gray-300 dark:border-gray-600 shadow-md print:shadow-none ${
                 hasPorts ? 'bg-transparent' : 'bg-white dark:bg-gray-800'
               }`
@@ -492,7 +558,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           height: baseHeight,
           transform: `scale(${scaleX}, ${scaleY})`,
           transformOrigin: 'top left',
-          overflow: 'visible',
+          overflow: rackMounted ? 'hidden' : 'visible',
         }}
       >
       {/* Marca de color del dispositivo */}
@@ -534,6 +600,14 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           className={`rounded-full shrink-0 ${rackMounted ? 'size-1.5' : 'size-2.5 mt-1.5'} ${statusDot}`}
           title={data.status}
         />
+        {isRearMounted ? (
+          <span
+            className="shrink-0 rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide text-amber-200 bg-amber-700/80"
+            title="Montado en cara trasera"
+          >
+            R
+          </span>
+        ) : null}
         <div className={`min-w-0 flex-1 overflow-hidden ${rackMounted ? '' : 'space-y-0.5'}`}>
           {goDevice && nodeId ? (
             <button
@@ -561,10 +635,12 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           )}
 
           {rackMounted ? (
-            <p className="truncate text-[8px] leading-none text-slate-400">
-              {manufacturerModel || data.deviceType || `${data.rackUnits ?? 1}U`}
-              {data.ipAddress ? ` · ${data.ipAddress}` : ''}
-            </p>
+            headerHeight > 16 ? (
+              <p className="truncate text-[8px] leading-none text-slate-400">
+                {manufacturerModel || data.deviceType || `${data.rackUnits ?? 1}U`}
+                {data.ipAddress ? ` · ${data.ipAddress}` : ''}
+              </p>
+            ) : null
           ) : (
             <>
               {data.deviceType && (
@@ -612,12 +688,23 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
             </>
           )}
         </div>
+        {showPortCounterInHeader && (
+          <span
+            className="shrink-0 whitespace-nowrap text-[8px] font-semibold tabular-nums text-slate-400"
+            title={`${physicalInUse} en uso de ${totalPhysicalCount}`}
+          >
+            <span className="text-emerald-400">{physicalInUse}</span>
+            {`/${totalPhysicalCount}`}
+          </span>
+        )}
       </div>
 
       {hasPorts && (
         <div
           className={`relative box-border flex shrink-0 flex-col items-center ${
-            rackMounted ? 'border-t border-slate-600/80' : 'border-t border-gray-200 dark:border-gray-700'
+            rackMounted
+              ? 'justify-center border-t border-slate-600/80'
+              : 'border-t border-gray-200 dark:border-gray-700'
           }`}
           style={{
             width: nodeWidth,
@@ -628,43 +715,47 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           }}
         >
           <div
-            className={`pointer-events-none absolute inset-x-0 top-0 ${
-              rackMounted ? 'bg-slate-900/90' : 'rounded-b-[7px] bg-slate-50 dark:bg-gray-900/80'
-            }`}
-            style={{ bottom: dotOverflow }}
+            className={
+              rackMounted
+                ? 'pointer-events-none absolute inset-0 bg-slate-900/90'
+                : 'pointer-events-none absolute inset-x-0 top-0 rounded-b-[7px] bg-slate-50 dark:bg-gray-900/80'
+            }
+            style={rackMounted ? undefined : { bottom: dotOverflow }}
             aria-hidden
           />
 
           {hasPhysical && (
             <>
-              <div
-                className="relative z-[1] mb-0.5 flex w-full shrink-0 items-center justify-between gap-1"
-                style={{ height: panelHeaderH, minHeight: panelHeaderH }}
-              >
-                <span
-                  className={`font-bold uppercase tracking-wider ${
-                    rackMounted ? 'text-[7px] text-slate-400' : 'text-[8px] text-gray-500 dark:text-gray-400'
-                  }`}
+              {panelHeaderH > 0 && (
+                <div
+                  className="relative z-[1] mb-0.5 flex w-full shrink-0 items-center justify-between gap-1"
+                  style={{ height: panelHeaderH, minHeight: panelHeaderH }}
                 >
-                  Puertos
-                </span>
-                {totalPhysicalCount > 0 && (
                   <span
-                    className={`whitespace-nowrap ${
-                      rackMounted ? 'text-[7px] text-slate-500' : 'text-[8px] text-gray-400 dark:text-gray-500'
+                    className={`font-bold uppercase tracking-wider ${
+                      rackMounted ? 'text-[7px] text-slate-400' : 'text-[8px] text-gray-500 dark:text-gray-400'
                     }`}
                   >
-                    <span className="text-emerald-400">{physicalInUse}</span>
-                    {`/${totalPhysicalCount}`}
-                    {!rackMounted && freePhysicalCount > 0 && (
-                      <>
-                        {' · '}
-                        <span>{freePhysicalCount} libre{freePhysicalCount === 1 ? '' : 's'}</span>
-                      </>
-                    )}
+                    Puertos
                   </span>
-                )}
-              </div>
+                  {totalPhysicalCount > 0 && (
+                    <span
+                      className={`whitespace-nowrap ${
+                        rackMounted ? 'text-[7px] text-slate-500' : 'text-[8px] text-gray-400 dark:text-gray-500'
+                      }`}
+                    >
+                      <span className="text-emerald-400">{physicalInUse}</span>
+                      {`/${totalPhysicalCount}`}
+                      {!rackMounted && freePhysicalCount > 0 && (
+                        <>
+                          {' · '}
+                          <span>{freePhysicalCount} libre{freePhysicalCount === 1 ? '' : 's'}</span>
+                        </>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {!rackMounted && layout.rows > 1 && physicalGrid && (
                 <div
@@ -715,36 +806,38 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           {hasPhysical && hasWireless && (
             <div
               className="relative z-[1] w-full shrink-0"
-              style={{ height: rackMounted ? 4 : WIFI_SECTION_GAP }}
+              style={{ height: rackMounted ? 2 : WIFI_SECTION_GAP }}
               aria-hidden
             />
           )}
 
           {hasWireless && (
             <>
-              <div
-                className="relative z-[1] mb-0.5 flex w-full shrink-0 items-center justify-between gap-1"
-                style={{
-                  height: rackMounted ? panelHeaderH : WIFI_PANEL_HEADER_HEIGHT,
-                  minHeight: rackMounted ? panelHeaderH : WIFI_PANEL_HEADER_HEIGHT,
-                }}
-              >
-                <span
-                  className={`inline-flex items-center gap-0.5 font-bold uppercase tracking-wider text-sky-400 ${
-                    rackMounted ? 'text-[7px]' : 'text-[8px]'
-                  }`}
+              {wifiPanelHeaderH > 0 && (
+                <div
+                  className="relative z-[1] mb-0.5 flex w-full shrink-0 items-center justify-between gap-1"
+                  style={{
+                    height: wifiPanelHeaderH,
+                    minHeight: wifiPanelHeaderH,
+                  }}
                 >
-                  <Wifi className="size-2.5" aria-hidden strokeWidth={2.5} />
-                  WiFi
-                </span>
-                <span
-                  className={`whitespace-nowrap ${
-                    rackMounted ? 'text-[7px] text-slate-500' : 'text-[8px] text-gray-400 dark:text-gray-500'
-                  }`}
-                >
-                  {wirelessInUse}/{wirelessPorts.length}
-                </span>
-              </div>
+                  <span
+                    className={`inline-flex items-center gap-0.5 font-bold uppercase tracking-wider text-sky-400 ${
+                      rackMounted ? 'text-[7px]' : 'text-[8px]'
+                    }`}
+                  >
+                    <Wifi className="size-2.5" aria-hidden strokeWidth={2.5} />
+                    WiFi
+                  </span>
+                  <span
+                    className={`whitespace-nowrap ${
+                      rackMounted ? 'text-[7px] text-slate-500' : 'text-[8px] text-gray-400 dark:text-gray-500'
+                    }`}
+                  >
+                    {wirelessInUse}/{wirelessPorts.length}
+                  </span>
+                </div>
+              )}
 
               <div
                 className="relative z-[1] grid shrink-0"

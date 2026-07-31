@@ -28,8 +28,10 @@ import {
   freeDevicesOriginX,
   layoutRacksGrid,
   normalizeRackFace,
+  normalizeRackViewFace,
   rackFlowNodeId,
   rackOuterSize,
+  type RackViewFace,
 } from './topologyRackLayout'
 import type { TopologyCanvasNode, TopologyDeviceNode } from './topologyWorkAreas'
 
@@ -159,18 +161,18 @@ export function applyRackHierarchy(
   devices: TopologyDeviceNode[],
   racks: TopologyRackSummary[],
   persistedPositions: Readonly<Record<string, { x: number; y: number }>>,
-  rackFaces: Readonly<Record<string, RackFace>>,
+  rackFaces: Readonly<Record<string, RackViewFace>>,
 ): TopologyCanvasNode[] {
   if (!racks.length) return devices
 
-  const rackPositions = layoutRacksGrid(racks, persistedPositions)
-  const freeOriginX = freeDevicesOriginX(racks, rackPositions)
+  const rackPositions = layoutRacksGrid(racks, persistedPositions, rackFaces)
+  const freeOriginX = freeDevicesOriginX(racks, rackPositions, rackFaces)
 
   const rackNodes: RackFlowNodeType[] = racks.map((rack) => {
     const id = rackFlowNodeId(rack.id)
-    const size = rackOuterSize(rack.heightU)
+    const activeFace = normalizeRackViewFace(rackFaces[id] ?? rackFaces[rack.id] ?? 'front')
+    const size = rackOuterSize(rack.heightU, activeFace)
     const pos = rackPositions[id] ?? { x: 0, y: 0 }
-    const activeFace = normalizeRackFace(rackFaces[id] ?? rackFaces[rack.id] ?? 'front')
     return {
       id,
       type: 'rack',
@@ -229,12 +231,13 @@ export function applyRackHierarchy(
 
     const face = normalizeRackFace(device.data.rackFace)
     const rackNodeId = rackFlowNodeId(rackId)
-    const activeFace = normalizeRackFace(
+    const activeFace = normalizeRackViewFace(
       rackFaces[rackNodeId] ?? rackFaces[rackId] ?? 'front',
     )
-    const hidden = face !== activeFace
+    const hidden = activeFace !== 'both' && face !== activeFace
+    const column: 0 | 1 = activeFace === 'both' && face === 'rear' ? 1 : 0
     const units = Math.max(1, device.data.rackUnits ?? 1)
-    const slot = devicePositionInRack(device.data.rackUnitStart, units, rack.heightU)
+    const slot = devicePositionInRack(device.data.rackUnitStart, units, rack.heightU, column)
     const { physical, wireless } = partitionDiagramPorts(device.data.ports ?? [])
     const totalPortCount = device.data.totalPortCount ?? device.data.ports?.length ?? 0
     const totalPhysicalCount = Math.max(0, totalPortCount - wireless.length)

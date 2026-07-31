@@ -3,6 +3,7 @@ import SystemUser from '#models/system_user'
 import DeviceTemplateService from '#services/device_template_service'
 import { requireMutateProjectContext } from '#services/project_context_service'
 import {
+  bulkUpdateTemplatePortPassthroughValidator,
   createDeviceTemplatePortValidator,
   createDeviceTemplateValidator,
   updateDeviceTemplatePortValidator,
@@ -105,5 +106,19 @@ export default class DeviceTemplatesController {
     await this.templateService.getActiveSummary(ctx.params.id)
     await this.templateService.deletePort(ctx.params.id, ctx.params.portId)
     return ctx.response.ok({ success: true, message: 'Template port deleted', data: null })
+  }
+
+  /** PUT /device-templates/:id/ports/passthrough */
+  async portsBulkPassthrough(ctx: HttpContext) {
+    const context = await requireMutateProjectContext(ctx)
+    if (!context) return
+
+    await this.templateService.getActiveSummary(ctx.params.id)
+    const data = await ctx.request.validateUsing(bulkUpdateTemplatePortPassthroughValidator)
+    const result = await this.templateService.bulkUpdatePortsPassthrough(
+      ctx.params.id,
+      data.isPassthrough
+    )
+    return ctx.response.ok({ success: true, data: result })
   }
 }

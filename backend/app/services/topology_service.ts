@@ -6,6 +6,7 @@ import type {
   FiberType,
   MediumType,
   ConnectionStatus,
+  PortFace,
 } from '#models/connection'
 import CableType from '#models/cable_type'
 import Device from '#models/device'
@@ -52,12 +53,21 @@ type VlanSummary = {
   networks: NetworkSummary[]
 }
 
+type PortFaceOccupancy = {
+  front: Set<string>
+  rear: Set<string>
+}
+
 type PortSummary = {
   id: string
   name: string
   portNumber: number
   portType: Port['portType']
   status: Port['status']
+  isPassthrough: boolean
+  connectedFront: boolean
+  connectedRear: boolean
+  /** True if any face is occupied (backward-compatible). */
   connected: boolean
 }
 
@@ -107,6 +117,8 @@ type FlowTopologyEdge = {
   targetPort: string
   sourcePortId: string
   targetPortId: string
+  sourceFace: PortFace
+  targetFace: PortFace
   sourcePortNumber: number
   targetPortNumber: number
   sourcePortStatus: Port['status']
@@ -163,7 +175,7 @@ const resolvePortRole = (vlans: VlanSummary[]): 'trunk' | 'access' => {
   return 'access'
 }
 
-const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopologyNode => {
+const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopologyNode => {
   const ports = device.ports ?? []
   const allVlans = uniqueBy(
     ports.flatMap((port) => extractVlanSummaries(port)),
@@ -173,7 +185,9 @@ const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopolo
     allVlans.flatMap((vlan) => vlan.networks),
     (network) => network.id
   )
-  const portsInUse = ports.filter((port) => portsInUseIds.has(port.id)).length
+  const portsInUse = ports.filter(
+    (port) => occupancy.front.has(port.id) || occupancy.rear.has(port.id)
+  ).length
   const sortedPorts = [...ports].sort(
     (a, b) => a.portNumber - b.portNumber || a.name.localeCompare(b.name)
   )
@@ -203,14 +217,21 @@ const buildDeviceNode = (device: Device, portsInUseIds: Set<string>): FlowTopolo
       networks: allNetworks,
       portCount: ports.length,
       portsInUse,
-      ports: sortedPorts.map((port) => ({
-        id: port.id,
-        name: port.name,
-        portNumber: port.portNumber,
-        portType: port.portType,
-        status: port.status,
-        connected: portsInUseIds.has(port.id),
-      })),
+      ports: sortedPorts.map((port) => {
+        const connectedFront = occupancy.front.has(port.id)
+        const connectedRear = occupancy.rear.has(port.id)
+        return {
+          id: port.id,
+          name: port.name,
+          portNumber: port.portNumber,
+          portType: port.portType,
+          status: port.status,
+          isPassthrough: !!port.isPassthrough,
+          connectedFront,
+          connectedRear,
+          connected: connectedFront || connectedRear,
+        }
+      }),
     },
   }
 }
@@ -261,20 +282,32 @@ export default class TopologyService {
     }
   }
 
-  /** One active physical connection per port (vision). Soft-deleted do not count. */
-  private async assertPortsAvailable(
-    sourcePortId: string,
-    targetPortId: string,
+  /** Resolve face for a port: endpoints always use front; passthrough accepts front|rear. */
+  private resolveFace(port: Port, requested: PortFace | undefined): PortFace {
+    const face = requested ?? 'front'
+    if (!port.isPassthrough && face === 'rear') {
+      throw new Exception(
+        `El puerto "${port.name}" no es passthrough: solo admite la cara front.`,
+        { status: 422 }
+      )
+    }
+    return face
+  }
+
+  /** One active physical connection per (port, face). Soft-deleted do not count. */
+  private async assertPortFacesAvailable(
+    endpoints: Array<{ portId: string; face: PortFace }>,
     excludeConnectionId?: string
   ) {
-    for (const portId of [sourcePortId, targetPortId]) {
-      const existing = await this.connections.findActivePhysicalByPortId(
+    for (const { portId, face } of endpoints) {
+      const existing = await this.connections.findActivePhysicalByPortFace(
         portId,
+        face,
         excludeConnectionId
       )
       if (existing) {
         throw new Exception(
-          'El puerto ya tiene una conexión física activa. Desconectalo antes de crear otra.',
+          `La cara ${face} del puerto ya tiene una conexión física activa. Desconectala antes de crear otra.`,
           { status: 409 }
         )
       }
@@ -320,10 +353,12 @@ export default class TopologyService {
       return true
     })
 
-    const portsInUseIds = new Set<string>()
+    const occupancy: PortFaceOccupancy = { front: new Set(), rear: new Set() }
     for (const conn of activeConnections) {
-      portsInUseIds.add(conn.sourcePortId)
-      portsInUseIds.add(conn.targetPortId)
+      const sourceFace = conn.sourceFace ?? 'front'
+      const targetFace = conn.targetFace ?? 'front'
+      occupancy[sourceFace].add(conn.sourcePortId)
+      occupancy[targetFace].add(conn.targetPortId)
     }
 
     const allDevices = await Device.query()
@@ -335,7 +370,7 @@ export default class TopologyService {
 
     const deviceNodes = new Map<string, FlowTopologyNode>()
     for (const device of allDevices) {
-      deviceNodes.set(device.id, buildDeviceNode(device, portsInUseIds))
+      deviceNodes.set(device.id, buildDeviceNode(device, occupancy))
     }
 
     const allRacks = await Rack.query()
@@ -372,9 +407,9 @@ export default class TopologyService {
       const medium = buildMediumInfo(conn)
 
       const sourceNode =
-        deviceNodes.get(sourceDevice.id) ?? buildDeviceNode(sourceDevice, portsInUseIds)
+        deviceNodes.get(sourceDevice.id) ?? buildDeviceNode(sourceDevice, occupancy)
       const targetNode =
-        deviceNodes.get(targetDevice.id) ?? buildDeviceNode(targetDevice, portsInUseIds)
+        deviceNodes.get(targetDevice.id) ?? buildDeviceNode(targetDevice, occupancy)
       graphNodes.set(sourceDevice.id, sourceNode)
       graphNodes.set(targetDevice.id, targetNode)
 
@@ -407,6 +442,8 @@ export default class TopologyService {
         targetPort: conn.targetPort.name,
         sourcePortId: conn.sourcePortId,
         targetPortId: conn.targetPortId,
+        sourceFace: conn.sourceFace ?? 'front',
+        targetFace: conn.targetFace ?? 'front',
         sourcePortNumber: conn.sourcePort.portNumber,
         targetPortNumber: conn.targetPort.portNumber,
         sourcePortStatus: conn.sourcePort.status,
@@ -455,14 +492,24 @@ export default class TopologyService {
 
   async createConnection(data: CreateConnectionInput, actorId: string) {
     await this.assertValidPortPair(data.projectId, data.sourcePortId, data.targetPortId)
+    const sourcePort = await this.connections.findPortWithDeviceOrFail(data.sourcePortId)
+    const targetPort = await this.connections.findPortWithDeviceOrFail(data.targetPortId)
+    const sourceFace = this.resolveFace(sourcePort, data.sourceFace)
+    const targetFace = this.resolveFace(targetPort, data.targetFace)
+
     const connectionType = data.connectionType ?? 'physical'
     if (connectionType === 'physical') {
-      await this.assertPortsAvailable(data.sourcePortId, data.targetPortId)
+      await this.assertPortFacesAvailable([
+        { portId: data.sourcePortId, face: sourceFace },
+        { portId: data.targetPortId, face: targetFace },
+      ])
     }
     const cablePatch = await this.resolveCableTypeFields(data)
     return this.connections.create({
       ...data,
       ...cablePatch,
+      sourceFace,
+      targetFace,
       connectionType,
       createdBy: actorId,
       updatedBy: actorId,
@@ -474,12 +521,36 @@ export default class TopologyService {
     const nextSource = data.sourcePortId ?? conn.sourcePortId
     const nextTarget = data.targetPortId ?? conn.targetPortId
     await this.assertValidPortPair(conn.projectId, nextSource, nextTarget)
+
+    const sourcePort = await this.connections.findPortWithDeviceOrFail(nextSource)
+    const targetPort = await this.connections.findPortWithDeviceOrFail(nextTarget)
+    const sourceFace = this.resolveFace(
+      sourcePort,
+      data.sourceFace ?? (nextSource === conn.sourcePortId ? conn.sourceFace : undefined)
+    )
+    const targetFace = this.resolveFace(
+      targetPort,
+      data.targetFace ?? (nextTarget === conn.targetPortId ? conn.targetFace : undefined)
+    )
+
     const nextType = data.connectionType ?? conn.connectionType
     if (nextType === 'physical') {
-      await this.assertPortsAvailable(nextSource, nextTarget, conn.id)
+      await this.assertPortFacesAvailable(
+        [
+          { portId: nextSource, face: sourceFace },
+          { portId: nextTarget, face: targetFace },
+        ],
+        conn.id
+      )
     }
     const cablePatch = await this.resolveCableTypeFields(data)
-    return this.connections.update(conn, { ...data, ...cablePatch, updatedBy: actorId })
+    return this.connections.update(conn, {
+      ...data,
+      ...cablePatch,
+      sourceFace,
+      targetFace,
+      updatedBy: actorId,
+    })
   }
 
   async deleteConnection(id: string, actorId: string) {

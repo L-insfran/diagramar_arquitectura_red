@@ -73,6 +73,25 @@ function RackElevation({
     [devices]
   )
 
+  const mountedHere = useMemo(
+    () => devices.filter((d) => d.rackId === occupancy.rackId),
+    [devices, occupancy.rackId]
+  )
+
+  const assignOptions = useMemo(
+    () => [
+      ...unmounted.map((d) => ({
+        value: d.id,
+        label: `${d.name} (${d.deviceTemplate?.rackUnits ?? 1}U)`,
+      })),
+      ...mountedHere.map((d) => ({
+        value: d.id,
+        label: `${d.name} — mover desde U${d.rackUnitStart ?? '?'}/${d.rackFace === 'rear' ? 'trasera' : 'frontal'}`,
+      })),
+    ],
+    [unmounted, mountedHere]
+  )
+
   const handlePick = (unit: number, free: boolean) => {
     if (!canMutate || !free) return
     setPickingUnit(unit)
@@ -125,21 +144,30 @@ function RackElevation({
     setDragOverUnit(null)
   }
 
-  const allowDrop = (event: DragEvent, unit: number, free: boolean) => {
-    if (!canMutate || !free) return
+  /** U libre, o ya ocupada por el equipo que se está moviendo (reubicación). */
+  const canDropOnSlot = (slotDeviceId: string | null | undefined) => {
+    if (!canMutate) return false
+    if (!slotDeviceId) return true
+    return Boolean(draggingId && slotDeviceId === draggingId)
+  }
+
+  const allowDrop = (event: DragEvent, unit: number, slotDeviceId: string | null) => {
+    if (!canDropOnSlot(slotDeviceId)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     setDragOverUnit(unit)
   }
 
-  const dropOnUnit = async (event: DragEvent, unit: number, free: boolean) => {
+  const dropOnUnit = async (event: DragEvent, unit: number, slotDeviceId: string | null) => {
     event.preventDefault()
     setDragOverUnit(null)
-    if (!canMutate || !free) return
+    if (!canDropOnSlot(slotDeviceId)) return
     const id =
       event.dataTransfer.getData(DND_MIME) || event.dataTransfer.getData('text/plain')
     setDraggingId(null)
     if (!id) return
+    // Misma U de inicio: no-op
+    if (slotDeviceId === id) return
     setBusy(true)
     setErr(null)
     try {
@@ -183,7 +211,8 @@ function RackElevation({
             </div>
           )}
           <p className="text-[11px] text-gray-500">
-            También podés arrastrar un equipo ya montado a otra U, o hacer click en una U libre.
+            También podés arrastrar un equipo ya montado a otra U, o hacer click en una U libre
+            y elegir el equipo (incluso uno ya montado) para moverlo.
           </p>
         </div>
       )}
@@ -198,61 +227,65 @@ function RackElevation({
             const isBlockStart = occupied && slot.isStart
             if (occupied && !isBlockStart) return null
             const span = occupied ? Math.max(1, slot.heightU) : 1
-            const isDropTarget = !occupied && dragOverUnit === slot.unit
+            const droppable = canDropOnSlot(slot.deviceId)
+            const isDropTarget = droppable && dragOverUnit === slot.unit
+            const isDraggingThis = Boolean(draggingId && slot.deviceId === draggingId)
             return (
               <div
                 key={`${face}-${slot.unit}`}
-                onDragOver={(e) => allowDrop(e, slot.unit, !occupied)}
+                onDragOver={(e) => allowDrop(e, slot.unit, slot.deviceId)}
                 onDragLeave={() => {
                   if (dragOverUnit === slot.unit) setDragOverUnit(null)
                 }}
-                onDrop={(e) => void dropOnUnit(e, slot.unit, !occupied)}
+                onDrop={(e) => void dropOnUnit(e, slot.unit, slot.deviceId)}
                 className={`w-full flex items-stretch border-b border-gray-300/80 dark:border-gray-800 ${
                   occupied
-                    ? 'bg-blue-600/90 text-white'
+                    ? isDraggingThis
+                      ? 'bg-blue-600/50 text-white opacity-60'
+                      : 'bg-blue-600/90 text-white'
                     : isDropTarget
                       ? 'bg-emerald-500/25 ring-1 ring-inset ring-emerald-500'
                       : 'bg-white dark:bg-gray-900 hover:bg-emerald-500/10'
                 }`}
                 style={{ minHeight: `${Math.max(22, span * 18)}px` }}
               >
-                <button
-                  type="button"
-                  disabled={!canMutate || occupied}
-                  onClick={() => handlePick(slot.unit, !occupied)}
-                  className={`flex flex-1 items-stretch text-left min-w-0 ${
-                    occupied ? 'cursor-default' : 'cursor-pointer'
-                  }`}
-                  title={
-                    occupied
-                      ? `${slot.deviceName} · U${slot.unit}–U${slot.unit + span - 1}`
-                      : `U${slot.unit} libre — click o soltá aquí`
-                  }
-                >
-                  <span className="w-10 shrink-0 flex items-center justify-center text-[10px] font-mono border-r border-gray-300/60 dark:border-gray-800 text-gray-500 dark:text-gray-400">
-                    {slot.unit}
-                  </span>
-                  <span className="flex-1 px-2 py-1 text-xs flex items-center min-w-0">
-                    {occupied ? (
-                      <span
-                        draggable={canMutate}
-                        onDragStart={(e) => {
-                          e.stopPropagation()
-                          if (slot.deviceId) startDrag(e, slot.deviceId)
-                        }}
-                        onDragEnd={endDrag}
-                        className={`truncate font-medium ${canMutate ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                      >
-                        {slot.deviceName}{' '}
-                        <span className="opacity-80 font-normal">({span}U)</span>
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">
-                        {isDropTarget ? 'soltar aquí' : 'libre'}
-                      </span>
-                    )}
-                  </span>
-                </button>
+                <span className="w-10 shrink-0 flex items-center justify-center text-[10px] font-mono border-r border-gray-300/60 dark:border-gray-800 text-gray-500 dark:text-gray-400">
+                  {slot.unit}
+                </span>
+                {occupied && slot.deviceId ? (
+                  <div
+                    draggable={canMutate}
+                    onDragStart={(e) => startDrag(e, slot.deviceId!)}
+                    onDragEnd={endDrag}
+                    className={`flex flex-1 items-center min-w-0 px-2 py-1 text-xs font-medium select-none ${
+                      canMutate ? 'cursor-grab active:cursor-grabbing' : ''
+                    }`}
+                    title={
+                      canMutate
+                        ? `${slot.deviceName} · U${slot.unit}–U${slot.unit + span - 1} — arrastrá a otra U`
+                        : `${slot.deviceName} · U${slot.unit}–U${slot.unit + span - 1}`
+                    }
+                  >
+                    <span className="truncate">
+                      {slot.deviceName}{' '}
+                      <span className="opacity-80 font-normal">({span}U)</span>
+                    </span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!canMutate}
+                    onClick={() => handlePick(slot.unit, true)}
+                    className={`flex flex-1 items-center min-w-0 px-2 py-1 text-xs text-left ${
+                      canMutate ? 'cursor-pointer' : 'cursor-default'
+                    }`}
+                    title={`U${slot.unit} libre — click o soltá aquí`}
+                  >
+                    <span className="text-gray-400">
+                      {isDropTarget ? 'soltar aquí' : 'libre'}
+                    </span>
+                  </button>
+                )}
                 {occupied && canMutate && slot.deviceId && (
                   <button
                     type="button"
@@ -288,20 +321,14 @@ function RackElevation({
             Montar en U{pickingUnit} ({face === 'front' ? 'frontal' : 'trasera'})
           </p>
           <Select
-            label="Dispositivo (con U en template, sin rack)"
+            label="Dispositivo"
             value={deviceId}
             onChange={(e) => setDeviceId(e.target.value)}
-            options={[
-              { value: '', label: 'Selecciona…' },
-              ...unmounted.map((d) => ({
-                value: d.id,
-                label: `${d.name} (${d.deviceTemplate?.rackUnits ?? 1}U)`,
-              })),
-            ]}
+            options={[{ value: '', label: 'Selecciona…' }, ...assignOptions]}
           />
-          {unmounted.length === 0 && (
+          {assignOptions.length === 0 && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              No hay equipos sin rack. Creá un device o desmontá uno existente.
+              No hay equipos disponibles. Creá un device o usá uno de otro rack (desmontalo antes).
             </p>
           )}
           {err && <p className="text-sm text-red-500">{err}</p>}

@@ -30,6 +30,10 @@ export default class Port extends BaseModel {
   @column()
   declare description: string | null
 
+  /** Patch panel / bridge jack: front + rear faces each accept one physical link. */
+  @column()
+  declare isPassthrough: boolean
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

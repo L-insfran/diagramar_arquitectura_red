@@ -1,7 +1,14 @@
 import { type Node, type NodeProps } from '@xyflow/react'
 import { useContext } from 'react'
-import type { RackFace } from '../../types'
-import { RACK_HEADER_H, RACK_INNER_PAD, RACK_RAIL_W, RACK_U_PX } from '../../utils/topologyRackLayout'
+import {
+  RACK_COLUMN_GAP,
+  RACK_CONTENT_WIDTH,
+  RACK_HEADER_H,
+  RACK_INNER_PAD,
+  RACK_RAIL_W,
+  RACK_U_PX,
+  type RackViewFace,
+} from '../../utils/topologyRackLayout'
 import { TopologyCanvasInteractionContext } from './TopologyCanvasContext'
 
 export type RackNodeData = {
@@ -11,12 +18,18 @@ export type RackNodeData = {
   heightU: number
   areaName: string | null
   siteName: string | null
-  activeFace: RackFace
+  activeFace: RackViewFace
   deviceCountFront: number
   deviceCountRear: number
 }
 
 export type RackFlowNodeType = Node<RackNodeData, 'rack'>
+
+const VIEW_OPTIONS: Array<{ value: RackViewFace; label: string }> = [
+  { value: 'front', label: 'Front' },
+  { value: 'rear', label: 'Rear' },
+  { value: 'both', label: 'Ambas' },
+]
 
 export function RackFlowNode({ id, data, selected, width, height }: NodeProps<RackFlowNodeType>) {
   const ctx = useContext(TopologyCanvasInteractionContext)
@@ -26,6 +39,8 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
   const location = [data.siteName, data.areaName].filter(Boolean).join(' · ')
   const displayW = typeof width === 'number' && width > 0 ? width : undefined
   const displayH = typeof height === 'number' && height > 0 ? height : undefined
+  const both = data.activeFace === 'both'
+  const totalCount = data.deviceCountFront + data.deviceCountRear
 
   return (
     <div
@@ -57,25 +72,36 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
           </p>
         </div>
         <div className="nodrag nopan flex shrink-0 overflow-hidden rounded border border-slate-600 bg-slate-950 text-[10px] font-bold uppercase tracking-wide">
-          {(['front', 'rear'] as const).map((face) => {
-            const active = data.activeFace === face
-            const count = face === 'front' ? data.deviceCountFront : data.deviceCountRear
+          {VIEW_OPTIONS.map(({ value, label }) => {
+            const active = data.activeFace === value
+            const count =
+              value === 'front'
+                ? data.deviceCountFront
+                : value === 'rear'
+                  ? data.deviceCountRear
+                  : totalCount
             return (
               <button
-                key={face}
+                key={value}
                 type="button"
                 className={`px-2 py-1 transition ${
                   active
                     ? 'bg-sky-600 text-white'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
                 }`}
-                title={face === 'front' ? `Cara frontal (${count})` : `Cara trasera (${count})`}
+                title={
+                  value === 'front'
+                    ? `Cara frontal (${count})`
+                    : value === 'rear'
+                      ? `Cara trasera (${count})`
+                      : `Ambas caras (${count})`
+                }
                 onClick={(e) => {
                   e.stopPropagation()
-                  setFace?.(id, face)
+                  setFace?.(id, value)
                 }}
               >
-                {face === 'front' ? 'Front' : 'Rear'}
+                {label}
                 <span className="ml-1 tabular-nums opacity-80">{count}</span>
               </button>
             )
@@ -100,11 +126,46 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
           ))}
         </div>
 
-        <div
-          className="pointer-events-none absolute bottom-[6px] top-[6px] rounded-sm bg-[repeating-linear-gradient(180deg,transparent,transparent_43px,rgba(51,65,85,0.45)_43px,rgba(51,65,85,0.45)_44px)]"
-          style={{ left: RACK_INNER_PAD + RACK_RAIL_W, right: RACK_INNER_PAD }}
-          aria-hidden
-        />
+        {both ? (
+          <>
+            <div
+              className="pointer-events-none absolute bottom-[6px] top-[6px] rounded-sm bg-[repeating-linear-gradient(180deg,transparent,transparent_43px,rgba(51,65,85,0.45)_43px,rgba(51,65,85,0.45)_44px)]"
+              style={{
+                left: RACK_INNER_PAD + RACK_RAIL_W,
+                width: RACK_CONTENT_WIDTH,
+              }}
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute top-[6px] z-[1] rounded bg-slate-900/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-sky-300"
+              style={{ left: RACK_INNER_PAD + RACK_RAIL_W + 4 }}
+            >
+              Frente
+            </div>
+            <div
+              className="pointer-events-none absolute bottom-[6px] top-[6px] rounded-sm bg-[repeating-linear-gradient(180deg,transparent,transparent_43px,rgba(120,53,15,0.35)_43px,rgba(120,53,15,0.35)_44px)]"
+              style={{
+                left: RACK_INNER_PAD + RACK_RAIL_W + RACK_CONTENT_WIDTH + RACK_COLUMN_GAP,
+                width: RACK_CONTENT_WIDTH,
+              }}
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute top-[6px] z-[1] rounded bg-slate-900/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-300"
+              style={{
+                left: RACK_INNER_PAD + RACK_RAIL_W + RACK_CONTENT_WIDTH + RACK_COLUMN_GAP + 4,
+              }}
+            >
+              Dorso
+            </div>
+          </>
+        ) : (
+          <div
+            className="pointer-events-none absolute bottom-[6px] top-[6px] rounded-sm bg-[repeating-linear-gradient(180deg,transparent,transparent_43px,rgba(51,65,85,0.45)_43px,rgba(51,65,85,0.45)_44px)]"
+            style={{ left: RACK_INNER_PAD + RACK_RAIL_W, right: RACK_INNER_PAD }}
+            aria-hidden
+          />
+        )}
       </div>
     </div>
   )

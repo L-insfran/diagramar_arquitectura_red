@@ -36,13 +36,24 @@ export default class ConnectionRepository {
     return Connection.query().where('id', id).whereNull('deleted_at').firstOrFail()
   }
 
-  /** Active physical connection that occupies a port (as source or target). */
-  async findActivePhysicalByPortId(portId: string, excludeConnectionId?: string) {
+  /**
+   * Active physical connection that occupies a port face
+   * (as source with that face, or target with that face).
+   */
+  async findActivePhysicalByPortFace(
+    portId: string,
+    face: 'front' | 'rear',
+    excludeConnectionId?: string
+  ) {
     const query = Connection.query()
       .whereNull('deleted_at')
       .where('connection_type', 'physical')
       .where((q) => {
-        q.where('source_port_id', portId).orWhere('target_port_id', portId)
+        q.where((s) => {
+          s.where('source_port_id', portId).where('source_face', face)
+        }).orWhere((t) => {
+          t.where('target_port_id', portId).where('target_face', face)
+        })
       })
     if (excludeConnectionId) {
       query.whereNot('id', excludeConnectionId)
@@ -55,6 +66,8 @@ export default class ConnectionRepository {
       projectId: data.projectId,
       sourcePortId: data.sourcePortId,
       targetPortId: data.targetPortId,
+      sourceFace: data.sourceFace ?? 'front',
+      targetFace: data.targetFace ?? 'front',
       connectionType: data.connectionType ?? 'physical',
       mediumType: data.mediumType ?? 'utp',
       cableTypeId: data.cableTypeId ?? null,

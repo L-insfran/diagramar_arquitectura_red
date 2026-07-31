@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import SystemUser from '#models/system_user'
 import DeviceService from '#services/device_service'
 import DeviceTemplateService from '#services/device_template_service'
+import PortService from '#services/port_service'
 import {
   canAccessProject,
   canMutateInProject,
@@ -10,10 +11,12 @@ import {
 } from '#services/authorization_service'
 import { requireProjectContext } from '#services/project_context_service'
 import { createDeviceValidator, updateDeviceValidator } from '#validators/device_validator'
+import { bulkUpdatePortStatusValidator, bulkUpdatePortPassthroughValidator } from '#validators/port_validator'
 
 export default class DevicesController {
   private deviceService = new DeviceService()
   private templateService = new DeviceTemplateService()
+  private portService = new PortService()
 
   async index(ctx: HttpContext) {
     const context = await requireProjectContext(ctx)
@@ -128,5 +131,31 @@ export default class DevicesController {
     }
     await this.deviceService.delete(params.id, user.id)
     return response.ok({ success: true, message: 'Device deleted', data: null })
+  }
+
+  /** PUT /devices/:id/ports/status — set all ports of the device to up or down. */
+  async bulkUpdatePortsStatus({ auth, params, request, response }: HttpContext) {
+    const user = auth.getUserOrFail() as SystemUser
+    const device = await this.deviceService.getActiveSummary(params.id)
+    if (!(await canMutateInProject(user, device.projectId))) {
+      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+    }
+
+    const data = await request.validateUsing(bulkUpdatePortStatusValidator)
+    const result = await this.portService.bulkUpdateStatus(params.id, data.status)
+    return response.ok({ success: true, data: result })
+  }
+
+  /** PUT /devices/:id/ports/passthrough — set is_passthrough on every port of the device. */
+  async bulkUpdatePortsPassthrough({ auth, params, request, response }: HttpContext) {
+    const user = auth.getUserOrFail() as SystemUser
+    const device = await this.deviceService.getActiveSummary(params.id)
+    if (!(await canMutateInProject(user, device.projectId))) {
+      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+    }
+
+    const data = await request.validateUsing(bulkUpdatePortPassthroughValidator)
+    const result = await this.portService.bulkUpdatePassthrough(params.id, data.isPassthrough)
+    return response.ok({ success: true, data: result })
   }
 }

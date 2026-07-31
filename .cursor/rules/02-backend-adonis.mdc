@@ -35,6 +35,6 @@ Header `X-Project-Id` (también query/body `projectId` / `project_id`). Resoluci
 
 ## Migraciones
 
-- Numeración secuencial: la siguiente es `0035_descripcion.ts`.
+- Numeración secuencial: la siguiente es `0037_descripcion.ts`.
 - No editar migraciones ya aplicadas; crear una nueva.
 - `database/schema.ts` es auto-generado: no editar a mano.

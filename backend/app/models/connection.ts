@@ -13,6 +13,7 @@ export type WifiStandard = '802.11n' | '802.11ac' | '802.11ax' | '802.11be'
 export type WifiBand = '2.4GHz' | '5GHz' | '6GHz'
 export type WifiSecurity = 'WPA2' | 'WPA3' | 'WPA2/WPA3' | 'Open'
 export type ConnectionStatus = 'planned' | 'implemented' | 'verified'
+export type PortFace = 'front' | 'rear'
 
 export type ConnectionMetadata = {
   vlanId?: number
@@ -34,6 +35,12 @@ export default class Connection extends BaseModel {
 
   @column()
   declare targetPortId: string
+
+  @column()
+  declare sourceFace: PortFace
+
+  @column()
+  declare targetFace: PortFace
 
   @column()
   declare connectionType: 'physical' | 'logical'

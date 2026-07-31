@@ -82,6 +82,7 @@ export interface DeviceTemplatePort {
   portType: string
   speed: string | null
   description: string | null
+  isPassthrough?: boolean
 }
 
 export interface DeviceTemplate {
@@ -351,6 +352,8 @@ export interface Port {
   speed: string | null
   status: 'up' | 'down' | 'disabled'
   description: string | null
+  /** Patch panel / bridge: front + rear faces each accept one physical link. */
+  isPassthrough?: boolean
   device?: Device
   vlans?: Array<Vlan & { isTagged?: boolean }>
 }
@@ -406,11 +409,15 @@ export interface MediumInfo {
   cableLength: string | null
 }
 
+export type PortFace = 'front' | 'rear'
+
 export interface Connection {
   id: string
   projectId: string
   sourcePortId: string
   targetPortId: string
+  sourceFace?: PortFace
+  targetFace?: PortFace
   connectionType: 'physical' | 'logical'
   mediumType: MediumType
   cableTypeId?: string | null
@@ -463,6 +470,10 @@ export interface TopologyPortSummary {
   portNumber: number
   portType: Port['portType']
   status: Port['status']
+  isPassthrough?: boolean
+  connectedFront?: boolean
+  connectedRear?: boolean
+  /** True if any face is occupied. */
   connected: boolean
 }
 
@@ -512,6 +523,8 @@ export interface TopologyEdge {
   targetPort: string
   sourcePortId: string
   targetPortId: string
+  sourceFace?: PortFace
+  targetFace?: PortFace
   sourcePortNumber?: number
   targetPortNumber?: number
   sourcePortStatus?: Port['status']

@@ -25,6 +25,9 @@ export default class DeviceTemplatePort extends BaseModel {
   @column()
   declare description: string | null
 
+  @column()
+  declare isPassthrough: boolean
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

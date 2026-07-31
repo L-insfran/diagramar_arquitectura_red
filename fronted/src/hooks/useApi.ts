@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface UseApiState<T> {
   data: T | null
@@ -12,14 +12,19 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: any[] = []): UseApiSt
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [trigger, setTrigger] = useState(0)
+  /** Refetch explícito: no poner isLoading (evita desmontar UI, p. ej. React Flow). */
+  const softRefreshRef = useRef(false)
 
   const refetch = useCallback(() => {
+    softRefreshRef.current = true
     setTrigger((prev) => prev + 1)
   }, [])
 
   useEffect(() => {
     let cancelled = false
-    setIsLoading(true)
+    const softRefresh = softRefreshRef.current
+    softRefreshRef.current = false
+    if (!softRefresh) setIsLoading(true)
     setError(null)
 
     fetcher()

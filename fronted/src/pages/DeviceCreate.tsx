@@ -188,6 +188,12 @@ export default function DeviceCreate() {
       return
     }
 
+    const parsedUnit = form.rackId ? Number.parseInt(form.rackUnitStart, 10) : null
+    if (form.rackId && (parsedUnit == null || Number.isNaN(parsedUnit) || parsedUnit < 1)) {
+      setFormError('La U de inicio debe ser un número ≥ 1.')
+      return
+    }
+
     try {
       setIsSubmitting(true)
       const payload = {
@@ -200,9 +206,7 @@ export default function DeviceCreate() {
         siteId: form.siteId || null,
         areaId: form.areaId || null,
         rackId: form.rackId || null,
-        rackUnitStart: form.rackId
-          ? Number.parseInt(form.rackUnitStart, 10)
-          : null,
+        rackUnitStart: form.rackId ? parsedUnit : null,
         rackFace: form.rackId ? (form.rackFace || 'front') : null,
         status: form.status,
         notes: form.notes.trim() || undefined,
@@ -380,11 +384,14 @@ export default function DeviceCreate() {
               <>
                 <Input
                   label={`U inicio${templateHeightU ? ` (${templateHeightU}U del template)` : ''}`}
+                  type="number"
+                  min={1}
+                  max={selectedRack?.heightU ?? 60}
                   value={form.rackUnitStart}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, rackUnitStart: event.target.value }))
                   }
-                  placeholder="1"
+                  placeholder="ej. 20"
                   required
                 />
                 <Select

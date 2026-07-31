@@ -141,6 +141,7 @@ export default class DeviceRepository {
     speed?: string | null
     status: 'up' | 'down' | 'disabled'
     description?: string | null
+    isPassthrough?: boolean
   }) {
     return Port.create({
       deviceId: data.deviceId,
@@ -150,6 +151,7 @@ export default class DeviceRepository {
       speed: data.speed ?? null,
       status: data.status,
       description: data.description ?? null,
+      isPassthrough: data.isPassthrough ?? false,
     })
   }
 }

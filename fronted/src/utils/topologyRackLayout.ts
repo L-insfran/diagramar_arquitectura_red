@@ -2,6 +2,9 @@ import type { RackFace, TopologyRackSummary } from '../types'
 
 export const RACK_NODE_ID_PREFIX = 'rack:'
 
+/** Vista del rack en el canvas (incluye "ambas caras"). */
+export type RackViewFace = RackFace | 'both'
+
 /** Píxeles por unidad de rack en el canvas. */
 export const RACK_U_PX = 44
 /** Cabecera del gabinete (nombre, sitio, toggle cara). */
@@ -10,8 +13,10 @@ export const RACK_HEADER_H = 52
 export const RACK_RAIL_W = 28
 /** Padding interno del área de equipos. */
 export const RACK_INNER_PAD = 6
-/** Ancho del área de equipos (sin riel). */
+/** Ancho del área de equipos de una cara (sin riel). */
 export const RACK_CONTENT_WIDTH = 380
+/** Separación entre columnas frente/dorso en vista "ambas". */
+export const RACK_COLUMN_GAP = 12
 /** Separación horizontal entre racks en el layout automático. */
 export const RACK_GRID_GAP_X = 72
 /** Separación vertical entre filas de racks. */
@@ -33,10 +38,30 @@ export function isRackFlowNodeId(nodeId: string): boolean {
   return parseRackFlowNodeId(nodeId) != null
 }
 
-export function rackOuterSize(heightU: number): { width: number; height: number } {
+export function normalizeRackFace(face: string | null | undefined): RackFace {
+  return face === 'rear' ? 'rear' : 'front'
+}
+
+export function normalizeRackViewFace(face: string | null | undefined): RackViewFace {
+  if (face === 'both' || face === 'rear') return face
+  return 'front'
+}
+
+/** Ancho del área de contenido según vista (1 o 2 columnas). */
+export function rackContentWidth(view: RackViewFace = 'front'): number {
+  if (view === 'both') {
+    return RACK_CONTENT_WIDTH * 2 + RACK_COLUMN_GAP
+  }
+  return RACK_CONTENT_WIDTH
+}
+
+export function rackOuterSize(
+  heightU: number,
+  view: RackViewFace = 'front',
+): { width: number; height: number } {
   const u = Math.max(1, Math.min(60, Math.round(heightU) || 42))
   return {
-    width: RACK_RAIL_W + RACK_INNER_PAD * 2 + RACK_CONTENT_WIDTH,
+    width: RACK_RAIL_W + RACK_INNER_PAD * 2 + rackContentWidth(view),
     height: RACK_HEADER_H + RACK_INNER_PAD * 2 + u * RACK_U_PX,
   }
 }
@@ -44,11 +69,13 @@ export function rackOuterSize(heightU: number): { width: number; height: number 
 /**
  * Posición relativa del equipo dentro del rack.
  * Numeración alineada con inventario: U alta arriba, U1 abajo.
+ * `column` 0 = frente, 1 = dorso (solo en vista "ambas").
  */
 export function devicePositionInRack(
   rackUnitStart: number,
   rackUnits: number,
   rackHeightU: number,
+  column: 0 | 1 = 0,
 ): { x: number; y: number; width: number; height: number } {
   const heightU = Math.max(1, rackHeightU)
   const units = Math.max(1, rackUnits)
@@ -56,8 +83,12 @@ export function devicePositionInRack(
   const span = Math.min(units, heightU - start + 1)
   const topUnit = start + span - 1
   const yFromContentTop = (heightU - topUnit) * RACK_U_PX
+  const x =
+    RACK_RAIL_W +
+    RACK_INNER_PAD +
+    (column === 1 ? RACK_CONTENT_WIDTH + RACK_COLUMN_GAP : 0)
   return {
-    x: RACK_RAIL_W + RACK_INNER_PAD,
+    x,
     y: RACK_HEADER_H + RACK_INNER_PAD + yFromContentTop,
     width: RACK_CONTENT_WIDTH,
     height: span * RACK_U_PX,
@@ -68,6 +99,7 @@ export function devicePositionInRack(
 export function layoutRacksGrid(
   racks: TopologyRackSummary[],
   existingPositions: Readonly<Record<string, { x: number; y: number }>> = {},
+  rackViews: Readonly<Record<string, RackViewFace>> = {},
 ): Record<string, { x: number; y: number }> {
   const out: Record<string, { x: number; y: number }> = {}
   let col = 0
@@ -92,7 +124,8 @@ export function layoutRacksGrid(
       continue
     }
 
-    const { width, height } = rackOuterSize(rack.heightU)
+    const view = normalizeRackViewFace(rackViews[id] ?? rackViews[rack.id])
+    const { width, height } = rackOuterSize(rack.heightU, view)
     if (col >= RACK_GRID_COLS) {
       cursorX = 0
       cursorY += rowMaxHeight + RACK_GRID_GAP_Y
@@ -114,17 +147,15 @@ export function layoutRacksGrid(
 export function freeDevicesOriginX(
   racks: TopologyRackSummary[],
   rackPositions: Readonly<Record<string, { x: number; y: number }>>,
+  rackViews: Readonly<Record<string, RackViewFace>> = {},
 ): number {
   let maxRight = 0
   for (const rack of racks) {
     const id = rackFlowNodeId(rack.id)
     const pos = rackPositions[id] ?? { x: 0, y: 0 }
-    const { width } = rackOuterSize(rack.heightU)
+    const view = normalizeRackViewFace(rackViews[id] ?? rackViews[rack.id])
+    const { width } = rackOuterSize(rack.heightU, view)
     maxRight = Math.max(maxRight, pos.x + width)
   }
   return racks.length ? maxRight + RACK_GRID_GAP_X : 0
-}
-
-export function normalizeRackFace(face: string | null | undefined): RackFace {
-  return face === 'rear' ? 'rear' : 'front'
 }

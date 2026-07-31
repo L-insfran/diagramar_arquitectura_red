@@ -324,7 +324,12 @@ export default function Topology() {
   )
 
   const handleConnectPorts = useCallback(
-    async (sourcePortId: string, targetPortId: string) => {
+    async (
+      sourcePortId: string,
+      targetPortId: string,
+      sourceFace: 'front' | 'rear' = 'front',
+      targetFace: 'front' | 'rear' = 'front',
+    ) => {
       if (!projectId || !canMutate) return
       const lookup = buildPortConnectLookup(physicalDiagram)
       const source = lookup.get(sourcePortId)
@@ -338,6 +343,8 @@ export default function Topology() {
           projectId,
           sourcePortId,
           targetPortId,
+          sourceFace,
+          targetFace,
           connectionType: 'physical',
           mediumType: inferDragConnectMedium(source, target),
           connectionStatus: 'implemented',

@@ -18,3 +18,4 @@ Los ADR documentan decisiones de arquitectura significativas: contexto, opciones
 | [0002](0002-capa-repository-y-dto.md) | Introducir capa Repository y DTO | Aceptado |
 | [0003](0003-attachments-storage-local.md) | Storage local para attachments | Aceptado |
 | [0004](0004-device-templates-globales.md) | Device templates como catálogo global | Aceptado |
+| [0005](0005-port-passthrough-faces.md) | Port passthrough con caras front/rear | Aceptado |

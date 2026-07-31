@@ -21,7 +21,7 @@ alwaysApply: false
 
 ## Migraciones
 
-- Prefijo numérico secuencial; siguiente disponible: **`0035_`**.
+- Prefijo numérico secuencial; siguiente disponible: **`0037_`**.
 - No modificar migraciones ya corridas.
 - Seeds de catálogo pueden vivir en migración o en `database/seeders/`.
 - No editar a mano `database/schema.ts` (auto-generado por Lucid).

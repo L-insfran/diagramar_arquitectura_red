@@ -37,6 +37,8 @@ export type PortLinkEdgeData = {
   targetPort: string
   sourcePortId?: string
   targetPortId?: string
+  sourceFace?: 'front' | 'rear'
+  targetFace?: 'front' | 'rear'
   sourceColor: string
   targetColor: string
   sourcePortNumber?: number

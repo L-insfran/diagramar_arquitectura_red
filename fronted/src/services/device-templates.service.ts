@@ -21,6 +21,7 @@ export type DeviceTemplatePortPayload = {
   portType: string
   speed?: string | null
   description?: string | null
+  isPassthrough?: boolean
 }
 
 export const deviceTemplatesService = {
@@ -89,5 +90,16 @@ export const deviceTemplatesService = {
 
   async deletePort(templateId: string, portId: string): Promise<void> {
     await api.delete(`/device-templates/${templateId}/ports/${portId}`)
+  },
+
+  async bulkUpdatePassthrough(
+    templateId: string,
+    isPassthrough: boolean
+  ): Promise<{ updatedCount: number }> {
+    const { data } = await api.put<ApiResponse<{ updatedCount: number }>>(
+      `/device-templates/${templateId}/ports/passthrough`,
+      { isPassthrough }
+    )
+    return data.data
   },
 }

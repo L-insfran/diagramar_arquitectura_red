@@ -98,7 +98,7 @@ Entregables:
 
 - `port_types` enriquecidos: `default_speed`, `color`, `icon`, `direction`.
 - Catálogo `cable_types` + FK nullable `connections.cable_type_id` (enums de medio se mantienen).
-- Un puerto = una conexión **física** activa (`deleted_at IS NULL`): service 409 + índices únicos parciales.
+- Un extremo de puerto (cara) = una conexión **física** activa (`deleted_at IS NULL`): service 409 + índices únicos parciales en `(port_id, face)`. Passthrough (patch panels): 2 caras editables (ADR 0005 / `0035_` + backfill `0036_`). Vista de rack Front/Rear/Ambas en topología.
 - UI: PortTypes / CableTypes en Settings; ConnectionModal con catálogo de cable.
 
 ---

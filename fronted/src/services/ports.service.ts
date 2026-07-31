@@ -14,6 +14,7 @@ export interface CreatePortPayload {
   speed?: string | null
   status?: Port['status']
   description?: string | null
+  isPassthrough?: boolean
   vlanAssignments?: PortVlanAssignment[]
 }
 
@@ -26,6 +27,7 @@ export interface UpdatePortPayload {
   speed?: string | null
   status: Port['status']
   description?: string
+  isPassthrough?: boolean
   /** Si se envía (aunque sea []), reemplaza las VLANs del puerto. */
   vlanAssignments?: PortVlanAssignment[]
 }
@@ -43,6 +45,30 @@ export const portsService = {
 
   async update(id: string, payload: UpdatePortPayload): Promise<Port> {
     const { data } = await api.put<ApiResponse<Port>>(`/ports/${id}`, payload)
+    return data.data
+  },
+
+  /** Set all ports of a device to up or down. */
+  async bulkUpdateStatus(
+    deviceId: string,
+    status: 'up' | 'down'
+  ): Promise<{ updatedCount: number }> {
+    const { data } = await api.put<ApiResponse<{ updatedCount: number }>>(
+      `/devices/${deviceId}/ports/status`,
+      { status }
+    )
+    return data.data
+  },
+
+  /** Set is_passthrough on every port of a device. */
+  async bulkUpdatePassthrough(
+    deviceId: string,
+    isPassthrough: boolean
+  ): Promise<{ updatedCount: number }> {
+    const { data } = await api.put<ApiResponse<{ updatedCount: number }>>(
+      `/devices/${deviceId}/ports/passthrough`,
+      { isPassthrough }
+    )
     return data.data
   },
 }

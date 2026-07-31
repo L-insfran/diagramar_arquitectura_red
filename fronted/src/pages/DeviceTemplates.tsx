@@ -28,6 +28,7 @@ const initialPortForm = {
   portType: 'ethernet',
   speed: '',
   description: '',
+  isPassthrough: false,
 }
 
 function formatError(err: unknown): string {
@@ -201,6 +202,7 @@ export default function DeviceTemplates() {
       portType: port.portType,
       speed: port.speed || '',
       description: port.description || '',
+      isPassthrough: !!port.isPassthrough,
     })
     setPortError(null)
   }
@@ -223,6 +225,7 @@ export default function DeviceTemplates() {
       portType: portForm.portType || 'ethernet',
       speed: portForm.speed.trim() || null,
       description: portForm.description.trim() || null,
+      isPassthrough: portForm.isPassthrough,
     }
 
     try {
@@ -237,6 +240,22 @@ export default function DeviceTemplates() {
       setPortForm(initialPortForm)
     } catch (e) {
       setPortError(formatError(e))
+    }
+  }
+
+  const handleBulkPassthrough = async (isPassthrough: boolean) => {
+    if (!portsTemplate || ports.length === 0) return
+    const label = isPassthrough ? 'puente (front/rear)' : 'normal (1 cara)'
+    const ok = window.confirm(
+      `¿Marcar los ${ports.length} puertos del template como ${label}?`
+    )
+    if (!ok) return
+    try {
+      await deviceTemplatesService.bulkUpdatePassthrough(portsTemplate.id, isPassthrough)
+      const list = await deviceTemplatesService.getPorts(portsTemplate.id)
+      setPorts(list)
+    } catch (e) {
+      window.alert(formatError(e))
     }
   }
 
@@ -445,46 +464,73 @@ export default function DeviceTemplates() {
           {portsLoading ? (
             <p className="text-sm text-gray-500">Cargando puertos…</p>
           ) : (
-            <ul className="divide-y divide-gray-200 dark:divide-gray-800 max-h-48 overflow-y-auto">
-              {ports.length === 0 && (
-                <li className="py-2 text-sm text-gray-500">Sin puertos definidos.</li>
+            <>
+              {ports.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void handleBulkPassthrough(true)}
+                  >
+                    Marcar todos como puente
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleBulkPassthrough(false)}
+                  >
+                    Quitar marca puente
+                  </Button>
+                </div>
               )}
-              {ports.map((port) => (
-                <li key={port.id} className="py-2 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                      #{port.portNumber} {port.name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {port.portType}
-                      {port.speed ? ` · ${port.speed}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="!p-2"
-                      icon={<Pencil className="w-3.5 h-3.5" />}
-                      onClick={() => startEditPort(port)}
-                    >
-                      Editar
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="!p-2 text-red-500"
-                      icon={<Trash2 className="w-3.5 h-3.5" />}
-                      onClick={() => void handleDeletePort(port)}
-                    >
-                      Borrar
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+              <ul className="divide-y divide-gray-200 dark:divide-gray-800 max-h-48 overflow-y-auto">
+                {ports.length === 0 && (
+                  <li className="py-2 text-sm text-gray-500">Sin puertos definidos.</li>
+                )}
+                {ports.map((port) => (
+                  <li key={port.id} className="py-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                        #{port.portNumber} {port.name}
+                        {port.isPassthrough ? (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                            Puente
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {port.portType}
+                        {port.speed ? ` · ${port.speed}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="!p-2"
+                        icon={<Pencil className="w-3.5 h-3.5" />}
+                        onClick={() => startEditPort(port)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="!p-2 text-red-500"
+                        icon={<Trash2 className="w-3.5 h-3.5" />}
+                        onClick={() => void handleDeletePort(port)}
+                      >
+                        Borrar
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           <form className="space-y-3 border-t border-gray-200 dark:border-gray-800 pt-4" onSubmit={handlePortSubmit}>
@@ -526,6 +572,22 @@ export default function DeviceTemplates() {
               value={portForm.description}
               onChange={(e) => setPortForm((prev) => ({ ...prev, description: e.target.value }))}
             />
+            <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/40 px-3 py-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                checked={portForm.isPassthrough}
+                onChange={(e) =>
+                  setPortForm((prev) => ({ ...prev, isPassthrough: e.target.checked }))
+                }
+              />
+              <span className="text-sm text-gray-800 dark:text-gray-100">
+                <span className="font-medium">Puerto puente (front/rear)</span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Patch panel / jack passthrough: admite una conexión física por cara.
+                </span>
+              </span>
+            </label>
             {portError && <p className="text-sm text-red-500">{portError}</p>}
             <div className="flex justify-end gap-2">
               {editingPortId && (

@@ -126,7 +126,7 @@ export class CableTypeSchema extends BaseModel {
 }
 
 export class ConnectionSchema extends BaseModel {
-  static $columns = ['bandwidth', 'cableCategory', 'cableLength', 'cableTypeId', 'connectionStatus', 'connectionType', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'fiberConnector', 'fiberType', 'id', 'mediumType', 'metadata', 'projectId', 'sourcePortId', 'targetPortId', 'updatedAt', 'updatedBy', 'wifiBand', 'wifiSecurity', 'wifiSsid', 'wifiStandard'] as const
+  static $columns = ['bandwidth', 'cableCategory', 'cableLength', 'cableTypeId', 'connectionStatus', 'connectionType', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'fiberConnector', 'fiberType', 'id', 'mediumType', 'metadata', 'projectId', 'sourceFace', 'sourcePortId', 'targetFace', 'targetPortId', 'updatedAt', 'updatedBy', 'wifiBand', 'wifiSecurity', 'wifiSsid', 'wifiStandard'] as const
   $columns = ConnectionSchema.$columns
   @column()
   declare bandwidth: string | null
@@ -163,7 +163,11 @@ export class ConnectionSchema extends BaseModel {
   @column()
   declare projectId: string
   @column()
+  declare sourceFace: string
+  @column()
   declare sourcePortId: string
+  @column()
+  declare targetFace: string
   @column()
   declare targetPortId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
@@ -223,7 +227,7 @@ export class DeviceCredentialSchema extends BaseModel {
 }
 
 export class DeviceTemplatePortSchema extends BaseModel {
-  static $columns = ['createdAt', 'description', 'deviceTemplateId', 'id', 'name', 'portNumber', 'portType', 'speed', 'updatedAt'] as const
+  static $columns = ['createdAt', 'description', 'deviceTemplateId', 'id', 'isPassthrough', 'name', 'portNumber', 'portType', 'speed', 'updatedAt'] as const
   $columns = DeviceTemplatePortSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -233,6 +237,8 @@ export class DeviceTemplatePortSchema extends BaseModel {
   declare deviceTemplateId: string
   @column({ isPrimary: true })
   declare id: string
+  @column()
+  declare isPassthrough: boolean
   @column()
   declare name: string
   @column()
@@ -503,7 +509,7 @@ export class PortVlanSchema extends BaseModel {
 }
 
 export class PortSchema extends BaseModel {
-  static $columns = ['createdAt', 'description', 'deviceId', 'id', 'name', 'portNumber', 'portType', 'speed', 'status', 'updatedAt'] as const
+  static $columns = ['createdAt', 'description', 'deviceId', 'id', 'isPassthrough', 'name', 'portNumber', 'portType', 'speed', 'status', 'updatedAt'] as const
   $columns = PortSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -513,6 +519,8 @@ export class PortSchema extends BaseModel {
   declare deviceId: string
   @column({ isPrimary: true })
   declare id: string
+  @column()
+  declare isPassthrough: boolean
   @column()
   declare name: string
   @column()

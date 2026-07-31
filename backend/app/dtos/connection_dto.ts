@@ -5,6 +5,7 @@ import type {
   FiberConnector,
   FiberType,
   MediumType,
+  PortFace,
   WifiBand,
   WifiSecurity,
   WifiStandard,
@@ -14,6 +15,8 @@ export type CreateConnectionInput = {
   projectId: string
   sourcePortId: string
   targetPortId: string
+  sourceFace?: PortFace
+  targetFace?: PortFace
   connectionType?: 'physical' | 'logical'
   mediumType?: MediumType
   cableTypeId?: string | null
@@ -34,6 +37,8 @@ export type CreateConnectionInput = {
 export type UpdateConnectionInput = {
   sourcePortId?: string
   targetPortId?: string
+  sourceFace?: PortFace
+  targetFace?: PortFace
   connectionType?: 'physical' | 'logical'
   mediumType?: MediumType
   cableTypeId?: string | null

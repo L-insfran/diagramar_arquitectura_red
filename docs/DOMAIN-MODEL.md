@@ -58,17 +58,17 @@ erDiagram
 | `areas` | Bajo un sitio (planta/sala…); soft delete — **no** es `work_areas` del canvas |
 | `racks` | Bajo un área; `height_u`; soft delete |
 | `devices` | Instancia de template; `site_id`/`area_id`/`rack_id` nullable; `rack_unit_start` + `rack_face`; `location` texto legacy |
-| `ports` | Por dispositivo; `port_type` string alineado a `port_types.code` |
+| `ports` | Por dispositivo; `port_type` string; `is_passthrough` editable (patch panel = 2 caras) |
 | `port_types` | Catálogo: code, name, description, `default_speed`, color, icon, direction |
 | `cable_types` | Catálogo global de medios (familia, defaults, color, orden) |
 | `attachments` | Docs polimórficos (archivo/link/nota) por objeto + `project_id` |
 | `secrets` | Secretos cifrados polimórficos (reveal con mutate) |
 | `vlans`, `networks`, `port_vlans` | Capa L2/L3 |
-| `connections` | Entidad de primera clase; `cable_type_id` opcional; 1 física activa / puerto |
+| `connections` | Entidad de primera clase; `source_face`/`target_face`; 1 física activa / (puerto, cara) |
 | `topology_canvas_layouts` | Layout visual + work_areas JSON; posiciones de racks (`rack:{id}`) |
 | `device_credentials`, `employee_credentials` | Secretos legacy de device/employee |
 
-**Topología física (canvas):** `GET /topology` expone en cada device `siteId`/`areaId`/`rackId`/`rackUnitStart`/`rackFace`/`rackUnits` y una lista `racks[]`. El canvas proyecta racks como contenedores con elevación por U; los equipos montados son hijos posicionados por U (no se persisten coords relativas U). `work_areas` del canvas ≠ `areas` de inventario. Impresión: filtros de inventario (sitio/área/rack/cara) en cliente → PDF tabla y/o diagrama.
+**Topología física (canvas):** `GET /topology` expone en cada device `siteId`/`areaId`/`rackId`/`rackUnitStart`/`rackFace`/`rackUnits` y una lista `racks[]`. El canvas proyecta racks como contenedores con elevación por U; los equipos montados son hijos posicionados por U (no se persisten coords relativas U). Cada rack tiene selector de vista **Front / Rear / Ambas** (en "Ambas" se muestran dos columnas frente+dorso, con equipos de ambas caras conectables). `work_areas` del canvas ≠ `areas` de inventario. Impresión: filtros de inventario (sitio/área/rack/cara) en cliente → PDF tabla y/o diagrama.
 
 ### Ausentes respecto a la visión
 
@@ -110,7 +110,7 @@ flowchart TB
 
 ### Conexiones (ya alineadas en espíritu)
 
-Origen/destino por puerto, tipo de cable, longitud, estado, etiqueta, observaciones, fecha, usuario. Regla objetivo: **un puerto = una conexión activa**.
+Origen/destino por puerto **y cara** (`front`/`rear`), tipo de cable, longitud, estado, etiqueta, observaciones, fecha, usuario. Regla: **1 conexión física activa por (puerto, cara)**. Puertos `is_passthrough` (marca editable en template/instancia; patch panel) tienen dos caras; el puente interno no es entidad.
 
 ---
 

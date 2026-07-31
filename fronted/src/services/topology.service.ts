@@ -18,6 +18,8 @@ export interface CreateConnectionPayload {
   projectId: string
   sourcePortId: string
   targetPortId: string
+  sourceFace?: 'front' | 'rear'
+  targetFace?: 'front' | 'rear'
   connectionType?: 'physical' | 'logical'
   mediumType?: MediumType
   cableTypeId?: string | null
@@ -38,6 +40,8 @@ export interface CreateConnectionPayload {
 export interface UpdateConnectionPayload {
   sourcePortId?: string
   targetPortId?: string
+  sourceFace?: 'front' | 'rear'
+  targetFace?: 'front' | 'rear'
   connectionType?: 'physical' | 'logical'
   mediumType?: MediumType
   cableTypeId?: string | null

@@ -20,6 +20,8 @@ export type ScannedRoutes = {
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.bulk_update_ports_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.bulk_update_ports_passthrough': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
     'ports.store': { paramsTuple?: []; params?: {} }
     'ports.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -63,6 +65,7 @@ export type ScannedRoutes = {
     'device_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.ports_index': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_bulk_passthrough': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.ports_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.ports_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }
     'device_templates.ports_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }
@@ -248,6 +251,8 @@ export type ScannedRoutes = {
   PUT: {
     'projects.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.bulk_update_ports_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.bulk_update_ports_passthrough': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vlans.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'networks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -257,6 +262,7 @@ export type ScannedRoutes = {
     'topology.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'device_templates.ports_bulk_passthrough': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.ports_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }
     'sites.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'sites.areas_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }

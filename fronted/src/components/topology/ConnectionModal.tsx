@@ -18,6 +18,7 @@ import type {
   Device,
   Network,
   Port,
+  PortFace,
   TopologyEdge,
   Vlan,
   MediumType,
@@ -31,8 +32,18 @@ import type {
   ConnectionStatusType,
 } from '../../types'
 
-function portOptionLabel(p: Port) {
-  return `${p.name} (#${p.portNumber}) — ${p.portType}`
+function portOptionLabel(
+  p: Port,
+  opts?: { frontOccupied?: boolean; rearOccupied?: boolean },
+) {
+  const base = `${p.name} (#${p.portNumber}) — ${p.portType}`
+  if (!p.isPassthrough) return base
+  const front = opts?.frontOccupied
+  const rear = opts?.rearOccupied
+  if (front && rear) return `${base} — Ambas caras en uso`
+  if (front) return `${base} — Front en uso`
+  if (rear) return `${base} — Rear en uso`
+  return `${base} — Puente`
 }
 
 function deviceOptionLabel(d: Device) {
@@ -71,6 +82,8 @@ interface PhysicalEdgeRef {
   id: string
   sourcePortId: string
   targetPortId: string
+  sourceFace?: PortFace
+  targetFace?: PortFace
 }
 
 interface ConnectionModalProps {
@@ -161,6 +174,8 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
   const [targetDeviceId, setTargetDeviceId] = useState('')
   const [sourcePortId, setSourcePortId] = useState('')
   const [targetPortId, setTargetPortId] = useState('')
+  const [sourceFace, setSourceFace] = useState<PortFace>('front')
+  const [targetFace, setTargetFace] = useState<PortFace>('front')
   const [connectionType, setConnectionType] = useState<'physical' | 'logical'>('physical')
 
   const [mediumType, setMediumType] = useState<MediumType>('utp')
@@ -194,6 +209,8 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
     setTargetDeviceId('')
     setSourcePortId('')
     setTargetPortId('')
+    setSourceFace('front')
+    setTargetFace('front')
     setConnectionType('physical')
     setMediumType('utp')
     setCableTypeId('')
@@ -240,6 +257,8 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
       setTargetDeviceId(edge.target)
       setSourcePortId(edge.sourcePortId)
       setTargetPortId(edge.targetPortId)
+      setSourceFace(edge.sourceFace ?? 'front')
+      setTargetFace(edge.targetFace ?? 'front')
       setConnectionType(edge.connectionType === 'logical' ? 'logical' : 'physical')
       setMediumType(edge.medium?.mediumType ?? 'utp')
       setCableTypeId(edge.medium?.cableTypeId ?? '')
@@ -359,53 +378,103 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
     setSelectedLogicalNetworkId(matched?.id ?? '')
   }, [networks, networkName])
 
-  const usedPhysicalPortIds = useMemo(() => {
+  const usedPhysicalFaces = useMemo(() => {
     const ids = new Set<string>()
     for (const e of physicalEdges) {
       if (isEdit && edge && e.id === edge.id) continue
-      ids.add(e.sourcePortId)
-      ids.add(e.targetPortId)
+      ids.add(`${e.sourcePortId}:${e.sourceFace ?? 'front'}`)
+      ids.add(`${e.targetPortId}:${e.targetFace ?? 'front'}`)
     }
     return ids
   }, [physicalEdges, isEdit, edge])
 
+  const isFaceOccupied = useCallback(
+    (portId: string, face: PortFace) => usedPhysicalFaces.has(`${portId}:${face}`),
+    [usedPhysicalFaces],
+  )
+
   const isPhysical = connectionType === 'physical'
+
+  const portFullyOccupied = useCallback(
+    (p: Port) => {
+      if (!isPhysical) return false
+      if (p.isPassthrough) {
+        return isFaceOccupied(p.id, 'front') && isFaceOccupied(p.id, 'rear')
+      }
+      return isFaceOccupied(p.id, 'front')
+    },
+    [isPhysical, isFaceOccupied],
+  )
 
   useEffect(() => {
     if (!isPhysical) return
-    if (sourcePortId && usedPhysicalPortIds.has(sourcePortId)) {
+    const sourcePort = sourcePorts.find((p) => p.id === sourcePortId)
+    if (sourcePortId && sourcePort && portFullyOccupied(sourcePort)) {
       setSourcePortId('')
     }
-    if (targetPortId && usedPhysicalPortIds.has(targetPortId)) {
+    const targetPort = targetPorts.find((p) => p.id === targetPortId)
+    if (targetPortId && targetPort && portFullyOccupied(targetPort)) {
       setTargetPortId('')
     }
-  }, [isPhysical, usedPhysicalPortIds, sourcePortId, targetPortId])
+  }, [isPhysical, sourcePortId, targetPortId, sourcePorts, targetPorts, portFullyOccupied])
 
   useEffect(() => {
     if (!sourcePortId) return
     const port = sourcePorts.find((p) => p.id === sourcePortId)
     if (port && port.status !== 'up') setSourcePortId('')
-  }, [sourcePorts, sourcePortId])
+    if (port?.isPassthrough) {
+      if (!isFaceOccupied(sourcePortId, sourceFace)) return
+      const free: PortFace = !isFaceOccupied(sourcePortId, 'rear')
+        ? 'rear'
+        : !isFaceOccupied(sourcePortId, 'front')
+          ? 'front'
+          : sourceFace
+      if (free !== sourceFace) setSourceFace(free)
+    } else if (sourceFace !== 'front') {
+      setSourceFace('front')
+    }
+  }, [sourcePorts, sourcePortId, sourceFace, isFaceOccupied])
 
   useEffect(() => {
     if (!targetPortId) return
     const port = targetPorts.find((p) => p.id === targetPortId)
     if (port && port.status !== 'up') setTargetPortId('')
-  }, [targetPorts, targetPortId])
+    if (port?.isPassthrough) {
+      if (!isFaceOccupied(targetPortId, targetFace)) return
+      const free: PortFace = !isFaceOccupied(targetPortId, 'rear')
+        ? 'rear'
+        : !isFaceOccupied(targetPortId, 'front')
+          ? 'front'
+          : targetFace
+      if (free !== targetFace) setTargetFace(free)
+    } else if (targetFace !== 'front') {
+      setTargetFace('front')
+    }
+  }, [targetPorts, targetPortId, targetFace, isFaceOccupied])
 
   const buildPortOptions = useCallback(
     (ports: Port[]): SelectOption[] =>
       ports.map((p) => {
         const portDown = p.status !== 'up'
-        const occupied = isPhysical && usedPhysicalPortIds.has(p.id)
+        const frontOccupied = isFaceOccupied(p.id, 'front')
+        const rearOccupied = p.isPassthrough ? isFaceOccupied(p.id, 'rear') : false
+        const occupied = portFullyOccupied(p)
         const blocked = portDown || occupied
         let reason: string | undefined
         if (portDown && occupied) reason = `${p.status} · En uso`
         else if (portDown) reason = p.status
-        else if (occupied) reason = 'En uso'
-        return { value: p.id, label: portOptionLabel(p), disabled: blocked, disabledReason: reason }
+        else if (occupied) reason = p.isPassthrough ? 'Ambas caras en uso' : 'En uso'
+        else if (p.isPassthrough && (frontOccupied || rearOccupied)) {
+          reason = frontOccupied ? 'Front en uso · Rear libre' : 'Rear en uso · Front libre'
+        }
+        return {
+          value: p.id,
+          label: portOptionLabel(p, { frontOccupied, rearOccupied }),
+          disabled: blocked,
+          disabledReason: reason,
+        }
       }),
-    [isPhysical, usedPhysicalPortIds]
+    [portFullyOccupied, isFaceOccupied]
   )
 
   const sourcePortOptions = useMemo(() => buildPortOptions(sourcePorts), [buildPortOptions, sourcePorts])
@@ -490,6 +559,8 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
       const commonPayload = {
         sourcePortId,
         targetPortId,
+        sourceFace,
+        targetFace,
         connectionType,
         mediumType,
         cableTypeId: cableTypeId || null,
@@ -550,9 +621,9 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
             {/* Dispositivos y puertos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Select label="Dispositivo origen" placeholder="Seleccionar" options={deviceOptions} value={sourceDeviceId}
-                onChange={(e) => { setSourceDeviceId(e.target.value); setSourcePortId('') }} required />
+                onChange={(e) => { setSourceDeviceId(e.target.value); setSourcePortId(''); setSourceFace('front') }} required />
               <Select label="Dispositivo destino" placeholder="Seleccionar" options={deviceOptions} value={targetDeviceId}
-                onChange={(e) => { setTargetDeviceId(e.target.value); setTargetPortId('') }} required />
+                onChange={(e) => { setTargetDeviceId(e.target.value); setTargetPortId(''); setTargetFace('front') }} required />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isCloudDeviceId(devices, sourceDeviceId) && sourcePorts.length === 1 ? (
@@ -580,6 +651,70 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
                   hint={targetDeviceId && targetDisabledStats.total > 0 ? formatPortHint(targetDisabledStats) : undefined} />
               )}
             </div>
+
+            {(sourcePorts.find((p) => p.id === sourcePortId)?.isPassthrough ||
+              targetPorts.find((p) => p.id === targetPortId)?.isPassthrough) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {sourcePorts.find((p) => p.id === sourcePortId)?.isPassthrough ? (
+                  <Select
+                    label="Cara origen (passthrough)"
+                    options={[
+                      {
+                        value: 'rear',
+                        label: isFaceOccupied(sourcePortId, 'rear') && !(isEdit && edge?.sourceFace === 'rear')
+                          ? 'Rear (ocupada)'
+                          : 'Rear',
+                        disabled:
+                          isFaceOccupied(sourcePortId, 'rear') &&
+                          !(isEdit && edge?.sourcePortId === sourcePortId && edge?.sourceFace === 'rear'),
+                      },
+                      {
+                        value: 'front',
+                        label: isFaceOccupied(sourcePortId, 'front') && !(isEdit && edge?.sourceFace === 'front')
+                          ? 'Front (ocupada)'
+                          : 'Front',
+                        disabled:
+                          isFaceOccupied(sourcePortId, 'front') &&
+                          !(isEdit && edge?.sourcePortId === sourcePortId && edge?.sourceFace === 'front'),
+                      },
+                    ]}
+                    value={sourceFace}
+                    onChange={(e) => setSourceFace(e.target.value as PortFace)}
+                  />
+                ) : (
+                  <div />
+                )}
+                {targetPorts.find((p) => p.id === targetPortId)?.isPassthrough ? (
+                  <Select
+                    label="Cara destino (passthrough)"
+                    options={[
+                      {
+                        value: 'rear',
+                        label: isFaceOccupied(targetPortId, 'rear') && !(isEdit && edge?.targetFace === 'rear')
+                          ? 'Rear (ocupada)'
+                          : 'Rear',
+                        disabled:
+                          isFaceOccupied(targetPortId, 'rear') &&
+                          !(isEdit && edge?.targetPortId === targetPortId && edge?.targetFace === 'rear'),
+                      },
+                      {
+                        value: 'front',
+                        label: isFaceOccupied(targetPortId, 'front') && !(isEdit && edge?.targetFace === 'front')
+                          ? 'Front (ocupada)'
+                          : 'Front',
+                        disabled:
+                          isFaceOccupied(targetPortId, 'front') &&
+                          !(isEdit && edge?.targetPortId === targetPortId && edge?.targetFace === 'front'),
+                      },
+                    ]}
+                    value={targetFace}
+                    onChange={(e) => setTargetFace(e.target.value as PortFace)}
+                  />
+                ) : (
+                  <div />
+                )}
+              </div>
+            )}
 
             {(sourcePortId || targetPortId) && (
               <div className="rounded-lg border border-violet-200 dark:border-violet-800/40 p-4 space-y-2 bg-violet-50/40 dark:bg-violet-950/20">
@@ -633,9 +768,10 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
                   <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
                     <Lock className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Un puerto solo puede tener{' '}
-                      <span className="font-semibold">una conexión física activa</span>. Desconectá
-                      el enlace existente antes de crear otro.
+                      Un puerto normal admite{' '}
+                      <span className="font-semibold">una conexión física</span>. Un puerto puente
+                      (patch panel) admite <span className="font-semibold">una por cara</span>{' '}
+                      (front/rear). Desconectá la cara ocupada antes de reutilizarla.
                     </p>
                   </div>
                 )}

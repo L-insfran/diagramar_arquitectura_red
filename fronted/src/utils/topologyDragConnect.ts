@@ -1,5 +1,11 @@
-import type { MediumType, TopologyData, TopologyPortSummary } from '../types'
-import { isInternetCloudDeviceType, isWirelessPort, parsePortIdFromHandle } from './topologyPortPanel'
+import type { MediumType, PortFace, TopologyData, TopologyPortSummary } from '../types'
+import {
+  isInternetCloudDeviceType,
+  isWirelessPort,
+  parsePortFaceFromHandle,
+  parsePortIdFromHandle,
+  portFaceConnectable,
+} from './topologyPortPanel'
 
 export type PortConnectLookup = {
   portId: string
@@ -39,14 +45,17 @@ export function inferDragConnectMedium(
   return 'utp'
 }
 
-export function isPortAvailableForConnect(entry: PortConnectLookup | undefined): boolean {
+export function isPortFaceAvailableForConnect(
+  entry: PortConnectLookup | undefined,
+  face: PortFace,
+): boolean {
   if (!entry) return false
-  return !entry.port.connected && entry.port.status === 'up'
+  return portFaceConnectable(entry.port, face, false)
 }
 
 /**
  * Valida un intento de conexión React Flow (handles de puerto).
- * Rechaza mismo nodo, mismo puerto, puertos ocupados o down.
+ * Rechaza mismo nodo, mismo puerto, caras ocupadas o down.
  */
 export function validatePortConnection(
   lookup: Map<string, PortConnectLookup>,
@@ -56,16 +65,29 @@ export function validatePortConnection(
     sourceHandle: string | null | undefined
     targetHandle: string | null | undefined
   },
-): { ok: true; sourcePortId: string; targetPortId: string } | { ok: false } {
+):
+  | {
+      ok: true
+      sourcePortId: string
+      targetPortId: string
+      sourceFace: PortFace
+      targetFace: PortFace
+    }
+  | { ok: false } {
   if (!params.source || !params.target || params.source === params.target) return { ok: false }
   const sourcePortId = parsePortIdFromHandle(params.sourceHandle)
   const targetPortId = parsePortIdFromHandle(params.targetHandle)
   if (!sourcePortId || !targetPortId || sourcePortId === targetPortId) return { ok: false }
 
+  const sourceFace = parsePortFaceFromHandle(params.sourceHandle)
+  const targetFace = parsePortFaceFromHandle(params.targetHandle)
+
   const source = lookup.get(sourcePortId)
   const target = lookup.get(targetPortId)
-  if (!isPortAvailableForConnect(source) || !isPortAvailableForConnect(target)) return { ok: false }
+  if (!isPortFaceAvailableForConnect(source, sourceFace) || !isPortFaceAvailableForConnect(target, targetFace)) {
+    return { ok: false }
+  }
   if (source!.deviceId !== params.source || target!.deviceId !== params.target) return { ok: false }
 
-  return { ok: true, sourcePortId, targetPortId }
+  return { ok: true, sourcePortId, targetPortId, sourceFace, targetFace }
 }

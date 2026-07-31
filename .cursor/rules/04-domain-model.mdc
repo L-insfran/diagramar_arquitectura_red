@@ -13,12 +13,12 @@ Proyecto → Sitios → Áreas → Racks → Equipos (desde Template) → Puerto
 
 - `projects`, `project_memberships`, `system_users`, `departments`, `employees`
 - `device_types` (catálogo icono/nombre — **no** es Device Template)
-- `device_templates`, `device_template_ports` (catálogo global de SKU; soft delete en templates — ADR 0004)
+- `device_templates`, `device_template_ports` (catálogo global de SKU; `is_passthrough` editable en puertos de template; soft delete en templates — ADR 0004)
 - `sites`, `areas`, `racks` (inventario físico; soft delete) — **distinto** de `work_areas` del canvas
-- `devices` (template + `site_id`/`area_id`/`rack_id` + `rack_unit_start`/`rack_face`; `location` legacy), `ports`, `port_types` (speed/color/icon/direction)
+- `devices` (template + `site_id`/`area_id`/`rack_id` + `rack_unit_start`/`rack_face`; `location` legacy), `ports` (`is_passthrough`), `port_types` (speed/color/icon/direction)
 - `cable_types` (catálogo; FK opcional en connections)
 - `vlans`, `networks`, `port_vlans`
-- `connections` (entidad real: puertos, medio, cable_type, longitud, estado, metadata; 1 física activa/puerto)
+- `connections` (entidad real: puertos + caras front/rear, medio, cable_type, longitud, estado, metadata; 1 física activa por `(puerto, cara)` — ADR 0005)
 - `attachments`, `secrets` (docs/secretos polimórficos; archivos en `storage/attachments`)
 - `topology_canvas_layouts` (posiciones, work_areas JSON visual)
 - Credenciales: `device_credentials`, `employee_credentials`
@@ -29,6 +29,6 @@ Object storage cloud (S3/Drive/Blobs — hoy disco local).
 
 ## Reglas de modelado
 
-- Conexiones = entidades. Nunca texto libre.
-- Templates definen marca/modelo/puertos/U/imagen; la instancia solo edita identidad operativa (nombre, serie, IP, MAC, hostname, estado, site/area/rack, notas).
+- Conexiones = entidades. Nunca texto libre. Un extremo = `(port, face)`; passthrough = 2 caras.
+- Templates definen marca/modelo/puertos/U/imagen (`is_passthrough` se clona); la instancia solo edita identidad operativa (nombre, serie, IP, MAC, hostname, estado, site/area/rack, notas).
 - Scope: `project_id` / `X-Project-Id`. Detalle: `docs/DOMAIN-MODEL.md`.

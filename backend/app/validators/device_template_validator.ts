@@ -39,6 +39,7 @@ export const createDeviceTemplatePortValidator = vine.compile(
     portType: vine.string().trim().minLength(1).maxLength(50),
     speed: vine.string().trim().maxLength(50).nullable().optional(),
     description: vine.string().trim().nullable().optional(),
+    isPassthrough: vine.boolean().optional(),
   })
 )
 
@@ -49,5 +50,13 @@ export const updateDeviceTemplatePortValidator = vine.compile(
     portType: vine.string().trim().minLength(1).maxLength(50).optional(),
     speed: vine.string().trim().maxLength(50).nullable().optional(),
     description: vine.string().trim().nullable().optional(),
+    isPassthrough: vine.boolean().optional(),
+  })
+)
+
+/** Bulk set is_passthrough on every port of a device template. */
+export const bulkUpdateTemplatePortPassthroughValidator = vine.compile(
+  vine.object({
+    isPassthrough: vine.boolean(),
   })
 )

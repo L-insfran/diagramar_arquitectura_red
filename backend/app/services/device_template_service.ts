@@ -110,4 +110,13 @@ export default class DeviceTemplateService {
     const port = await this.templates.findPortOrFail(templateId, portId)
     await this.templates.deletePort(port)
   }
+
+  async bulkUpdatePortsPassthrough(templateId: string, isPassthrough: boolean) {
+    await this.templates.findActiveSummaryOrFail(templateId)
+    const updatedCount = await this.templates.updatePassthroughByTemplateId(
+      templateId,
+      isPassthrough
+    )
+    return { updatedCount }
+  }
 }

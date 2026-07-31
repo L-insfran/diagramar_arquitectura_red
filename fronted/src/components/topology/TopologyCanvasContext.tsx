@@ -21,8 +21,8 @@ export type TopologyCanvasInteractionValue = {
   renameWorkArea?: (areaId: string, name: string) => void
   removeWorkArea?: (areaId: string) => void
   setWorkAreaTitleFontSize?: (areaId: string, titleFontSize: number) => void
-  /** Cambia la cara visible de un nodo rack (`rack:{id}`). */
-  setRackFace?: (rackNodeId: string, face: 'front' | 'rear') => void
+  /** Cambia la cara visible de un nodo rack (`rack:{id}`). Incluye vista "ambas". */
+  setRackFace?: (rackNodeId: string, face: 'front' | 'rear' | 'both') => void
 }
 
 export const TopologyCanvasInteractionContext = createContext<TopologyCanvasInteractionValue | null>(null)
