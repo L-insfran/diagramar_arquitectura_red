@@ -28,6 +28,9 @@ erDiagram
     areas ||--o{ devices : hosts
     areas ||--o{ racks : contains
     racks ||--o{ devices : mounts
+    racks ||--o{ rack_accessories : hosts
+    rack_accessory_templates ||--o{ rack_accessories : defines
+    rack_accessories ||--o{ devices : supports
     devices ||--o{ ports : has
     devices ||--o{ device_credentials : has
     ports ||--o{ port_vlans : has
@@ -57,7 +60,9 @@ erDiagram
 | `sites` | Inventario físico por proyecto; soft delete |
 | `areas` | Bajo un sitio (planta/sala…); soft delete — **no** es `work_areas` del canvas |
 | `racks` | Bajo un área; `height_u`; soft delete |
-| `devices` | Instancia de template; `site_id`/`area_id`/`rack_id` nullable; `rack_unit_start` + `rack_face`; `location` texto legacy |
+| `rack_accessory_templates` | Catálogo global de SKU de accesorios (bandejas 1U/2U) — ADR 0006 |
+| `rack_accessories` | Instancias de bandeja en rack; `mount_type` front_only/four_post; soft delete |
+| `devices` | Instancia de template; `site_id`/`area_id`/`rack_id` nullable; `rack_unit_start` + `rack_face` (riel) **o** `supported_by_accessory_id` + slots horizontales + `shelf_height_u` (altura vertical hacia arriba desde la bandeja); `location` texto legacy |
 | `ports` | Por dispositivo; `port_type` string; `is_passthrough` editable (patch panel = 2 caras) |
 | `port_types` | Catálogo: code, name, description, `default_speed`, color, icon, direction |
 | `cable_types` | Catálogo global de medios (familia, defaults, color, orden) |

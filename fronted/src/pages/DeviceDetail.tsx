@@ -427,13 +427,32 @@ export default function DeviceDetail() {
     {
       icon: Server,
       label: 'Rack',
-      value: device.rack
-        ? `${device.rack.name} · U${device.rackUnitStart ?? '?'}${
-            device.deviceTemplate?.rackUnits
-              ? `–${(device.rackUnitStart ?? 1) + device.deviceTemplate.rackUnits - 1}`
-              : ''
-          } (${device.rackFace ?? 'front'})`
-        : undefined,
+      value: device.supportedByAccessoryId
+        ? (() => {
+            const shelf = device.supportedByAccessory
+            const heightU = Math.max(
+              1,
+              device.shelfHeightU ?? device.deviceTemplate?.rackUnits ?? 1
+            )
+            const start = shelf?.unitStart
+            const end = start != null ? start + heightU - 1 : null
+            const width =
+              device.shelfWidthSlots === 3
+                ? 'ancho completo'
+                : `⅓ slot ${(device.shelfSlotStart ?? 0) + 1}`
+            const range =
+              start != null && end != null ? ` · U${start}–U${end}` : ` · ${heightU}U`
+            return `${device.rack?.name ?? 'Rack'} · bandeja ${
+              shelf?.name ?? '—'
+            }${range} · ${width}`
+          })()
+        : device.rack
+          ? `${device.rack.name} · U${device.rackUnitStart ?? '?'}${
+              device.deviceTemplate?.rackUnits
+                ? `–${(device.rackUnitStart ?? 1) + device.deviceTemplate.rackUnits - 1}`
+                : ''
+            } (${device.rackFace ?? 'front'})`
+          : undefined,
     },
     { icon: Hash, label: 'MAC Address', value: device.macAddress },
     { icon: Hash, label: 'Serial', value: device.serialNumber },

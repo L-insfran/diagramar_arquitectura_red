@@ -1,5 +1,6 @@
 import { type Node, type NodeProps } from '@xyflow/react'
-import { useContext } from 'react'
+import { useContext, useMemo } from 'react'
+import type { TopologyRackAccessory } from '../../types'
 import {
   RACK_COLUMN_GAP,
   RACK_CONTENT_WIDTH,
@@ -7,6 +8,7 @@ import {
   RACK_INNER_PAD,
   RACK_RAIL_W,
   RACK_U_PX,
+  shelfPositionInRack,
   type RackViewFace,
 } from '../../utils/topologyRackLayout'
 import { TopologyCanvasInteractionContext } from './TopologyCanvasContext'
@@ -21,6 +23,7 @@ export type RackNodeData = {
   activeFace: RackViewFace
   deviceCountFront: number
   deviceCountRear: number
+  accessories?: TopologyRackAccessory[]
 }
 
 export type RackFlowNodeType = Node<RackNodeData, 'rack'>
@@ -41,6 +44,42 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
   const displayH = typeof height === 'number' && height > 0 ? height : undefined
   const both = data.activeFace === 'both'
   const totalCount = data.deviceCountFront + data.deviceCountRear
+
+  const shelfBands = useMemo(() => {
+    const accessories = data.accessories ?? []
+    const bands: Array<{
+      key: string
+      label: string
+      x: number
+      y: number
+      width: number
+      height: number
+    }> = []
+    for (const shelf of accessories) {
+      const faces =
+        data.activeFace === 'both'
+          ? shelf.faces
+          : data.activeFace === 'rear'
+            ? shelf.faces.filter((f) => f === 'rear')
+            : shelf.faces.filter((f) => f === 'front')
+
+      for (const face of faces) {
+        const column: 0 | 1 =
+          data.activeFace === 'both' && face === 'rear' ? 1 : 0
+        const col = data.activeFace === 'rear' ? 0 : column
+        const pos = shelfPositionInRack(shelf.unitStart, shelf.heightU, heightU, col)
+        bands.push({
+          key: `${shelf.id}-${face}`,
+          label: `${shelf.name}${shelf.mountType === 'four_post' ? ' · 4P' : ''}`,
+          x: pos.x,
+          y: pos.y,
+          width: pos.width,
+          height: pos.height,
+        })
+      }
+    }
+    return bands
+  }, [data.accessories, data.activeFace, heightU])
 
   return (
     <div
@@ -167,6 +206,46 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
           />
         )}
       </div>
+
+      {shelfBands.map((band) => (
+        <div key={band.key}>
+          <div
+            className="pointer-events-none absolute z-0 overflow-hidden rounded-sm border border-amber-500/70 bg-amber-900/50 shadow-[inset_0_1px_0_0_rgba(252,211,77,0.35)]"
+            style={{
+              left: band.x,
+              top: band.y,
+              width: band.width,
+              height: band.height,
+            }}
+            title={`Bandeja fija · ${band.label}`}
+          >
+            {/* Soportes laterales (brackets) */}
+            <div
+              className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-r from-amber-400 to-amber-700/80"
+              aria-hidden
+            />
+            <div
+              className="absolute inset-y-0 right-0 w-1.5 bg-gradient-to-l from-amber-400 to-amber-700/80"
+              aria-hidden
+            />
+            <div className="flex h-full items-start px-3 pt-0.5 text-[9px] font-extrabold uppercase tracking-wide text-amber-100">
+              <span className="truncate drop-shadow-sm">Bandeja · {band.label}</span>
+            </div>
+          </div>
+          {/* Labio debajo de la U: no solapa puertos de equipos apoyados */}
+          <div
+            className="pointer-events-none absolute z-0 rounded-b-sm border-t border-amber-200/40 bg-gradient-to-b from-amber-400 to-amber-700"
+            style={{
+              left: band.x,
+              top: band.y + band.height,
+              width: band.width,
+              height: 5,
+            }}
+            aria-hidden
+            title={`Bandeja fija · ${band.label}`}
+          />
+        </div>
+      ))}
     </div>
   )
 }

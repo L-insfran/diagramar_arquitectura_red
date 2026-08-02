@@ -1,29 +1,28 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
-import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
-import Project from './project.js'
-import Area from './area.js'
-import Device from './device.js'
+import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import type { HasMany } from '@adonisjs/lucid/types/relations'
 import RackAccessory from './rack_accessory.js'
 
-export default class Rack extends BaseModel {
+export type AccessoryKind = 'shelf'
+export type ShelfMountType = 'front_only' | 'four_post'
+
+export default class RackAccessoryTemplate extends BaseModel {
+  static table = 'rack_accessory_templates'
+
   @column({ isPrimary: true })
   declare id: string
-
-  @column()
-  declare projectId: string
-
-  @column()
-  declare areaId: string
 
   @column()
   declare name: string
 
   @column()
-  declare code: string | null
+  declare kind: AccessoryKind
 
   @column()
   declare heightU: number
+
+  @column()
+  declare defaultMountType: ShelfMountType
 
   @column()
   declare manufacturer: string | null
@@ -52,15 +51,6 @@ export default class Rack extends BaseModel {
   @column.dateTime()
   declare deletedAt: DateTime | null
 
-  @belongsTo(() => Project)
-  declare project: BelongsTo<typeof Project>
-
-  @belongsTo(() => Area)
-  declare area: BelongsTo<typeof Area>
-
-  @hasMany(() => Device)
-  declare devices: HasMany<typeof Device>
-
-  @hasMany(() => RackAccessory)
+  @hasMany(() => RackAccessory, { foreignKey: 'accessoryTemplateId' })
   declare accessories: HasMany<typeof RackAccessory>
 }

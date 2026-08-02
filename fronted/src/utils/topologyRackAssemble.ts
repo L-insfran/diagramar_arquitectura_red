@@ -26,6 +26,7 @@ import {
 import { normalizeTopologyHostname } from './topologyNodeData'
 import {
   devicePositionInRack,
+  devicePositionOnShelf,
   freeDevicesOriginX,
   layoutRacksGrid,
   normalizeRackFace,
@@ -46,6 +47,10 @@ function devicePlacementMeta(n: TopologyNode) {
     rackUnits: Math.max(1, n.data.rackUnits ?? 1),
     manufacturer: n.data.manufacturer ?? null,
     model: n.data.model ?? null,
+    supportedByAccessoryId: n.data.supportedByAccessoryId ?? null,
+    shelfSlotStart: n.data.shelfSlotStart ?? null,
+    shelfWidthSlots: n.data.shelfWidthSlots ?? null,
+    shelfHeightU: n.data.shelfHeightU ?? null,
   }
 }
 
@@ -64,7 +69,11 @@ export function buildDeviceFlowNodes(data: TopologyData): TopologyDeviceNode[] {
     }))
     const portsInUse = allPorts.reduce((total, port) => (port.connected ? total + 1 : total), 0)
     const meta = devicePlacementMeta(n)
-    const isCloud = isInternetCloudDeviceType(n.data.deviceType)
+    // ISP/Internet: nube solo si está suelto. En riel o bandeja es inventario físico.
+    const hasPhysicalMount =
+      !!meta.supportedByAccessoryId ||
+      (meta.rackId != null && meta.rackUnitStart != null)
+    const isCloud = isInternetCloudDeviceType(n.data.deviceType) && !hasPhysicalMount
 
     if (isCloud) {
       const width = CLOUD_NODE_WIDTH
@@ -153,7 +162,12 @@ function countDevicesByFace(
 ): number {
   return devices.filter((d) => {
     if (d.type === 'cloud') return false
-    return d.data.rackId === rackId && normalizeRackFace(d.data.rackFace) === face
+    if (d.data.rackId !== rackId) return false
+    if (d.data.supportedByAccessoryId) {
+      // Equipos apoyados: visibles en frontal (v1)
+      return face === 'front'
+    }
+    return normalizeRackFace(d.data.rackFace) === face
   }).length
 }
 
@@ -197,13 +211,25 @@ export function applyRackHierarchy(
         activeFace,
         deviceCountFront: countDevicesByFace(devices, rack.id, 'front'),
         deviceCountRear: countDevicesByFace(devices, rack.id, 'rear'),
+        accessories: rack.accessories ?? [],
       },
     }
   })
 
   const rackById = new Map(racks.map((r) => [r.id, r]))
   const nextDevices: TopologyDeviceNode[] = devices.map((device) => {
-    if (device.type === 'cloud') {
+    const rackId = device.data.rackId
+    const rack = rackId ? rackById.get(rackId) : undefined
+    const shelfId = device.data.supportedByAccessoryId
+    const shelf =
+      shelfId && rack
+        ? (rack.accessories ?? []).find((a) => a.id === shelfId)
+        : undefined
+    const hasShelfOrRail =
+      !!(shelfId && shelf) || (rack != null && device.data.rackUnitStart != null)
+
+    // Nube suelta (sin montaje físico). Si tiene bandeja/riel, sigue el flujo de montaje.
+    if (device.type === 'cloud' && !hasShelfOrRail) {
       const saved = persistedPositions[device.id]
       return {
         ...device,
@@ -214,13 +240,87 @@ export function applyRackHierarchy(
       }
     }
 
-    const rackId = device.data.rackId
-    const rack = rackId ? rackById.get(rackId) : undefined
-    if (!rack || !rackId || device.data.rackUnitStart == null) {
+    if (!rack || !rackId) {
       const saved = persistedPositions[device.id]
       let position = saved ?? device.position
       if (!saved && (position.x === 0 && position.y === 0) && freeOriginX > 0) {
-        // dagre / layout posterior ubicará sueltos; aquí solo offset X base
+        position = { x: freeOriginX, y: position.y }
+      }
+      return {
+        ...device,
+        parentId: undefined,
+        extent: undefined,
+        position,
+        draggable: true,
+        data: { ...device.data, rackMounted: false },
+      }
+    }
+
+    // Device resting on shelf
+    if (shelfId && shelf) {
+      const rackNodeId = rackFlowNodeId(rackId)
+      const activeFace = normalizeRackViewFace(
+        rackFaces[rackNodeId] ?? rackFaces[rackId] ?? 'front',
+      )
+      // v1: resting devices only on front column
+      const hidden = activeFace === 'rear'
+      const column: 0 | 1 = 0
+      const units = Math.max(1, device.data.rackUnits ?? 1)
+      const visualHeightU = Math.max(1, device.data.shelfHeightU ?? units)
+      const slot = devicePositionOnShelf({
+        unitStart: shelf.unitStart,
+        shelfHeightU: shelf.heightU,
+        rackHeightU: rack.heightU,
+        slotStart: device.data.shelfSlotStart ?? 0,
+        widthSlots: device.data.shelfWidthSlots ?? 1,
+        visualHeightU,
+        column,
+      })
+      const { physical, wireless } = partitionDiagramPorts(device.data.ports ?? [])
+      const totalPortCount = device.data.totalPortCount ?? device.data.ports?.length ?? 0
+      const totalPhysicalCount = Math.max(0, totalPortCount - wireless.length)
+      const rackLayout = computeRackMountedPortPanelLayout(
+        physical.length,
+        totalPhysicalCount,
+        wireless.length,
+        slot.width,
+        slot.height,
+        {
+          deviceType: device.data.deviceType,
+          ports: device.data.ports ?? [],
+          shelfMounted: true,
+        },
+      )
+
+      return {
+        ...device,
+        type: 'device' as const,
+        parentId: rackNodeId,
+        extent: 'parent' as const,
+        expandParent: false,
+        draggable: false,
+        hidden,
+        zIndex: 3,
+        position: { x: slot.x, y: slot.y },
+        width: slot.width,
+        height: slot.height,
+        style: { width: slot.width, height: slot.height },
+        data: {
+          ...device.data,
+          rackMounted: true,
+          rackUnits: visualHeightU,
+          shelfHeightU: visualHeightU,
+          rackFace: 'front',
+          nodeWidth: rackLayout.width,
+          nodeHeight: rackLayout.height,
+        },
+      }
+    }
+
+    if (device.data.rackUnitStart == null) {
+      const saved = persistedPositions[device.id]
+      let position = saved ?? device.position
+      if (!saved && (position.x === 0 && position.y === 0) && freeOriginX > 0) {
         position = { x: freeOriginX, y: position.y }
       }
       return {
@@ -256,11 +356,13 @@ export function applyRackHierarchy(
 
     return {
       ...device,
+      type: 'device' as const,
       parentId: rackNodeId,
       extent: 'parent' as const,
       expandParent: false,
       draggable: false,
       hidden,
+      zIndex: 2,
       position: { x: slot.x, y: slot.y },
       width: slot.width,
       height: slot.height,

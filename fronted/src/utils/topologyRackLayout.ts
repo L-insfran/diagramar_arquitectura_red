@@ -95,6 +95,53 @@ export function devicePositionInRack(
   }
 }
 
+/**
+ * Posición de un equipo apoyado en bandeja (slots horizontales 0–2).
+ * Crece hacia arriba desde la U base de la bandeja; no se recorta a la altura de la bandeja.
+ * Visible en cara frontal; en vista rear solo si la bandeja es four_post (ocupación de riel).
+ */
+export function devicePositionOnShelf(params: {
+  unitStart: number
+  shelfHeightU: number
+  rackHeightU: number
+  slotStart: number
+  widthSlots: number
+  visualHeightU: number
+  column?: 0 | 1
+}): { x: number; y: number; width: number; height: number } {
+  const column = params.column ?? 0
+  const base = devicePositionInRack(
+    params.unitStart,
+    Math.max(1, params.shelfHeightU),
+    params.rackHeightU,
+    column
+  )
+  const widthSlots = Math.min(3, Math.max(1, params.widthSlots))
+  const slotStart = Math.min(2, Math.max(0, params.slotStart))
+  const slotW = RACK_CONTENT_WIDTH / 3
+  const requestedU = Math.max(1, params.visualHeightU)
+  // Cap only by rack ceiling so y stays within the rack content area
+  const maxUFromBase = Math.max(1, params.rackHeightU - params.unitStart + 1)
+  const visualU = Math.min(requestedU, maxUFromBase)
+  const visualH = visualU * RACK_U_PX
+  return {
+    x: base.x + slotStart * slotW,
+    y: base.y - (visualH - base.height),
+    width: slotW * widthSlots,
+    height: visualH,
+  }
+}
+
+/** Posición de la bandeja (bloque de riel) en una columna. */
+export function shelfPositionInRack(
+  unitStart: number,
+  heightU: number,
+  rackHeightU: number,
+  column: 0 | 1 = 0
+): { x: number; y: number; width: number; height: number } {
+  return devicePositionInRack(unitStart, heightU, rackHeightU, column)
+}
+
 /** Layout en grilla para racks sin posición guardada. */
 export function layoutRacksGrid(
   racks: TopologyRackSummary[],

@@ -4,6 +4,7 @@ import DeviceRepository from '#repositories/device_repository'
 import DeviceTemplateService from '#services/device_template_service'
 import SiteService from '#services/site_service'
 import RackService from '#services/rack_service'
+import RackAccessoryService from '#services/rack_accessory_service'
 import type { CreateDeviceInput, DeviceFilters, UpdateDeviceInput } from '#dtos/device_dto'
 
 function isInternetCloudDeviceTypeName(name: string | null | undefined): boolean {
@@ -24,6 +25,7 @@ export default class DeviceService {
   private templates = new DeviceTemplateService()
   private sites = new SiteService()
   private racks = new RackService()
+  private accessories = new RackAccessoryService()
 
   async getAllByProject(projectId: string, filters?: DeviceFilters) {
     return this.devices.findAllByProject(projectId, filters)
@@ -59,8 +61,30 @@ export default class DeviceService {
     let rackId: string | null = data.rackId ?? null
     let rackUnitStart: number | null = data.rackUnitStart ?? null
     let rackFace = data.rackFace ?? null
+    let supportedByAccessoryId: string | null = data.supportedByAccessoryId ?? null
+    let shelfSlotStart: number | null = data.shelfSlotStart ?? null
+    let shelfWidthSlots: number | null = data.shelfWidthSlots ?? null
+    let shelfHeightU: number | null = data.shelfHeightU ?? null
 
-    if (rackId) {
+    if (supportedByAccessoryId) {
+      const shelf = await this.accessories.resolveShelfPlacement({
+        projectId: data.projectId,
+        accessoryId: supportedByAccessoryId,
+        shelfSlotStart: shelfSlotStart ?? 0,
+        shelfWidthSlots: shelfWidthSlots ?? 1,
+        shelfHeightU,
+        templateRackUnits: template.rackUnits,
+      })
+      supportedByAccessoryId = shelf.supportedByAccessoryId
+      shelfSlotStart = shelf.shelfSlotStart
+      shelfWidthSlots = shelf.shelfWidthSlots
+      shelfHeightU = shelf.shelfHeightU
+      rackId = shelf.rackId
+      siteId = shelf.siteId
+      areaId = shelf.areaId
+      rackUnitStart = null
+      rackFace = null
+    } else if (rackId) {
       const mount = await this.racks.resolveRackPlacement({
         projectId: data.projectId,
         rackId,
@@ -73,6 +97,10 @@ export default class DeviceService {
       rackFace = mount.rackFace
       siteId = mount.siteId
       areaId = mount.areaId
+      supportedByAccessoryId = null
+      shelfSlotStart = null
+      shelfWidthSlots = null
+      shelfHeightU = null
     } else {
       const placement = await this.sites.resolvePlacement({
         projectId: data.projectId,
@@ -83,6 +111,10 @@ export default class DeviceService {
       areaId = placement.areaId
       rackUnitStart = null
       rackFace = null
+      supportedByAccessoryId = null
+      shelfSlotStart = null
+      shelfWidthSlots = null
+      shelfHeightU = null
     }
 
     const device = await this.devices.create({
@@ -103,6 +135,10 @@ export default class DeviceService {
       rackId,
       rackUnitStart,
       rackFace,
+      supportedByAccessoryId,
+      shelfSlotStart,
+      shelfWidthSlots,
+      shelfHeightU,
       status: data.status ?? 'unknown',
       notes: data.notes ?? null,
       createdBy: actorId,
@@ -136,12 +172,65 @@ export default class DeviceService {
 
     let patch: UpdateDeviceInput = { ...data }
 
+    const touchingShelf =
+      data.supportedByAccessoryId !== undefined ||
+      data.shelfSlotStart !== undefined ||
+      data.shelfWidthSlots !== undefined ||
+      data.shelfHeightU !== undefined
+
     const touchingRack =
       data.rackId !== undefined ||
       data.rackUnitStart !== undefined ||
       data.rackFace !== undefined
 
-    if (touchingRack) {
+    if (touchingShelf || (touchingRack && data.supportedByAccessoryId)) {
+      const nextAccessoryId =
+        data.supportedByAccessoryId !== undefined
+          ? data.supportedByAccessoryId
+          : device.supportedByAccessoryId
+
+      if (nextAccessoryId) {
+        const shelf = await this.accessories.resolveShelfPlacement({
+          projectId,
+          accessoryId: nextAccessoryId,
+          shelfSlotStart:
+            data.shelfSlotStart !== undefined
+              ? (data.shelfSlotStart ?? 0)
+              : (device.shelfSlotStart ?? 0),
+          shelfWidthSlots:
+            data.shelfWidthSlots !== undefined
+              ? (data.shelfWidthSlots ?? 1)
+              : (device.shelfWidthSlots ?? 1),
+          shelfHeightU:
+            data.shelfHeightU !== undefined ? data.shelfHeightU : device.shelfHeightU,
+          templateRackUnits: device.deviceTemplate?.rackUnits,
+          excludeDeviceId: device.id,
+        })
+        patch = {
+          ...patch,
+          supportedByAccessoryId: shelf.supportedByAccessoryId,
+          shelfSlotStart: shelf.shelfSlotStart,
+          shelfWidthSlots: shelf.shelfWidthSlots,
+          shelfHeightU: shelf.shelfHeightU,
+          rackId: shelf.rackId,
+          rackUnitStart: null,
+          rackFace: null,
+          siteId: shelf.siteId,
+          areaId: shelf.areaId,
+        }
+      } else if (data.supportedByAccessoryId === null) {
+        // Explicit clear of shelf — may still set rail mount below
+        patch = {
+          ...patch,
+          supportedByAccessoryId: null,
+          shelfSlotStart: null,
+          shelfWidthSlots: null,
+          shelfHeightU: null,
+        }
+      }
+    }
+
+    if (touchingRack && !patch.supportedByAccessoryId) {
       const nextRackId = data.rackId !== undefined ? data.rackId : device.rackId
       if (nextRackId) {
         const template = device.deviceTemplate
@@ -162,19 +251,31 @@ export default class DeviceService {
           rackFace: mount.rackFace,
           siteId: mount.siteId,
           areaId: mount.areaId,
+          supportedByAccessoryId: null,
+          shelfSlotStart: null,
+          shelfWidthSlots: null,
+          shelfHeightU: null,
         }
-      } else {
+      } else if (data.rackId === null) {
         patch = {
           ...patch,
           rackId: null,
           rackUnitStart: null,
           rackFace: null,
+          supportedByAccessoryId: null,
+          shelfSlotStart: null,
+          shelfWidthSlots: null,
+          shelfHeightU: null,
         }
       }
-    } else if (data.siteId !== undefined || data.areaId !== undefined) {
-      if (device.rackId) {
+    } else if (
+      !touchingShelf &&
+      !touchingRack &&
+      (data.siteId !== undefined || data.areaId !== undefined)
+    ) {
+      if (device.rackId || device.supportedByAccessoryId) {
         throw new Exception(
-          'El dispositivo está montado en un rack; desmontalo antes de cambiar sitio/área manualmente',
+          'El dispositivo está montado en un rack o bandeja; desmontalo antes de cambiar sitio/área manualmente',
           { status: 422 }
         )
       }

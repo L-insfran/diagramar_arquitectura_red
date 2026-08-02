@@ -11,8 +11,10 @@ import type {
 import CableType from '#models/cable_type'
 import Device from '#models/device'
 import Rack from '#models/rack'
+import RackAccessory from '#models/rack_accessory'
 import type Port from '#models/port'
 import ConnectionRepository from '#repositories/connection_repository'
+import { facesForMountType } from '#dtos/rack_accessory_dto'
 import type {
   CreateConnectionInput,
   UpdateConnectionInput,
@@ -89,6 +91,10 @@ type FlowTopologyNode = {
     rackUnitStart: number | null
     rackFace: 'front' | 'rear' | null
     rackUnits: number
+    supportedByAccessoryId: string | null
+    shelfSlotStart: number | null
+    shelfWidthSlots: number | null
+    shelfHeightU: number | null
     vlanCount: number
     vlans: VlanSummary[]
     networks: NetworkSummary[]
@@ -96,6 +102,16 @@ type FlowTopologyNode = {
     portsInUse: number
     ports: PortSummary[]
   }
+}
+
+type TopologyRackAccessory = {
+  id: string
+  name: string
+  kind: 'shelf'
+  unitStart: number
+  heightU: number
+  mountType: 'front_only' | 'four_post'
+  faces: Array<'front' | 'rear'>
 }
 
 type TopologyRackSummary = {
@@ -107,6 +123,7 @@ type TopologyRackSummary = {
   siteId: string | null
   areaName: string | null
   siteName: string | null
+  accessories: TopologyRackAccessory[]
 }
 
 type FlowTopologyEdge = {
@@ -212,6 +229,12 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
       rackUnitStart: device.rackUnitStart ?? null,
       rackFace: device.rackFace ?? null,
       rackUnits,
+      supportedByAccessoryId: device.supportedByAccessoryId ?? null,
+      shelfSlotStart: device.shelfSlotStart ?? null,
+      shelfWidthSlots: device.shelfWidthSlots ?? null,
+      shelfHeightU: device.supportedByAccessoryId
+        ? Math.max(1, device.shelfHeightU ?? rackUnits)
+        : null,
       vlanCount: allVlans.length,
       vlans: allVlans,
       networks: allNetworks,
@@ -379,6 +402,26 @@ export default class TopologyService {
       .preload('area', (a) => a.preload('site'))
       .orderBy('name', 'asc')
 
+    const allAccessories = await RackAccessory.query()
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
+      .orderBy('unit_start', 'asc')
+
+    const accessoriesByRack = new Map<string, TopologyRackAccessory[]>()
+    for (const acc of allAccessories) {
+      const list = accessoriesByRack.get(acc.rackId) ?? []
+      list.push({
+        id: acc.id,
+        name: acc.name,
+        kind: 'shelf',
+        unitStart: acc.unitStart,
+        heightU: acc.heightU,
+        mountType: acc.mountType,
+        faces: facesForMountType(acc.mountType),
+      })
+      accessoriesByRack.set(acc.rackId, list)
+    }
+
     const racks: TopologyRackSummary[] = allRacks.map((rack) => ({
       id: rack.id,
       name: rack.name,
@@ -388,6 +431,7 @@ export default class TopologyService {
       siteId: rack.area?.siteId ?? null,
       areaName: rack.area?.name ?? null,
       siteName: rack.area?.site?.name ?? null,
+      accessories: accessoriesByRack.get(rack.id) ?? [],
     }))
 
     const graphNodes = new Map<string, FlowTopologyNode>()

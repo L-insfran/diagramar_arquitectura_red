@@ -241,6 +241,11 @@ function buildPortLayoutMaps(nodes: TopologyDeviceNode[]): {
       shouldUseEthernetFaceplateLayout(n.data.deviceType, n.data.ports ?? [])
         ? TOPOLOGY_HEADER_HEIGHT_PATCH
         : TOPOLOGY_HEADER_HEIGHT
+    const layoutHints = {
+      deviceType: n.data.deviceType,
+      ports: n.data.ports ?? [],
+      ...(n.data.supportedByAccessoryId ? { shelfMounted: true as const } : {}),
+    }
     layoutByNodeId.set(
       n.id,
       n.data.rackMounted
@@ -250,7 +255,7 @@ function buildPortLayoutMaps(nodes: TopologyDeviceNode[]): {
             wireless.length,
             n.width ?? n.data.nodeWidth ?? 380,
             n.height ?? n.data.nodeHeight ?? 44,
-            { deviceType: n.data.deviceType, ports: n.data.ports ?? [] },
+            layoutHints,
           )
         : computePortPanelLayout(
             physical.length,
@@ -258,7 +263,7 @@ function buildPortLayoutMaps(nodes: TopologyDeviceNode[]): {
             totalPhysical,
             headerHeight,
             wireless.length,
-            { deviceType: n.data.deviceType, ports: n.data.ports ?? [] },
+            layoutHints,
           ),
     )
     const byId = new Map<string, number>()
@@ -307,6 +312,11 @@ function topologyToFlowElements(data: TopologyData): {
       shouldUseEthernetFaceplateLayout(n.data.deviceType, allPorts)
         ? TOPOLOGY_HEADER_HEIGHT_PATCH
         : TOPOLOGY_HEADER_HEIGHT
+    const layoutHints = {
+      deviceType: n.data.deviceType,
+      ports: allPorts,
+      ...(n.data.supportedByAccessoryId ? { shelfMounted: true as const } : {}),
+    }
     layoutByNodeId.set(
       n.id,
       n.data.rackMounted
@@ -316,7 +326,7 @@ function topologyToFlowElements(data: TopologyData): {
             wireless.length,
             n.data.nodeWidth ?? 380,
             n.data.nodeHeight ?? 44,
-            { deviceType: n.data.deviceType, ports: allPorts },
+            layoutHints,
           )
         : computePortPanelLayout(
             physical.length,
@@ -324,7 +334,7 @@ function topologyToFlowElements(data: TopologyData): {
             totalPhysicalCount,
             headerHeight,
             wireless.length,
-            { deviceType: n.data.deviceType, ports: allPorts },
+            layoutHints,
           ),
     )
   }

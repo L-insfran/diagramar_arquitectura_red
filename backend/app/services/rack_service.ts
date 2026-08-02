@@ -1,20 +1,42 @@
 import { Exception } from '@adonisjs/core/exceptions'
 import RackRepository from '#repositories/rack_repository'
+import RackAccessoryRepository from '#repositories/rack_accessory_repository'
+import { facesForMountType } from '#dtos/rack_accessory_dto'
 import type {
   CreateRackInput,
+  OccupantKind,
   RackFace,
   RackFilters,
   RackOccupancy,
+  RackOccupancyAccessory,
   RackOccupancySlot,
+  ShelfMountType,
   UpdateRackInput,
 } from '#dtos/rack_dto'
+import {
+  footprintsOverlap,
+  railDeviceFootprint,
+  shelfDeviceFootprints,
+  shelfDeviceHeightU,
+  shelfFootprints,
+} from '#services/rack_layout'
 
-function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
-  return aStart <= bEnd && bStart <= aEnd
+type RailOccupant = {
+  kind: OccupantKind
+  id: string
+  name: string
+  rackUnitStart: number
+  rackUnitEnd: number
+  heightU: number
+  rackFace: RackFace
+  mountType: ShelfMountType | null
+  slotStart: number
+  slotEnd: number
 }
 
 export default class RackService {
   private racks = new RackRepository()
+  private accessories = new RackAccessoryRepository()
 
   async getAllByProject(projectId: string, filters?: RackFilters) {
     return this.racks.findAllByProject(projectId, filters)
@@ -60,11 +82,35 @@ export default class RackService {
       }
       const mounted = await this.racks.findMountedDevices(id)
       for (const device of mounted) {
+        if (device.supportedByAccessoryId) continue
         const height = device.deviceTemplate?.rackUnits ?? 1
         const end = (device.rackUnitStart ?? 1) + height - 1
         if (end > data.heightU) {
           throw new Exception(
             `No se puede reducir a ${data.heightU}U: "${device.name}" ocupa hasta U${end}`,
+            { status: 409 }
+          )
+        }
+      }
+      const shelves = await this.accessories.findByRack(id)
+      for (const shelf of shelves) {
+        const end = shelf.unitStart + shelf.heightU - 1
+        if (end > data.heightU) {
+          throw new Exception(
+            `No se puede reducir a ${data.heightU}U: bandeja "${shelf.name}" ocupa hasta U${end}`,
+            { status: 409 }
+          )
+        }
+      }
+      const shelfDevices = await this.accessories.findShelfDevicesByRack(id)
+      for (const device of shelfDevices) {
+        const shelf = device.supportedByAccessory
+        if (!shelf) continue
+        const height = shelfDeviceHeightU(device.shelfHeightU, device.deviceTemplate?.rackUnits)
+        const end = shelf.unitStart + height - 1
+        if (end > data.heightU) {
+          throw new Exception(
+            `No se puede reducir a ${data.heightU}U: equipo apoyado "${device.name}" ocupa hasta U${end}`,
             { status: 409 }
           )
         }
@@ -83,28 +129,120 @@ export default class RackService {
         { status: 409 }
       )
     }
+    const accessoryCount = await this.accessories.countActiveOnRack(id)
+    if (accessoryCount > 0) {
+      throw new Exception(
+        `No se puede eliminar el rack: hay ${accessoryCount} bandeja(s)/accesorio(s)`,
+        { status: 409 }
+      )
+    }
     await this.racks.softDelete(rack, actorId)
   }
 
   async getOccupancy(id: string): Promise<RackOccupancy> {
     const rack = await this.racks.findByIdOrFail(id)
     const mounted = await this.racks.findMountedDevices(id)
-    const devices = mounted.map((d) => {
-      const heightU = Math.max(1, d.deviceTemplate?.rackUnits ?? 1)
-      const start = d.rackUnitStart ?? 1
-      const face = (d.rackFace ?? 'front') as RackFace
-      return {
+    const shelves = await this.accessories.findByRack(id)
+
+    const devices = mounted
+      .filter((d) => !d.supportedByAccessoryId && d.rackUnitStart != null)
+      .map((d) => {
+        const heightU = Math.max(1, d.deviceTemplate?.rackUnits ?? 1)
+        const start = d.rackUnitStart ?? 1
+        const face = (d.rackFace ?? 'front') as RackFace
+        return {
+          id: d.id,
+          name: d.name,
+          rackUnitStart: start,
+          rackFace: face,
+          heightU,
+          rackUnitEnd: start + heightU - 1,
+        }
+      })
+
+    const accessories: RackOccupancyAccessory[] = []
+    for (const shelf of shelves) {
+      const onShelf = await this.accessories.findDevicesOnAccessory(shelf.id)
+      const faces = facesForMountType(shelf.mountType)
+      accessories.push({
+        id: shelf.id,
+        name: shelf.name,
+        kind: 'shelf',
+        unitStart: shelf.unitStart,
+        heightU: shelf.heightU,
+        unitEnd: shelf.unitStart + shelf.heightU - 1,
+        mountType: shelf.mountType,
+        faces,
+        devices: onShelf.map((d) => {
+          const heightU = shelfDeviceHeightU(d.shelfHeightU, d.deviceTemplate?.rackUnits)
+          return {
+            id: d.id,
+            name: d.name,
+            shelfSlotStart: d.shelfSlotStart ?? 0,
+            shelfWidthSlots: d.shelfWidthSlots ?? 1,
+            heightU,
+            unitEnd: shelf.unitStart + heightU - 1,
+          }
+        }),
+      })
+    }
+
+    const railOccupants: RailOccupant[] = [
+      ...devices.map((d) => ({
+        kind: 'device' as const,
         id: d.id,
         name: d.name,
-        rackUnitStart: start,
-        rackFace: face,
-        heightU,
-        rackUnitEnd: start + heightU - 1,
-      }
-    })
+        rackUnitStart: d.rackUnitStart,
+        rackUnitEnd: d.rackUnitEnd,
+        heightU: d.heightU,
+        rackFace: d.rackFace,
+        mountType: null,
+        slotStart: 0,
+        slotEnd: 2,
+      })),
+      ...accessories.flatMap((a) =>
+        a.faces.map((face) => ({
+          kind: 'shelf' as const,
+          id: a.id,
+          name: a.name,
+          rackUnitStart: a.unitStart,
+          rackUnitEnd: a.unitEnd,
+          heightU: a.heightU,
+          rackFace: face,
+          mountType: a.mountType,
+          slotStart: 0,
+          slotEnd: 2,
+        }))
+      ),
+      ...accessories.flatMap((a) =>
+        a.devices.flatMap((d) => {
+          const fps = shelfDeviceFootprints({
+            deviceId: d.id,
+            deviceName: d.name,
+            shelfUnitStart: a.unitStart,
+            shelfMountType: a.mountType,
+            heightU: d.heightU,
+            shelfSlotStart: d.shelfSlotStart,
+            shelfWidthSlots: d.shelfWidthSlots,
+          })
+          return fps.map((fp) => ({
+            kind: 'shelf_device' as const,
+            id: fp.id,
+            name: fp.name,
+            rackUnitStart: fp.unitStart,
+            rackUnitEnd: fp.unitEnd,
+            heightU: d.heightU,
+            rackFace: fp.face,
+            mountType: a.mountType,
+            slotStart: fp.slotStart,
+            slotEnd: fp.slotEnd,
+          }))
+        })
+      ),
+    ]
 
     const usedUnits = new Set<string>()
-    for (const d of devices) {
+    for (const d of railOccupants) {
       for (let u = d.rackUnitStart; u <= d.rackUnitEnd; u++) {
         usedUnits.add(`${d.rackFace}:${u}`)
       }
@@ -120,28 +258,60 @@ export default class RackService {
       freeU,
       percentUsed: capacity === 0 ? 0 : Math.round((usedU / capacity) * 1000) / 10,
       devices,
-      slotsFront: this.buildSlots(rack.heightU, devices, 'front'),
-      slotsRear: this.buildSlots(rack.heightU, devices, 'rear'),
+      accessories,
+      slotsFront: this.buildSlots(rack.heightU, railOccupants, 'front'),
+      slotsRear: this.buildSlots(rack.heightU, railOccupants, 'rear'),
     }
   }
 
   private buildSlots(
     heightU: number,
-    devices: RackOccupancy['devices'],
+    occupants: RailOccupant[],
     face: RackFace
   ): RackOccupancySlot[] {
-    const slots: RackOccupancySlot[] = []
-    for (let unit = heightU; unit >= 1; unit--) {
-      const owner = devices.find(
+    const preferredAt = (unit: number): RailOccupant | null => {
+      const faceOccupants = occupants.filter(
         (d) => d.rackFace === face && unit >= d.rackUnitStart && unit <= d.rackUnitEnd
       )
+      return (
+        faceOccupants.find((d) => d.kind === 'device' || d.kind === 'shelf') ??
+        faceOccupants[0] ??
+        null
+      )
+    }
+
+    const visibleStartFor = (owner: RailOccupant): number => {
+      if (owner.kind !== 'shelf_device') return owner.rackUnitStart
+      for (let u = owner.rackUnitStart; u <= owner.rackUnitEnd; u++) {
+        const preferred = preferredAt(u)
+        if (preferred?.kind === 'shelf_device' && preferred.id === owner.id) {
+          return u
+        }
+      }
+      return owner.rackUnitStart
+    }
+
+    const slots: RackOccupancySlot[] = []
+    for (let unit = heightU; unit >= 1; unit--) {
+      const owner = preferredAt(unit)
+      const visibleStart = owner ? visibleStartFor(owner) : 0
+      const visibleHeight = owner ? owner.rackUnitEnd - visibleStart + 1 : 0
+
       slots.push({
         unit,
-        deviceId: owner?.id ?? null,
-        deviceName: owner?.name ?? null,
+        deviceId:
+          owner?.kind === 'device' || owner?.kind === 'shelf_device' ? owner.id : null,
+        deviceName:
+          owner?.kind === 'device' || owner?.kind === 'shelf_device' ? owner.name : null,
+        accessoryId: owner?.kind === 'shelf' ? owner.id : null,
+        accessoryName: owner?.kind === 'shelf' ? owner.name : null,
+        occupantKind: owner?.kind ?? null,
+        mountType: owner?.mountType ?? null,
         face: owner ? face : null,
-        isStart: owner ? unit === owner.rackUnitStart : false,
-        heightU: owner?.heightU ?? 0,
+        isStart: owner ? unit === visibleStart : false,
+        heightU: owner?.kind === 'shelf_device' ? visibleHeight : (owner?.heightU ?? 0),
+        slotStart: owner?.kind === 'shelf_device' ? owner.slotStart : null,
+        slotEnd: owner?.kind === 'shelf_device' ? owner.slotEnd : null,
       })
     }
     return slots
@@ -150,6 +320,7 @@ export default class RackService {
   /**
    * Validate rack mount and sync site/area from rack.
    * Clears mount fields when rackId is null.
+   * Also rejects overlap with shelves and shelf-resting devices on the affected face(s).
    */
   async resolveRackPlacement(params: {
     projectId: string
@@ -192,19 +363,77 @@ export default class RackService {
     }
 
     const face: RackFace = params.rackFace ?? 'front'
+    const candidate = railDeviceFootprint({
+      deviceId: params.excludeDeviceId ?? 'new',
+      deviceName: 'equipo',
+      face,
+      unitStart: start,
+      heightU,
+    })
+
     const mounted = await this.racks.findMountedDevices(rackId)
     for (const other of mounted) {
       if (params.excludeDeviceId && other.id === params.excludeDeviceId) continue
-      const otherFace = (other.rackFace ?? 'front') as RackFace
-      if (otherFace !== face) continue
-      const otherHeight = Math.max(1, other.deviceTemplate?.rackUnits ?? 1)
-      const otherStart = other.rackUnitStart ?? 1
-      const otherEnd = otherStart + otherHeight - 1
-      if (rangesOverlap(start, end, otherStart, otherEnd)) {
+      if (other.supportedByAccessoryId) continue
+      if (other.rackUnitStart == null) continue
+      const otherFp = railDeviceFootprint({
+        deviceId: other.id,
+        deviceName: other.name,
+        face: (other.rackFace ?? 'front') as RackFace,
+        unitStart: other.rackUnitStart,
+        heightU: Math.max(1, other.deviceTemplate?.rackUnits ?? 1),
+      })
+      if (footprintsOverlap(candidate, otherFp)) {
         throw new Exception(
-          `Solape con "${other.name}" (U${otherStart}–U${otherEnd}, ${otherFace})`,
+          `Solape con "${other.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd}, ${otherFp.face})`,
           { status: 409 }
         )
+      }
+    }
+
+    const shelves = await this.accessories.findByRack(rackId)
+    for (const shelf of shelves) {
+      const shelfFps = shelfFootprints({
+        accessoryId: shelf.id,
+        accessoryName: shelf.name,
+        unitStart: shelf.unitStart,
+        heightU: shelf.heightU,
+        mountType: shelf.mountType,
+      })
+      for (const otherFp of shelfFps) {
+        if (footprintsOverlap(candidate, otherFp)) {
+          throw new Exception(
+            `Solape con bandeja "${shelf.name}" (U${shelf.unitStart}–U${shelf.unitStart + shelf.heightU - 1}, ${shelf.mountType === 'four_post' ? 'integral' : 'frontal'})`,
+            { status: 409 }
+          )
+        }
+      }
+    }
+
+    const shelfDevices = await this.accessories.findShelfDevicesByRack(
+      rackId,
+      params.excludeDeviceId
+    )
+    for (const device of shelfDevices) {
+      const shelf = device.supportedByAccessory
+      if (!shelf) continue
+      const deviceHeight = shelfDeviceHeightU(device.shelfHeightU, device.deviceTemplate?.rackUnits)
+      const deviceFps = shelfDeviceFootprints({
+        deviceId: device.id,
+        deviceName: device.name,
+        shelfUnitStart: shelf.unitStart,
+        shelfMountType: shelf.mountType,
+        heightU: deviceHeight,
+        shelfSlotStart: device.shelfSlotStart ?? 0,
+        shelfWidthSlots: device.shelfWidthSlots ?? 1,
+      })
+      for (const otherFp of deviceFps) {
+        if (footprintsOverlap(candidate, otherFp)) {
+          throw new Exception(
+            `Solape con equipo apoyado "${device.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd})`,
+            { status: 409 }
+          )
+        }
       }
     }
 

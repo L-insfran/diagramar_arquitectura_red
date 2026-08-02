@@ -19,15 +19,16 @@ export type OccupiedRange = {
   start: number
   end: number
   heightU: number
+  kind?: 'device' | 'shelf' | 'shelf_device'
 }
 
-/** Occupied blocks on one face, excluding an optional device (edit mode). */
+/** Occupied blocks on one face (devices + shelves + shelf-resting devices). */
 export function occupiedRangesForFace(
   occupancy: RackOccupancy,
   face: RackFace,
   excludeDeviceId?: string | null
 ): OccupiedRange[] {
-  return occupancy.devices
+  const fromDevices = occupancy.devices
     .filter((d) => d.rackFace === face && d.id !== excludeDeviceId)
     .map((d) => ({
       deviceId: d.id,
@@ -35,7 +36,40 @@ export function occupiedRangesForFace(
       start: d.rackUnitStart,
       end: d.rackUnitEnd,
       heightU: d.heightU,
+      kind: 'device' as const,
     }))
+
+  const fromShelves = (occupancy.accessories ?? [])
+    .filter((a) => a.faces.includes(face))
+    .map((a) => ({
+      deviceId: a.id,
+      deviceName: a.name,
+      start: a.unitStart,
+      end: a.unitEnd,
+      heightU: a.heightU,
+      kind: 'shelf' as const,
+    }))
+
+  const fromShelfDevices = (occupancy.accessories ?? [])
+    .filter((a) => a.faces.includes(face))
+    .flatMap((a) =>
+      a.devices
+        .filter((d) => d.id !== excludeDeviceId)
+        .map((d) => {
+          const heightU = Math.max(1, d.heightU)
+          const end = d.unitEnd ?? a.unitStart + heightU - 1
+          return {
+            deviceId: d.id,
+            deviceName: d.name,
+            start: a.unitStart,
+            end,
+            heightU,
+            kind: 'shelf_device' as const,
+          }
+        })
+    )
+
+  return [...fromDevices, ...fromShelves, ...fromShelfDevices]
 }
 
 export function canPlaceAt(params: {
@@ -76,6 +110,14 @@ export function isSlotFreeForPlacement(
   slot: RackOccupancySlot,
   excludeDeviceId?: string | null
 ): boolean {
+  if (slot.accessoryId) return false
+  if (slot.occupantKind === 'shelf_device') {
+    return Boolean(excludeDeviceId && slot.deviceId === excludeDeviceId)
+  }
   if (!slot.deviceId) return true
   return Boolean(excludeDeviceId && slot.deviceId === excludeDeviceId)
+}
+
+export function mountTypeLabel(mountType: string): string {
+  return mountType === 'four_post' ? 'Integral (4 postes)' : 'Solo frontal'
 }

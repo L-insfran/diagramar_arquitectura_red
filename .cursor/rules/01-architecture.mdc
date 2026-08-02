@@ -23,7 +23,7 @@ Controller → Service → Repository → DTO → Validator
 | Backend | `backend/` (AdonisJS 7 + Lucid + VineJS + PostgreSQL) |
 | Controllers / Models / Services / Validators | `backend/app/{controllers,models,services,validators}/` |
 | Repositories / DTOs | `backend/app/{repositories,dtos}/` |
-| Migraciones | `backend/database/migrations/` (siguiente: `0037_...`) |
+| Migraciones | `backend/database/migrations/` (siguiente: `0040_...`) |
 | Frontend | `fronted/` (typo histórico del nombre; no renombrar sin plan) |
 | Páginas / Componentes / Services | `fronted/src/{pages,components,services}/` |
 | Contextos / Hooks / Types | `fronted/src/{contexts,hooks,types}/` |

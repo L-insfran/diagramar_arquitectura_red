@@ -27,6 +27,11 @@ export type CreateDeviceInput = {
   rackId?: string | null
   rackUnitStart?: number | null
   rackFace?: RackFace | null
+  supportedByAccessoryId?: string | null
+  shelfSlotStart?: number | null
+  shelfWidthSlots?: number | null
+  /** Vertical U occupied when resting on a shelf (default = template.rackUnits). */
+  shelfHeightU?: number | null
   status?: DeviceStatus
   notes?: string | null
 }
@@ -46,6 +51,11 @@ export type UpdateDeviceInput = {
   rackId?: string | null
   rackUnitStart?: number | null
   rackFace?: RackFace | null
+  supportedByAccessoryId?: string | null
+  shelfSlotStart?: number | null
+  shelfWidthSlots?: number | null
+  /** Vertical U occupied when resting on a shelf (default = template.rackUnits). */
+  shelfHeightU?: number | null
   status?: DeviceStatus
   notes?: string | null
 }

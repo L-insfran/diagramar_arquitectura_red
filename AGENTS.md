@@ -46,6 +46,7 @@ Reglas Cursor (contexto persistente): [.cursor/rules/](.cursor/rules/)
 - **Sí** existe `GET /api/dashboard` con métricas agregadas del proyecto (Fase 7).
 - Regla: 1 conexión física activa por **(puerto, cara)**; puertos passthrough tienen `front`/`rear` (ADR 0005); marca editable en UI + bulk.
 - Frontend vive en la carpeta **`fronted/`** (typo histórico).
-- Siguiente migración tras `0036_`: **`0037_`**.
+- Siguiente migración tras `0039_`: **`0040_`**.
 - Capas: Controller → Service → Repository → DTO → Validator (ADR 0002).
 - Regla de conexiones: 1 física activa por `(port, face)`; patch panels = `is_passthrough` (ADR 0005).
+- Bandejas: `rack_accessories` + templates; `mount_type` front_only/four_post; devices apoyados vía `supported_by_accessory_id` + `shelf_height_u` (ADR 0006).

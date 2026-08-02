@@ -51,6 +51,8 @@ export type PortPanelLayoutHints = {
   ports?: Array<Pick<TopologyPortSummary, 'portType' | 'isPassthrough'>>
   /** Fuerza faceplate Ethernet (tests / override). */
   ethernetFaceplate?: boolean
+  /** Equipo apoyado en bandeja: grilla de puertos prioriza legibilidad. */
+  shelfMounted?: boolean
 }
 
 /** Chips SSID (sección WiFi, no se ven como puertos RJ45). */
@@ -593,6 +595,10 @@ const RACK_PORT_CELL_W_MIN = 10
 const RACK_PORT_CELL_H_MIN = 8
 const RACK_PORT_CELL_H_MAX = 22
 const RACK_PORT_CELL_W_MAX = 28
+/** Tope más holgado para equipos en bandeja (aprovechar ancho del slot). */
+const RACK_PORT_CELL_W_MAX_SHELF = 44
+const RACK_PORT_CELL_W_MAX_FACEPLATE = 16
+const RACK_PORT_CELL_W_MAX_FACEPLATE_SHELF = 22
 const RACK_PORT_HEADER_H = 12
 const RACK_WIFI_CELL_H_MIN = 14
 const RACK_WIFI_CELL_H_MAX = 22
@@ -600,6 +606,52 @@ const RACK_SECTION_GAP = 2
 const RACK_PANEL_HEADER_MARGIN = 2
 /** ~1U: priorizar que la grilla quepa dentro del rectángulo. */
 const RACK_DENSE_HEIGHT_PX = 48
+
+/**
+ * Elige cols/rows para maximizar legibilidad de celdas en un slot de bandeja
+ * (p.ej. 10 puertos en ⅓ → 2×5 en vez de 1×10).
+ */
+export function chooseShelfPortGrid(
+  count: number,
+  availableW: number,
+  heightBudget: number,
+  gap: number,
+  cellWMax: number,
+  cellHMax: number,
+): { cols: number; rows: number } {
+  if (count <= 0) return { cols: 0, rows: 0 }
+  if (count === 1) return { cols: 1, rows: 1 }
+
+  const maxRows = Math.min(
+    count,
+    Math.max(1, Math.floor((heightBudget + gap) / (RACK_PORT_CELL_H_MIN + gap))),
+  )
+  let bestCols = count
+  let bestRows = 1
+  let bestScore = -1
+
+  for (let rows = 1; rows <= maxRows; rows++) {
+    const cols = Math.ceil(count / rows)
+    const gapBudget = (cols - 1) * gap
+    const cellW = Math.min(
+      cellWMax,
+      Math.max(1, Math.floor((availableW - gapBudget) / Math.max(1, cols))),
+    )
+    const cellH = Math.min(
+      cellHMax,
+      Math.max(1, Math.floor((heightBudget - (rows - 1) * gap) / rows)),
+    )
+    const readableBonus = cellW >= 16 ? 1.25 : cellW >= 14 ? 1.1 : 1
+    const score = cellW * cellH * readableBonus
+    if (score > bestScore || (score === bestScore && rows < bestRows)) {
+      bestScore = score
+      bestCols = cols
+      bestRows = rows
+    }
+  }
+
+  return { cols: bestCols, rows: bestRows }
+}
 
 /**
  * Layout denso para equipos dentro de un rack: chrome mínimo en 1U y
@@ -621,11 +673,19 @@ export function computeRackMountedPortPanelLayout(
   const portGapBase = dense ? RACK_PORT_GAP : RACK_PORT_GAP_ROOMY
   const hasPhysical = physicalCount > 0
   const hasWireless = wirelessCount > 0
+  const shelfMounted = hints?.shelfMounted === true
   const layoutMode = resolvePortPanelLayoutMode(totalPhysicalPortCount, hints)
   const faceplate = layoutMode === 'ethernetFaceplate'
   const portGap = faceplate ? Math.min(portGapBase, 2) : portGapBase
   const blockSize = faceplate ? ETHERNET_FACEPLATE_BLOCK_SIZE : undefined
   const blockGap = faceplate ? Math.max(portGap + 3, dense ? 5 : 7) : undefined
+  const cellWMax = faceplate
+    ? shelfMounted
+      ? RACK_PORT_CELL_W_MAX_FACEPLATE_SHELF
+      : RACK_PORT_CELL_W_MAX_FACEPLATE
+    : shelfMounted
+      ? RACK_PORT_CELL_W_MAX_SHELF
+      : RACK_PORT_CELL_W_MAX
 
   if (!hasPhysical && !hasWireless) {
     return {
@@ -676,6 +736,19 @@ export function computeRackMountedPortPanelLayout(
     if (faceplate) {
       cols = Math.max(1, physicalCount)
       rows = 1
+    } else if (shelfMounted) {
+      // Reserva aproximada si hay WiFi; el presupuesto final se ajusta después.
+      const heightForPhys = hasWireless ? Math.floor(gridsBudget * 0.7) : gridsBudget
+      const grid = chooseShelfPortGrid(
+        physicalCount,
+        availableW,
+        heightForPhys,
+        portGap,
+        cellWMax,
+        RACK_PORT_CELL_H_MAX,
+      )
+      cols = grid.cols
+      rows = grid.rows
     } else if (layoutMode === 'switchPairs') {
       const slots = Math.max(totalPhysicalPortCount, physicalCount)
       const grid = computeSwitchPhysicalGrid(slots)
@@ -716,7 +789,7 @@ export function computeRackMountedPortPanelLayout(
     : (cols - 1) * portGap
   const cellW = hasPhysical
     ? Math.min(
-        faceplate ? 16 : RACK_PORT_CELL_W_MAX,
+        cellWMax,
         Math.max(1, Math.floor((availableW - gapBudget) / Math.max(1, cols))),
       )
     : 0

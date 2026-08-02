@@ -14,6 +14,7 @@ export default class DeviceRepository {
       .preload('site')
       .preload('area')
       .preload('rack')
+      .preload('supportedByAccessory')
       .preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
       .orderBy('name', 'asc')
 
@@ -55,6 +56,7 @@ export default class DeviceRepository {
       .preload('site')
       .preload('area')
       .preload('rack')
+      .preload('supportedByAccessory')
       .preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
       .preload('credentials')
       .preload('employees')
@@ -71,6 +73,7 @@ export default class DeviceRepository {
       .preload('site')
       .preload('area')
       .preload('rack')
+      .preload('supportedByAccessory')
       .firstOrFail()
   }
 
@@ -92,6 +95,10 @@ export default class DeviceRepository {
       rackId: data.rackId ?? null,
       rackUnitStart: data.rackUnitStart ?? null,
       rackFace: data.rackFace ?? null,
+      supportedByAccessoryId: data.supportedByAccessoryId ?? null,
+      shelfSlotStart: data.shelfSlotStart ?? null,
+      shelfWidthSlots: data.shelfWidthSlots ?? null,
+      shelfHeightU: data.shelfHeightU ?? null,
       name: data.name,
       hostname: data.hostname ?? null,
       ipAddress: data.ipAddress ?? null,

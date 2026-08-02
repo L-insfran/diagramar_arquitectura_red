@@ -312,7 +312,7 @@ export class DeviceTypeSchema extends BaseModel {
 }
 
 export class DeviceSchema extends BaseModel {
-  static $columns = ['areaId', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'deviceTemplateId', 'deviceTypeId', 'firmwareVersion', 'hostname', 'id', 'ipAddress', 'location', 'macAddress', 'manufacturer', 'model', 'name', 'notes', 'projectId', 'rackFace', 'rackId', 'rackUnitStart', 'serialNumber', 'siteId', 'status', 'updatedAt', 'updatedBy'] as const
+  static $columns = ['areaId', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'deviceTemplateId', 'deviceTypeId', 'firmwareVersion', 'hostname', 'id', 'ipAddress', 'location', 'macAddress', 'manufacturer', 'model', 'name', 'notes', 'projectId', 'rackFace', 'rackId', 'rackUnitStart', 'serialNumber', 'shelfHeightU', 'shelfSlotStart', 'shelfWidthSlots', 'siteId', 'status', 'supportedByAccessoryId', 'updatedAt', 'updatedBy'] as const
   $columns = DeviceSchema.$columns
   @column()
   declare areaId: string | null
@@ -359,9 +359,17 @@ export class DeviceSchema extends BaseModel {
   @column()
   declare serialNumber: string | null
   @column()
+  declare shelfHeightU: number | null
+  @column()
+  declare shelfSlotStart: number | null
+  @column()
+  declare shelfWidthSlots: number | null
+  @column()
   declare siteId: string | null
   @column()
   declare status: any
+  @column()
+  declare supportedByAccessoryId: string | null
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
   @column()
@@ -573,6 +581,80 @@ export class ProjectSchema extends BaseModel {
   declare phone: string | null
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+}
+
+export class RackAccessorySchema extends BaseModel {
+  static $columns = ['accessoryTemplateId', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'heightU', 'id', 'kind', 'manufacturer', 'model', 'mountType', 'name', 'notes', 'projectId', 'rackId', 'unitStart', 'updatedAt', 'updatedBy'] as const
+  $columns = RackAccessorySchema.$columns
+  @column()
+  declare accessoryTemplateId: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare heightU: number
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare kind: string
+  @column()
+  declare manufacturer: string | null
+  @column()
+  declare model: string | null
+  @column()
+  declare mountType: string
+  @column()
+  declare name: string
+  @column()
+  declare notes: string | null
+  @column()
+  declare projectId: string
+  @column()
+  declare rackId: string
+  @column()
+  declare unitStart: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
+export class RackAccessoryTemplateSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'defaultMountType', 'deletedAt', 'deletedBy', 'heightU', 'id', 'kind', 'manufacturer', 'model', 'name', 'notes', 'updatedAt', 'updatedBy'] as const
+  $columns = RackAccessoryTemplateSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column()
+  declare defaultMountType: string
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare heightU: number
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare kind: string
+  @column()
+  declare manufacturer: string | null
+  @column()
+  declare model: string | null
+  @column()
+  declare name: string
+  @column()
+  declare notes: string | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
 }
 
 export class RackSchema extends BaseModel {

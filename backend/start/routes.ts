@@ -13,6 +13,9 @@ const DeviceTypesController = () => import('#controllers/device_types_controller
 const DeviceTemplatesController = () => import('#controllers/device_templates_controller')
 const SitesController = () => import('#controllers/sites_controller')
 const RacksController = () => import('#controllers/racks_controller')
+const RackAccessoriesController = () => import('#controllers/rack_accessories_controller')
+const RackAccessoryTemplatesController = () =>
+  import('#controllers/rack_accessory_templates_controller')
 const PortTypesController = () => import('#controllers/port_types_controller')
 const CableTypesController = () => import('#controllers/cable_types_controller')
 const AttachmentsController = () => import('#controllers/attachments_controller')
@@ -147,6 +150,19 @@ router
     router.get('/racks/:id', [RacksController, 'show'])
     router.put('/racks/:id', [RacksController, 'update'])
     router.delete('/racks/:id', [RacksController, 'destroy'])
+
+    // Bandejas / accesorios de rack (ADR 0006)
+    router.get('/rack-accessory-templates', [RackAccessoryTemplatesController, 'index'])
+    router.post('/rack-accessory-templates', [RackAccessoryTemplatesController, 'store'])
+    router.get('/rack-accessory-templates/:id', [RackAccessoryTemplatesController, 'show'])
+    router.put('/rack-accessory-templates/:id', [RackAccessoryTemplatesController, 'update'])
+    router.delete('/rack-accessory-templates/:id', [RackAccessoryTemplatesController, 'destroy'])
+
+    router.get('/rack-accessories', [RackAccessoriesController, 'index'])
+    router.post('/rack-accessories', [RackAccessoriesController, 'store'])
+    router.get('/rack-accessories/:id', [RackAccessoriesController, 'show'])
+    router.put('/rack-accessories/:id', [RackAccessoriesController, 'update'])
+    router.delete('/rack-accessories/:id', [RackAccessoriesController, 'destroy'])
 
     // Port Types
     router.get('/port-types', [PortTypesController, 'index'])

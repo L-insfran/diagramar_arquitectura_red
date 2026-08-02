@@ -281,14 +281,43 @@ export interface Rack {
 }
 
 export type RackFace = 'front' | 'rear'
+export type ShelfMountType = 'front_only' | 'four_post'
+export type OccupantKind = 'device' | 'shelf' | 'shelf_device'
 
 export interface RackOccupancySlot {
   unit: number
   deviceId: string | null
   deviceName: string | null
+  accessoryId?: string | null
+  accessoryName?: string | null
+  occupantKind?: OccupantKind | null
+  mountType?: ShelfMountType | null
   face: RackFace | null
   isStart: boolean
   heightU: number
+  /** Horizontal thirds occupied (shelf_device only). */
+  slotStart?: number | null
+  slotEnd?: number | null
+}
+
+export interface RackOccupancyAccessory {
+  id: string
+  name: string
+  kind: 'shelf'
+  unitStart: number
+  heightU: number
+  unitEnd: number
+  mountType: ShelfMountType
+  faces: RackFace[]
+  devices: Array<{
+    id: string
+    name: string
+    shelfSlotStart: number
+    shelfWidthSlots: number
+    heightU: number
+    /** Last U occupied upward from shelf.unitStart. */
+    unitEnd?: number
+  }>
 }
 
 export interface RackOccupancy {
@@ -305,8 +334,42 @@ export interface RackOccupancy {
     heightU: number
     rackUnitEnd: number
   }>
+  accessories?: RackOccupancyAccessory[]
   slotsFront: RackOccupancySlot[]
   slotsRear: RackOccupancySlot[]
+}
+
+export interface RackAccessoryTemplate {
+  id: string
+  name: string
+  kind: 'shelf'
+  heightU: number
+  defaultMountType: ShelfMountType
+  manufacturer: string | null
+  model: string | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RackAccessory {
+  id: string
+  projectId: string
+  rackId: string
+  accessoryTemplateId: string | null
+  name: string
+  kind: 'shelf'
+  unitStart: number
+  heightU: number
+  mountType: ShelfMountType
+  manufacturer: string | null
+  model: string | null
+  notes: string | null
+  rack?: Rack
+  accessoryTemplate?: RackAccessoryTemplate
+  supportedDevices?: Device[]
+  createdAt: string
+  updatedAt: string
 }
 
 export interface Device {
@@ -319,6 +382,11 @@ export interface Device {
   rackId: string | null
   rackUnitStart: number | null
   rackFace: RackFace | null
+  supportedByAccessoryId?: string | null
+  shelfSlotStart?: number | null
+  shelfWidthSlots?: number | null
+  /** Vertical U when resting on a shelf (default = template.rackUnits). */
+  shelfHeightU?: number | null
   name: string
   hostname: string | null
   ipAddress: string | null
@@ -338,6 +406,7 @@ export interface Device {
   site?: Site
   area?: Area
   rack?: Rack
+  supportedByAccessory?: RackAccessory
   ports?: Port[]
   employees?: Employee[]
 }
@@ -477,6 +546,16 @@ export interface TopologyPortSummary {
   connected: boolean
 }
 
+export interface TopologyRackAccessory {
+  id: string
+  name: string
+  kind: 'shelf'
+  unitStart: number
+  heightU: number
+  mountType: ShelfMountType
+  faces: RackFace[]
+}
+
 export interface TopologyRackSummary {
   id: string
   name: string
@@ -486,6 +565,7 @@ export interface TopologyRackSummary {
   siteId: string | null
   areaName: string | null
   siteName: string | null
+  accessories?: TopologyRackAccessory[]
 }
 
 export interface TopologyNode {
@@ -506,6 +586,10 @@ export interface TopologyNode {
     rackUnitStart?: number | null
     rackFace?: RackFace | null
     rackUnits?: number
+    supportedByAccessoryId?: string | null
+    shelfSlotStart?: number | null
+    shelfWidthSlots?: number | null
+    shelfHeightU?: number | null
     vlanCount?: number
     vlans?: TopologyVlanSummary[]
     networks?: TopologyNetworkSummary[]

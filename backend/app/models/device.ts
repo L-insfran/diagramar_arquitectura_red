@@ -7,6 +7,7 @@ import DeviceTemplate from './device_template.js'
 import Site from './site.js'
 import Area from './area.js'
 import Rack from './rack.js'
+import RackAccessory from './rack_accessory.js'
 import Port from './port.js'
 import DeviceCredential from './device_credential.js'
 import Employee from './employee.js'
@@ -38,6 +39,25 @@ export default class Device extends BaseModel {
 
   @column()
   declare rackFace: 'front' | 'rear' | null
+
+  /** Device resting on a rack shelf (not rail-mounted). */
+  @column()
+  declare supportedByAccessoryId: string | null
+
+  /** Horizontal slot start on shelf: 0 | 1 | 2 (thirds of 19"). */
+  @column()
+  declare shelfSlotStart: number | null
+
+  /** Horizontal width in thirds: 1 = one third, 3 = full width. */
+  @column()
+  declare shelfWidthSlots: number | null
+
+  /**
+   * Vertical height (U) when resting on a shelf.
+   * Anchored at shelf.unitStart; grows upward. Null → fall back to template.rackUnits.
+   */
+  @column()
+  declare shelfHeightU: number | null
 
   @column()
   declare name: string
@@ -107,6 +127,9 @@ export default class Device extends BaseModel {
 
   @belongsTo(() => Rack)
   declare rack: BelongsTo<typeof Rack>
+
+  @belongsTo(() => RackAccessory, { foreignKey: 'supportedByAccessoryId' })
+  declare supportedByAccessory: BelongsTo<typeof RackAccessory>
 
   @hasMany(() => Port)
   declare ports: HasMany<typeof Port>

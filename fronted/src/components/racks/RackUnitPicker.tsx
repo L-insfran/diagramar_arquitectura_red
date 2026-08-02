@@ -92,18 +92,23 @@ export function RackUnitPicker({
             const isSelectedStart = value === slot.unit
 
             if (occupiedBlock) {
+              const isShelf = slot.occupantKind === 'shelf' || Boolean(slot.accessoryId)
+              const label = isShelf ? slot.accessoryName : slot.deviceName
               return (
                 <div
                   key={`${face}-${slot.unit}`}
-                  className="w-full flex items-stretch border-b border-gray-300/80 dark:border-gray-800 bg-blue-600/90 text-white"
+                  className={`w-full flex items-stretch border-b border-gray-300/80 dark:border-gray-800 text-white ${
+                    isShelf ? 'bg-amber-700/90' : 'bg-blue-600/90'
+                  }`}
                   style={{ minHeight: `${Math.max(22, span * 18)}px` }}
-                  title={`${slot.deviceName} · U${slot.unit}–U${slot.unit + span - 1}`}
+                  title={`${label} · U${slot.unit}–U${slot.unit + span - 1}`}
                 >
                   <span className="w-10 shrink-0 flex items-center justify-center text-[10px] font-mono border-r border-white/20 opacity-80">
                     {slot.unit}
                   </span>
                   <span className="flex flex-1 items-center min-w-0 px-2 py-1 text-xs font-medium truncate">
-                    {slot.deviceName}{' '}
+                    {isShelf ? 'Bandeja · ' : ''}
+                    {label}{' '}
                     <span className="opacity-80 font-normal ml-1">({span}U)</span>
                   </span>
                 </div>

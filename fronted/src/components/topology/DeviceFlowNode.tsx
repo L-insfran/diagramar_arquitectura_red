@@ -68,6 +68,10 @@ export type DeviceNodeData = {
   rackUnitStart?: number | null
   rackFace?: 'front' | 'rear' | null
   rackUnits?: number
+  supportedByAccessoryId?: string | null
+  shelfSlotStart?: number | null
+  shelfWidthSlots?: number | null
+  shelfHeightU?: number | null
   /** Equipo montado dentro de un rack del canvas (variante compacta). */
   rackMounted?: boolean
   vlanCount?: number
@@ -134,11 +138,13 @@ function PortCell({
       : displayName
   const fontSize =
     denseLabel
-      ? cellW >= 20 && cellH >= 12
-        ? 8
-        : cellW >= 14
-          ? 7
-          : 6
+      ? cellW >= 24 && cellH >= 12
+        ? 9
+        : cellW >= 20 && cellH >= 10
+          ? 8
+          : cellW >= 14
+            ? 7
+            : 6
       : compact
         ? 11
         : 8
@@ -310,11 +316,16 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
   const selectPort = interaction?.selectPort
 
   const rackMounted = !!data.rackMounted
-  const isRearMounted = rackMounted && data.rackFace === 'rear'
+  const isShelfMounted = rackMounted && !!data.supportedByAccessoryId
+  const isRearMounted = rackMounted && !isShelfMounted && data.rackFace === 'rear'
 
   const allPorts = sortTopologyPorts(data.ports ?? [])
   const { physical: physicalPorts, wireless: wirelessPorts } = partitionDiagramPorts(allPorts)
-  const layoutHints = { deviceType: data.deviceType, ports: allPorts }
+  const layoutHints = {
+    deviceType: data.deviceType,
+    ports: allPorts,
+    ...(data.supportedByAccessoryId ? { shelfMounted: true as const } : {}),
+  }
   const isPatchPanel =
     isStructuredCablingDeviceType(data.deviceType) ||
     shouldUseEthernetFaceplateLayout(data.deviceType, allPorts)
@@ -593,7 +604,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       style={{
         width: displayWidth,
         height: displayHeight,
-        overflow: rackMounted ? 'hidden' : 'visible',
+        overflow: rackMounted && !isShelfMounted ? 'hidden' : 'visible',
       }}
     >
       {!readOnly && !rackMounted && (
@@ -612,9 +623,11 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       <div
         className={`relative box-border flex flex-col ${
           rackMounted
-            ? isRearMounted
-              ? 'rounded-sm border border-amber-500/70 bg-slate-800 shadow-sm'
-              : 'rounded-sm border border-slate-500/80 bg-slate-800 shadow-sm'
+            ? isShelfMounted
+              ? 'rounded-sm border-2 border-dashed border-violet-400 bg-violet-950/95 shadow-[0_4px_0_0_#b45309,0_6px_10px_-2px_rgba(0,0,0,0.55)]'
+              : isRearMounted
+                ? 'rounded-sm border border-amber-500/70 bg-slate-800 shadow-sm'
+                : 'rounded-sm border border-slate-500/80 bg-slate-800 shadow-sm'
             : `rounded-lg border border-gray-300 dark:border-gray-600 shadow-md print:shadow-none ${
                 hasPorts ? 'bg-transparent' : 'bg-white dark:bg-gray-800'
               }`
@@ -628,7 +641,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           height: baseHeight,
           transform: `scale(${scaleX}, ${scaleY})`,
           transformOrigin: 'top left',
-          overflow: rackMounted ? 'hidden' : 'visible',
+          overflow: 'hidden',
         }}
       >
       {/* Marca de color del dispositivo */}
@@ -661,7 +674,9 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       <div
         className={`relative z-[2] flex shrink-0 min-w-0 ${
           rackMounted
-            ? 'items-center gap-1.5 pl-2.5 pr-1.5 py-0.5 bg-slate-800'
+            ? isShelfMounted
+              ? 'items-center gap-1 pl-2.5 pr-1.5 py-0.5 bg-violet-900/90'
+              : 'items-center gap-1.5 pl-2.5 pr-1.5 py-0.5 bg-slate-800'
             : 'items-start gap-2.5 pl-[1.125rem] pr-3.5 py-2.5 rounded-t-[7px] bg-white dark:bg-gray-800'
         }`}
         style={{ height: headerHeight, minHeight: headerHeight, maxHeight: headerHeight }}
@@ -670,7 +685,14 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           className={`rounded-full shrink-0 ${rackMounted ? 'size-1.5' : 'size-2.5 mt-1.5'} ${statusDot}`}
           title={data.status}
         />
-        {isRearMounted ? (
+        {isShelfMounted ? (
+          <span
+            className="shrink-0 rounded px-1 py-px text-[7px] font-extrabold uppercase tracking-wider text-amber-50 bg-amber-600 ring-1 ring-amber-300/80"
+            title="Apoyado en bandeja (no montado en riel)"
+          >
+            {baseWidth >= 160 ? 'Bandeja' : 'B'}
+          </span>
+        ) : isRearMounted ? (
           <span
             className="shrink-0 rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide text-amber-200 bg-amber-700/80"
             title="Montado en cara trasera"

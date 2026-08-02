@@ -15,7 +15,7 @@ Proyecto → Sitios → Áreas → Racks → Equipos (desde Template) → Puerto
 - `device_types` (catálogo icono/nombre — **no** es Device Template)
 - `device_templates`, `device_template_ports` (catálogo global de SKU; `is_passthrough` editable en puertos de template; soft delete en templates — ADR 0004)
 - `sites`, `areas`, `racks` (inventario físico; soft delete) — **distinto** de `work_areas` del canvas
-- `devices` (template + `site_id`/`area_id`/`rack_id` + `rack_unit_start`/`rack_face`; `location` legacy), `ports` (`is_passthrough`), `port_types` (speed/color/icon/direction)
+- `devices` (template + `site_id`/`area_id`/`rack_id` + `rack_unit_start`/`rack_face` o `supported_by_accessory_id` + slots + `shelf_height_u`; `location` legacy), `ports` (`is_passthrough`), `port_types` (speed/color/icon/direction)
 - `cable_types` (catálogo; FK opcional en connections)
 - `vlans`, `networks`, `port_vlans`
 - `connections` (entidad real: puertos + caras front/rear, medio, cable_type, longitud, estado, metadata; 1 física activa por `(puerto, cara)` — ADR 0005)

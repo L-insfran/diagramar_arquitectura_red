@@ -84,6 +84,16 @@ export type ScannedRoutes = {
     'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
+    'rack_accessory_templates.store': { paramsTuple?: []; params?: {} }
+    'rack_accessory_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessory_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessory_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessories.index': { paramsTuple?: []; params?: {} }
+    'rack_accessories.store': { paramsTuple?: []; params?: {} }
+    'rack_accessories.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessories.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessories.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'port_types.index': { paramsTuple?: []; params?: {} }
     'port_types.store': { paramsTuple?: []; params?: {} }
     'port_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -155,6 +165,10 @@ export type ScannedRoutes = {
     'racks.index': { paramsTuple?: []; params?: {} }
     'racks.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
+    'rack_accessory_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessories.index': { paramsTuple?: []; params?: {} }
+    'rack_accessories.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'port_types.index': { paramsTuple?: []; params?: {} }
     'port_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'cable_types.index': { paramsTuple?: []; params?: {} }
@@ -204,6 +218,10 @@ export type ScannedRoutes = {
     'racks.index': { paramsTuple?: []; params?: {} }
     'racks.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
+    'rack_accessory_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessories.index': { paramsTuple?: []; params?: {} }
+    'rack_accessories.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'port_types.index': { paramsTuple?: []; params?: {} }
     'port_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'cable_types.index': { paramsTuple?: []; params?: {} }
@@ -240,6 +258,8 @@ export type ScannedRoutes = {
     'sites.store': { paramsTuple?: []; params?: {} }
     'sites.areas_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.store': { paramsTuple?: []; params?: {} }
+    'rack_accessory_templates.store': { paramsTuple?: []; params?: {} }
+    'rack_accessories.store': { paramsTuple?: []; params?: {} }
     'port_types.store': { paramsTuple?: []; params?: {} }
     'cable_types.store': { paramsTuple?: []; params?: {} }
     'attachments.store': { paramsTuple?: []; params?: {} }
@@ -267,6 +287,8 @@ export type ScannedRoutes = {
     'sites.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'sites.areas_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
     'racks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessory_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessories.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'port_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'cable_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'attachments.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -292,6 +314,8 @@ export type ScannedRoutes = {
     'sites.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'sites.areas_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
     'racks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessory_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rack_accessories.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'port_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'cable_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'attachments.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
