@@ -55,15 +55,15 @@ erDiagram
 | `system_users` | Auth + rol global |
 | `departments`, `employees` | RRHH / asignaciones |
 | `device_types` | Catálogo nombre/icono — **no** es Device Template |
-| `device_templates` | Catálogo global de SKU (marca, modelo, U, imagen, custom…); soft delete — ADR 0004 |
-| `device_template_ports` | Definición de puertos del template (clonados a la instancia) |
+| `device_templates` | Catálogo global de SKU (marca, modelo, U, `is_full_depth`, imagen, custom…); soft delete — ADR 0004 + ADR 0007 |
+| `device_template_ports` | Definición de puertos del template (`is_passthrough`, `chassis_face`); clonados a la instancia |
 | `sites` | Inventario físico por proyecto; soft delete |
 | `areas` | Bajo un sitio (planta/sala…); soft delete — **no** es `work_areas` del canvas |
 | `racks` | Bajo un área; `height_u`; soft delete |
 | `rack_accessory_templates` | Catálogo global de SKU de accesorios (bandejas 1U/2U) — ADR 0006 |
 | `rack_accessories` | Instancias de bandeja en rack; `mount_type` front_only/four_post; soft delete |
-| `devices` | Instancia de template; `site_id`/`area_id`/`rack_id` nullable; `rack_unit_start` + `rack_face` (riel) **o** `supported_by_accessory_id` + slots horizontales + `shelf_height_u` (altura vertical hacia arriba desde la bandeja); `location` texto legacy |
-| `ports` | Por dispositivo; `port_type` string; `is_passthrough` editable (patch panel = 2 caras) |
+| `devices` | Instancia de template; `site_id`/`area_id`/`rack_id` nullable; `rack_unit_start` + `rack_face` (`front`\|`rear`\|`both` full-depth) **o** `supported_by_accessory_id` + slots horizontales + `shelf_height_u`; `location` texto legacy |
+| `ports` | Por dispositivo; `port_type` string; `is_passthrough` editable (patch panel = 2 caras); `chassis_face` para jacks normales (ADR 0007) |
 | `port_types` | Catálogo: code, name, description, `default_speed`, color, icon, direction |
 | `cable_types` | Catálogo global de medios (familia, defaults, color, orden) |
 | `attachments` | Docs polimórficos (archivo/link/nota) por objeto + `project_id` |
@@ -115,7 +115,7 @@ flowchart TB
 
 ### Conexiones (ya alineadas en espíritu)
 
-Origen/destino por puerto **y cara** (`front`/`rear`), tipo de cable, longitud, estado, etiqueta, observaciones, fecha, usuario. Regla: **1 conexión física activa por (puerto, cara)**. Puertos `is_passthrough` (marca editable en template/instancia; patch panel) tienen dos caras; el puente interno no es entidad.
+Origen/destino por puerto **y cara** (`front`/`rear`), tipo de cable, longitud, estado, etiqueta, observaciones, fecha, usuario. Regla: **1 conexión física activa por (puerto, cara)**. Puertos `is_passthrough` (marca editable en template/instancia; patch panel) tienen dos caras; el puente interno no es entidad. Puertos normales usan `chassis_face` (frente/dorso del chasis) — ADR 0007.
 
 ---
 

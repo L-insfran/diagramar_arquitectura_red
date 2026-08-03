@@ -7,6 +7,7 @@ export const createDeviceTemplateValidator = vine.compile(
     manufacturer: vine.string().trim().maxLength(255).nullable().optional(),
     model: vine.string().trim().maxLength(255).nullable().optional(),
     rackUnits: vine.number().min(1).max(100).nullable().optional(),
+    isFullDepth: vine.boolean().optional(),
     imageUrl: vine.string().trim().maxLength(500).nullable().optional(),
     frontViewUrl: vine.string().trim().maxLength(500).nullable().optional(),
     rearViewUrl: vine.string().trim().maxLength(500).nullable().optional(),
@@ -23,6 +24,7 @@ export const updateDeviceTemplateValidator = vine.compile(
     manufacturer: vine.string().trim().maxLength(255).optional(),
     model: vine.string().trim().maxLength(255).optional(),
     rackUnits: vine.number().min(1).max(100).nullable().optional(),
+    isFullDepth: vine.boolean().optional(),
     imageUrl: vine.string().trim().maxLength(500).nullable().optional(),
     frontViewUrl: vine.string().trim().maxLength(500).nullable().optional(),
     rearViewUrl: vine.string().trim().maxLength(500).nullable().optional(),
@@ -32,6 +34,8 @@ export const updateDeviceTemplateValidator = vine.compile(
   })
 )
 
+const chassisFace = vine.enum(['front', 'rear'] as const)
+
 export const createDeviceTemplatePortValidator = vine.compile(
   vine.object({
     name: vine.string().trim().minLength(1).maxLength(100),
@@ -40,6 +44,7 @@ export const createDeviceTemplatePortValidator = vine.compile(
     speed: vine.string().trim().maxLength(50).nullable().optional(),
     description: vine.string().trim().nullable().optional(),
     isPassthrough: vine.boolean().optional(),
+    chassisFace: chassisFace.optional(),
   })
 )
 
@@ -51,6 +56,7 @@ export const updateDeviceTemplatePortValidator = vine.compile(
     speed: vine.string().trim().maxLength(50).nullable().optional(),
     description: vine.string().trim().nullable().optional(),
     isPassthrough: vine.boolean().optional(),
+    chassisFace: chassisFace.optional(),
   })
 )
 

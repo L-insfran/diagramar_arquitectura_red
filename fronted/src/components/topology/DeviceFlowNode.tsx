@@ -34,7 +34,9 @@ import {
   isStructuredCablingDeviceType,
   partitionDiagramPorts,
   abbreviatePortName,
+  fitRackPortLabel,
   portCellClasses,
+  portCellVisualScale,
   portConnectSourceHandleId,
   portConnectTargetHandleId,
   portFaceConnectable,
@@ -45,6 +47,7 @@ import {
   rackPortLabel,
   shouldUseEthernetFaceplateLayout,
   sortTopologyPorts,
+  filterPortsForRackViewFace,
   usesEthernetFaceplateLayout,
   usesPhysicalPortLayout,
   wifiChipClasses,
@@ -66,8 +69,11 @@ export type DeviceNodeData = {
   areaId?: string | null
   rackId?: string | null
   rackUnitStart?: number | null
-  rackFace?: 'front' | 'rear' | null
+  rackFace?: 'front' | 'rear' | 'both' | null
   rackUnits?: number
+  isFullDepth?: boolean
+  /** Cara activa del rack padre (para filtrar puertos por chassis_face). */
+  rackViewFace?: 'front' | 'rear' | 'both'
   supportedByAccessoryId?: string | null
   shelfSlotStart?: number | null
   shelfWidthSlots?: number | null
@@ -100,7 +106,8 @@ function portIsConnectable(port: TopologyPortSummary, readOnly: boolean): boolea
   if (port.isPassthrough) {
     return portFaceConnectable(port, 'front', readOnly) || portFaceConnectable(port, 'rear', readOnly)
   }
-  return portFaceConnectable(port, 'front', readOnly)
+  const chassis = port.chassisFace === 'rear' ? 'rear' : 'front'
+  return portFaceConnectable(port, chassis, readOnly)
 }
 
 function PortCell({
@@ -127,27 +134,35 @@ function PortCell({
 }) {
   const displayName = port.name?.trim() || String(port.portNumber)
   const frontOn = portFaceConnected(port, 'front')
-  const rearOn = port.isPassthrough ? portFaceConnected(port, 'rear') : false
+  const rearOn = port.isPassthrough
+    ? portFaceConnected(port, 'rear')
+    : port.chassisFace === 'rear'
+      ? portFaceConnected(port, 'rear')
+      : false
   const anyConnected = frontOn || rearOn || port.connected
   const density = rackMounted ? 'rack' : 'default'
   const denseLabel = rackMounted || !!faceplate
-  const label = denseLabel
-    ? rackPortLabel(port)
-    : compact
-      ? abbreviatePortName(displayName)
-      : displayName
-  const fontSize =
-    denseLabel
-      ? cellW >= 24 && cellH >= 12
-        ? 9
-        : cellW >= 20 && cellH >= 10
-          ? 8
-          : cellW >= 14
-            ? 7
-            : 6
+  const scale = portCellVisualScale(port.portType)
+  const visualW = Math.max(6, Math.round(cellW * scale))
+  const visualH = Math.max(6, Math.round(cellH * scale))
+  // Faceplate: número grande y legible. Rack/bandeja: encoger fuente hasta que entre el nombre.
+  const fitted = faceplate
+    ? {
+        label: rackPortLabel(port, { preferNumber: true }),
+        fontSize: Math.max(
+          7,
+          Math.min(
+            12,
+            Math.floor(Math.min(visualW * 0.62, visualH * 0.48, visualW >= 18 ? 11 : 9)),
+          ),
+        ),
+      }
+    : denseLabel
+      ? fitRackPortLabel(displayName, visualW, visualH)
       : compact
-        ? 11
-        : 8
+        ? { label: abbreviatePortName(displayName, 10), fontSize: 11 }
+        : { label: displayName, fontSize: 8 }
+  const { label, fontSize } = fitted
 
   return (
     <button
@@ -169,17 +184,28 @@ function PortCell({
             ? 'pointer-events-none cursor-crosshair'
             : 'cursor-default'
       }`}
-      style={{ width: cellW, height: cellH, minWidth: cellW, maxWidth: cellW, minHeight: cellH, maxHeight: cellH }}
+      style={{
+        width: visualW,
+        height: visualH,
+        minWidth: visualW,
+        maxWidth: visualW,
+        minHeight: visualH,
+        maxHeight: visualH,
+      }}
       title={
         port.isPassthrough
-          ? `Puerto ${port.portNumber} · ${displayName} · R:${rearOn ? '●' : '○'} F:${frontOn ? '●' : '○'}${
-              connectable ? ' · arrastrá desde una cara libre' : anyConnected ? ' · clic para navegar' : ''
+          ? `Puerto ${port.portNumber} · ${displayName} · ${port.status} · R:${rearOn ? '●' : '○'} F:${frontOn ? '●' : '○'}${
+              connectable
+                ? ' · libre · arrastrá desde una cara libre'
+                : anyConnected
+                  ? ' · clic para navegar'
+                  : ''
             }`
           : anyConnected
-            ? `Puerto ${port.portNumber} · ${displayName} · clic para ir al dispositivo conectado`
+            ? `Puerto ${port.portNumber} · ${displayName} · ${port.status} · clic para ir al dispositivo conectado`
             : connectable
-              ? `Puerto ${port.portNumber} · ${displayName} · arrastrá a otro puerto libre para enlazar`
-              : `Puerto ${port.portNumber} · ${displayName}`
+              ? `Puerto ${port.portNumber} · ${displayName} · ${port.status} · libre · arrastrá a otro puerto libre para enlazar`
+              : `Puerto ${port.portNumber} · ${displayName} · ${port.status}`
       }
       onClick={(e) => {
         e.stopPropagation()
@@ -188,8 +214,29 @@ function PortCell({
     >
       {denseLabel ? (
         <span
-          className="max-w-full truncate text-center font-mono font-semibold tabular-nums tracking-tight opacity-90"
-          style={{ fontSize }}
+          className={`max-w-full text-center font-semibold opacity-95 ${
+            faceplate ? 'font-mono tabular-nums' : 'font-sans'
+          }`}
+          style={{
+            fontSize,
+            lineHeight: 1,
+            letterSpacing: faceplate
+              ? '-0.02em'
+              : label.length >= 5
+                ? '-0.04em'
+                : '-0.01em',
+            ...(faceplate
+              ? {
+                  overflow: 'hidden',
+                  whiteSpace: 'nowrap' as const,
+                }
+              : {
+                  overflow: 'visible',
+                  whiteSpace: 'nowrap' as const,
+                  transform: label.length >= 8 && visualW < 28 ? 'scaleX(0.92)' : undefined,
+                  transformOrigin: 'center',
+                }),
+          }}
         >
           {label}
         </span>
@@ -216,13 +263,21 @@ function PortCell({
         >
           <span
             className={`${denseLabel ? 'h-0.5 w-1.5' : 'size-1.5'} rounded-full ring-1 ring-white dark:ring-gray-900 ${
-              rearOn ? 'bg-violet-600' : 'bg-gray-300 dark:bg-gray-600'
+              rearOn
+                ? 'bg-violet-600'
+                : port.status === 'up'
+                  ? 'bg-sky-400/50'
+                  : 'bg-gray-300 dark:bg-gray-600'
             }`}
             title="Rear"
           />
           <span
             className={`${denseLabel ? 'h-0.5 w-1.5' : 'size-1.5'} rounded-full ring-1 ring-white dark:ring-gray-900 ${
-              frontOn ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+              frontOn
+                ? 'bg-blue-600'
+                : port.status === 'up'
+                  ? 'bg-sky-400/50'
+                  : 'bg-gray-300 dark:bg-gray-600'
             }`}
             title="Front"
           />
@@ -235,10 +290,14 @@ function PortCell({
               aria-hidden
             />
           )}
-          {denseLabel && anyConnected && (
+          {denseLabel && (anyConnected || port.status === 'up') && (
             <span
               className={`absolute inset-x-0 bottom-0 h-0.5 ${
-                port.status === 'up' ? 'bg-emerald-400/80' : 'bg-amber-400/70'
+                anyConnected
+                  ? port.status === 'up'
+                    ? 'bg-emerald-400/80'
+                    : 'bg-amber-400/70'
+                  : 'bg-sky-400/55'
               }`}
               aria-hidden
             />
@@ -317,9 +376,17 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
 
   const rackMounted = !!data.rackMounted
   const isShelfMounted = rackMounted && !!data.supportedByAccessoryId
-  const isRearMounted = rackMounted && !isShelfMounted && data.rackFace === 'rear'
+  const isRearMounted =
+    rackMounted &&
+    !isShelfMounted &&
+    (data.rackFace === 'rear' || (!!data.isFullDepth && data.rackViewFace === 'rear'))
+  const isFullDepthMounted = rackMounted && (!!data.isFullDepth || data.rackFace === 'both')
 
-  const allPorts = sortTopologyPorts(data.ports ?? [])
+  const allPorts = sortTopologyPorts(
+    rackMounted
+      ? filterPortsForRackViewFace(data.ports ?? [], data.rackViewFace)
+      : (data.ports ?? []),
+  )
   const { physical: physicalPorts, wireless: wirelessPorts } = partitionDiagramPorts(allPorts)
   const layoutHints = {
     deviceType: data.deviceType,
@@ -449,7 +516,9 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
 
   const renderHandles = (ports: TopologyPortSummary[], section: PortPanelSection) =>
     ports.map((port, index) => {
-      const faces: Array<'front' | 'rear'> = port.isPassthrough ? ['rear', 'front'] : ['front']
+      const faces: Array<'front' | 'rear'> = port.isPassthrough
+        ? ['rear', 'front']
+        : [port.chassisFace === 'rear' ? 'rear' : 'front']
       const passthrough = !!port.isPassthrough
       return (
         <Fragment key={`handles-${port.id}`}>
@@ -509,6 +578,9 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
               passthrough,
             )
             const canConnect = portFaceConnectable(port, face, readOnly)
+            const scale = portCellVisualScale(port.portType)
+            const hitW = Math.max(6, Math.round(connect.cellW * scale))
+            const hitH = Math.max(6, Math.round(connect.cellH * scale))
             return (
               <Fragment key={`handles-${port.id}-${face}`}>
                 <Handle
@@ -565,8 +637,8 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                         position: 'absolute',
                         left: connect.x,
                         top: connect.y,
-                        width: connect.cellW,
-                        height: connect.cellH,
+                        width: hitW,
+                        height: hitH,
                         transform: 'translate(-50%, -50%)',
                         cursor: 'crosshair',
                       }}
@@ -581,8 +653,8 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                         position: 'absolute',
                         left: connect.x,
                         top: connect.y,
-                        width: connect.cellW,
-                        height: connect.cellH,
+                        width: hitW,
+                        height: hitH,
                         transform: 'translate(-50%, -50%)',
                         cursor: 'crosshair',
                       }}
@@ -691,6 +763,13 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
             title="Apoyado en bandeja (no montado en riel)"
           >
             {baseWidth >= 160 ? 'Bandeja' : 'B'}
+          </span>
+        ) : isFullDepthMounted ? (
+          <span
+            className="shrink-0 rounded px-1 py-px text-[7px] font-extrabold uppercase tracking-wider text-violet-50 bg-violet-600 ring-1 ring-violet-300/80"
+            title="Profundidad completa (frente + dorso)"
+          >
+            {baseWidth >= 160 ? 'Full' : 'F'}
           </span>
         ) : isRearMounted ? (
           <span
@@ -880,7 +959,11 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                       blockSize,
                     )
                     return (
-                      <div key={port.id} className="absolute top-0" style={{ left }}>
+                      <div
+                        key={port.id}
+                        className="absolute top-0 flex items-center justify-center"
+                        style={{ left, width: layout.cellW, height: layout.cellH }}
+                      >
                         <PortCell
                           port={port}
                           cellW={layout.cellW}
@@ -915,7 +998,11 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                       physicalGrid,
                     )
                     return (
-                      <div key={port.id} style={{ gridColumn: col + 1, gridRow: row + 1 }}>
+                      <div
+                        key={port.id}
+                        className="flex items-center justify-center"
+                        style={{ gridColumn: col + 1, gridRow: row + 1 }}
+                      >
                         <PortCell
                           port={port}
                           cellW={layout.cellW}

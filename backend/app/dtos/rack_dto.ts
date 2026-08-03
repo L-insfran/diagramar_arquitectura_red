@@ -1,4 +1,6 @@
 export type RackFace = 'front' | 'rear'
+/** Device mount face; `both` = full-depth occupancy on front + rear. */
+export type DeviceRackFace = RackFace | 'both'
 export type ShelfMountType = 'front_only' | 'four_post'
 export type OccupantKind = 'device' | 'shelf' | 'shelf_device'
 
@@ -62,6 +64,8 @@ export type RackOccupancyAccessory = {
     heightU: number
     /** Last U occupied upward from shelf.unitStart. */
     unitEnd: number
+    /** Face of the shelf (front_only → always front; four_post → front|rear; full-depth → both). */
+    rackFace: DeviceRackFace
   }>
 }
 
@@ -75,7 +79,7 @@ export type RackOccupancy = {
     id: string
     name: string
     rackUnitStart: number
-    rackFace: RackFace
+    rackFace: DeviceRackFace
     heightU: number
     rackUnitEnd: number
   }>

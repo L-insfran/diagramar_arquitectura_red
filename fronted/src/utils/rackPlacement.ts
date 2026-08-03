@@ -29,7 +29,11 @@ export function occupiedRangesForFace(
   excludeDeviceId?: string | null
 ): OccupiedRange[] {
   const fromDevices = occupancy.devices
-    .filter((d) => d.rackFace === face && d.id !== excludeDeviceId)
+    .filter(
+      (d) =>
+        d.id !== excludeDeviceId &&
+        (d.rackFace === face || d.rackFace === 'both')
+    )
     .map((d) => ({
       deviceId: d.id,
       deviceName: d.name,
@@ -50,24 +54,27 @@ export function occupiedRangesForFace(
       kind: 'shelf' as const,
     }))
 
-  const fromShelfDevices = (occupancy.accessories ?? [])
-    .filter((a) => a.faces.includes(face))
-    .flatMap((a) =>
-      a.devices
-        .filter((d) => d.id !== excludeDeviceId)
-        .map((d) => {
-          const heightU = Math.max(1, d.heightU)
-          const end = d.unitEnd ?? a.unitStart + heightU - 1
-          return {
-            deviceId: d.id,
-            deviceName: d.name,
-            start: a.unitStart,
-            end,
-            heightU,
-            kind: 'shelf_device' as const,
-          }
-        })
-    )
+  const fromShelfDevices = (occupancy.accessories ?? []).flatMap((a) =>
+    a.devices
+      .filter((d) => {
+        if (d.id === excludeDeviceId) return false
+        if (d.rackFace === 'both') return true
+        const deviceFace = d.rackFace === 'rear' ? 'rear' : 'front'
+        return deviceFace === face
+      })
+      .map((d) => {
+        const heightU = Math.max(1, d.heightU)
+        const end = d.unitEnd ?? a.unitStart + heightU - 1
+        return {
+          deviceId: d.id,
+          deviceName: d.name,
+          start: a.unitStart,
+          end,
+          heightU,
+          kind: 'shelf_device' as const,
+        }
+      })
+  )
 
   return [...fromDevices, ...fromShelves, ...fromShelfDevices]
 }
@@ -99,6 +106,28 @@ export function canPlaceAt(params: {
     }
   }
   return { ok: true }
+}
+
+export function canPlaceFullDepthAt(params: {
+  start: number
+  heightU: number
+  rackHeightU: number
+  occupancy: RackOccupancy
+  excludeDeviceId?: string | null
+}): { ok: true } | { ok: false; reason: string } {
+  const front = canPlaceAt({
+    start: params.start,
+    heightU: params.heightU,
+    rackHeightU: params.rackHeightU,
+    occupied: occupiedRangesForFace(params.occupancy, 'front', params.excludeDeviceId),
+  })
+  if (!front.ok) return front
+  return canPlaceAt({
+    start: params.start,
+    heightU: params.heightU,
+    rackHeightU: params.rackHeightU,
+    occupied: occupiedRangesForFace(params.occupancy, 'rear', params.excludeDeviceId),
+  })
 }
 
 export function slotsForFace(occupancy: RackOccupancy, face: RackFace): RackOccupancySlot[] {

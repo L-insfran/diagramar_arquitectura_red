@@ -20,3 +20,4 @@ Los ADR documentan decisiones de arquitectura significativas: contexto, opciones
 | [0004](0004-device-templates-globales.md) | Device templates como catálogo global | Aceptado |
 | [0005](0005-port-passthrough-faces.md) | Port passthrough con caras front/rear | Aceptado |
 | [0006](0006-rack-shelves-accessories.md) | Bandejas rackeables como accesorios | Aceptado |
+| [0007](0007-full-depth-chassis-face.md) | Full-depth templates y cara de chasis por puerto | Aceptado |

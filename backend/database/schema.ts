@@ -227,8 +227,10 @@ export class DeviceCredentialSchema extends BaseModel {
 }
 
 export class DeviceTemplatePortSchema extends BaseModel {
-  static $columns = ['createdAt', 'description', 'deviceTemplateId', 'id', 'isPassthrough', 'name', 'portNumber', 'portType', 'speed', 'updatedAt'] as const
+  static $columns = ['chassisFace', 'createdAt', 'description', 'deviceTemplateId', 'id', 'isPassthrough', 'name', 'portNumber', 'portType', 'speed', 'updatedAt'] as const
   $columns = DeviceTemplatePortSchema.$columns
+  @column()
+  declare chassisFace: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -252,7 +254,7 @@ export class DeviceTemplatePortSchema extends BaseModel {
 }
 
 export class DeviceTemplateSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdBy', 'customFields', 'deletedAt', 'deletedBy', 'deviceTypeId', 'frontViewUrl', 'id', 'imageUrl', 'manufacturer', 'model', 'name', 'notes', 'powerConsumptionW', 'rackUnits', 'rearViewUrl', 'updatedAt', 'updatedBy', 'weightKg'] as const
+  static $columns = ['createdAt', 'createdBy', 'customFields', 'deletedAt', 'deletedBy', 'deviceTypeId', 'frontViewUrl', 'id', 'imageUrl', 'isFullDepth', 'manufacturer', 'model', 'name', 'notes', 'powerConsumptionW', 'rackUnits', 'rearViewUrl', 'updatedAt', 'updatedBy', 'weightKg'] as const
   $columns = DeviceTemplateSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -272,6 +274,8 @@ export class DeviceTemplateSchema extends BaseModel {
   declare id: string
   @column()
   declare imageUrl: string | null
+  @column()
+  declare isFullDepth: boolean
   @column()
   declare manufacturer: string | null
   @column()
@@ -517,8 +521,10 @@ export class PortVlanSchema extends BaseModel {
 }
 
 export class PortSchema extends BaseModel {
-  static $columns = ['createdAt', 'description', 'deviceId', 'id', 'isPassthrough', 'name', 'portNumber', 'portType', 'speed', 'status', 'updatedAt'] as const
+  static $columns = ['chassisFace', 'createdAt', 'description', 'deviceId', 'id', 'isPassthrough', 'name', 'portNumber', 'portType', 'speed', 'status', 'updatedAt'] as const
   $columns = PortSchema.$columns
+  @column()
+  declare chassisFace: string
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()

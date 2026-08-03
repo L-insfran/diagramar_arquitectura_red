@@ -53,7 +53,9 @@ export default class DashboardService {
     const portsFree = Math.max(0, ports - portsOccupied)
     const { items: rackItems, usedU, totalCapacityU } = this.repo.buildRackSummaries(
       rackData.racks,
-      rackData.mounted
+      rackData.mounted,
+      rackData.accessories,
+      rackData.shelfDevices
     )
     const freeU = Math.max(0, totalCapacityU - usedU)
     const percentUsed =

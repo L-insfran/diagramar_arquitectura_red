@@ -70,6 +70,7 @@ export default function DeviceDetail() {
     status: 'down' as Port['status'],
     description: '',
     isPassthrough: false,
+    chassisFace: 'front' as 'front' | 'rear',
   })
   const [portVlanAssignments, setPortVlanAssignments] = useState<PortVlanFormRow[]>([])
   const [portSubmitting, setPortSubmitting] = useState(false)
@@ -126,6 +127,7 @@ export default function DeviceDetail() {
       status: 'down',
       description: '',
       isPassthrough: false,
+      chassisFace: 'front',
     })
     setPortVlanAssignments([])
     setPortFormError(null)
@@ -154,6 +156,7 @@ export default function DeviceDetail() {
       status: isPassthrough ? 'up' : port.status,
       description: port.description ?? '',
       isPassthrough,
+      chassisFace: port.chassisFace === 'rear' ? 'rear' : 'front',
     })
     setPortVlanAssignments(
       (port.vlans ?? []).map((vlan) => ({
@@ -210,6 +213,7 @@ export default function DeviceDetail() {
           status,
           description: portForm.description.trim() || undefined,
           isPassthrough: portForm.isPassthrough,
+          chassisFace: portForm.isPassthrough ? 'front' : portForm.chassisFace,
           vlanAssignments,
         })
       } else {
@@ -222,6 +226,7 @@ export default function DeviceDetail() {
           status,
           description: portForm.description.trim() || undefined,
           isPassthrough: portForm.isPassthrough,
+          chassisFace: portForm.isPassthrough ? 'front' : portForm.chassisFace,
           vlanAssignments,
         })
       }
@@ -316,7 +321,11 @@ export default function DeviceDetail() {
             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
               Puente
             </span>
-          ) : null}
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              {p.chassisFace === 'rear' ? 'Dorso' : 'Frente'}
+            </span>
+          )}
         </span>
       ),
     },
@@ -440,18 +449,30 @@ export default function DeviceDetail() {
               device.shelfWidthSlots === 3
                 ? 'ancho completo'
                 : `⅓ slot ${(device.shelfSlotStart ?? 0) + 1}`
+            const face =
+              device.rackFace === 'both'
+                ? 'ambas caras'
+                : device.rackFace === 'rear'
+                  ? 'trasera'
+                  : 'frontal'
             const range =
               start != null && end != null ? ` · U${start}–U${end}` : ` · ${heightU}U`
             return `${device.rack?.name ?? 'Rack'} · bandeja ${
               shelf?.name ?? '—'
-            }${range} · ${width}`
+            }${range} · ${width} · ${face}`
           })()
         : device.rack
           ? `${device.rack.name} · U${device.rackUnitStart ?? '?'}${
               device.deviceTemplate?.rackUnits
                 ? `–${(device.rackUnitStart ?? 1) + device.deviceTemplate.rackUnits - 1}`
                 : ''
-            } (${device.rackFace ?? 'front'})`
+            } (${
+              device.rackFace === 'both'
+                ? 'ambas caras'
+                : device.rackFace === 'rear'
+                  ? 'trasera'
+                  : 'frontal'
+            })`
           : undefined,
     },
     { icon: Hash, label: 'MAC Address', value: device.macAddress },
@@ -686,6 +707,22 @@ export default function DeviceDetail() {
               </span>
             </span>
           </label>
+          {!portForm.isPassthrough && (
+            <Select
+              label="Cara del chasis"
+              value={portForm.chassisFace}
+              onChange={(e) =>
+                setPortForm((p) => ({
+                  ...p,
+                  chassisFace: e.target.value as 'front' | 'rear',
+                }))
+              }
+              options={[
+                { value: 'front', label: 'Frontal' },
+                { value: 'rear', label: 'Trasera' },
+              ]}
+            />
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Description

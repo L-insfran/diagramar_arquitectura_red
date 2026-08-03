@@ -9,6 +9,7 @@ export type CreateDeviceTemplateInput = {
   manufacturer?: string | null
   model?: string | null
   rackUnits?: number | null
+  isFullDepth?: boolean
   imageUrl?: string | null
   frontViewUrl?: string | null
   rearViewUrl?: string | null
@@ -24,6 +25,7 @@ export type UpdateDeviceTemplateInput = {
   manufacturer?: string | null
   model?: string | null
   rackUnits?: number | null
+  isFullDepth?: boolean
   imageUrl?: string | null
   frontViewUrl?: string | null
   rearViewUrl?: string | null
@@ -33,6 +35,8 @@ export type UpdateDeviceTemplateInput = {
   notes?: string | null
 }
 
+export type ChassisFace = 'front' | 'rear'
+
 export type CreateDeviceTemplatePortInput = {
   name: string
   portNumber: number
@@ -40,6 +44,7 @@ export type CreateDeviceTemplatePortInput = {
   speed?: string | null
   description?: string | null
   isPassthrough?: boolean
+  chassisFace?: ChassisFace
 }
 
 export type UpdateDeviceTemplatePortInput = {
@@ -49,4 +54,5 @@ export type UpdateDeviceTemplatePortInput = {
   speed?: string | null
   description?: string | null
   isPassthrough?: boolean
+  chassisFace?: ChassisFace
 }

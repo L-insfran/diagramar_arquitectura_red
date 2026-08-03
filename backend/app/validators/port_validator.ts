@@ -8,6 +8,7 @@ const portType = vine
   .maxLength(50)
   .regex(/^[a-z][a-z0-9_-]*$/)
 const portStatus = vine.enum(['up', 'down', 'disabled'] as const)
+const chassisFace = vine.enum(['front', 'rear'] as const)
 
 const vlanAssignment = vine.object({
   vlanId: vine.string().uuid(),
@@ -24,6 +25,7 @@ export const createPortValidator = vine.compile(
     status: portStatus.optional(),
     description: vine.string().trim().optional(),
     isPassthrough: vine.boolean().optional(),
+    chassisFace: chassisFace.optional(),
     /** Associa VLANs del inventario al puerto (access/trunk vía isTagged). */
     vlanAssignments: vine.array(vlanAssignment).optional(),
   })
@@ -39,6 +41,7 @@ export const updatePortValidator = vine.compile(
     status: portStatus.optional(),
     description: vine.string().trim().optional(),
     isPassthrough: vine.boolean().optional(),
+    chassisFace: chassisFace.optional(),
     /** Si se envía (aunque sea []), reemplaza las VLANs del puerto. */
     vlanAssignments: vine.array(vlanAssignment).optional(),
   })

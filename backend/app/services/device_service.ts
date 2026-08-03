@@ -74,6 +74,8 @@ export default class DeviceService {
         shelfWidthSlots: shelfWidthSlots ?? 1,
         shelfHeightU,
         templateRackUnits: template.rackUnits,
+        rackFace,
+        isFullDepth: !!template.isFullDepth,
       })
       supportedByAccessoryId = shelf.supportedByAccessoryId
       shelfSlotStart = shelf.shelfSlotStart
@@ -83,7 +85,7 @@ export default class DeviceService {
       siteId = shelf.siteId
       areaId = shelf.areaId
       rackUnitStart = null
-      rackFace = null
+      rackFace = shelf.rackFace
     } else if (rackId) {
       const mount = await this.racks.resolveRackPlacement({
         projectId: data.projectId,
@@ -91,6 +93,7 @@ export default class DeviceService {
         rackUnitStart,
         rackFace,
         heightU,
+        isFullDepth: !!template.isFullDepth,
       })
       rackId = mount.rackId
       rackUnitStart = mount.rackUnitStart
@@ -156,6 +159,7 @@ export default class DeviceService {
         status: isPassthrough ? 'up' : 'down',
         description: port.description,
         isPassthrough,
+        chassisFace: isPassthrough ? 'front' : (port.chassisFace ?? 'front'),
       })
     }
 
@@ -172,11 +176,17 @@ export default class DeviceService {
 
     let patch: UpdateDeviceInput = { ...data }
 
+    const nextAccessoryHint =
+      data.supportedByAccessoryId !== undefined
+        ? data.supportedByAccessoryId
+        : device.supportedByAccessoryId
+
     const touchingShelf =
       data.supportedByAccessoryId !== undefined ||
       data.shelfSlotStart !== undefined ||
       data.shelfWidthSlots !== undefined ||
-      data.shelfHeightU !== undefined
+      data.shelfHeightU !== undefined ||
+      (data.rackFace !== undefined && nextAccessoryHint != null)
 
     const touchingRack =
       data.rackId !== undefined ||
@@ -184,10 +194,7 @@ export default class DeviceService {
       data.rackFace !== undefined
 
     if (touchingShelf || (touchingRack && data.supportedByAccessoryId)) {
-      const nextAccessoryId =
-        data.supportedByAccessoryId !== undefined
-          ? data.supportedByAccessoryId
-          : device.supportedByAccessoryId
+      const nextAccessoryId = nextAccessoryHint
 
       if (nextAccessoryId) {
         const shelf = await this.accessories.resolveShelfPlacement({
@@ -204,6 +211,9 @@ export default class DeviceService {
           shelfHeightU:
             data.shelfHeightU !== undefined ? data.shelfHeightU : device.shelfHeightU,
           templateRackUnits: device.deviceTemplate?.rackUnits,
+          rackFace:
+            data.rackFace !== undefined ? data.rackFace : device.rackFace,
+          isFullDepth: !!device.deviceTemplate?.isFullDepth,
           excludeDeviceId: device.id,
         })
         patch = {
@@ -214,7 +224,7 @@ export default class DeviceService {
           shelfHeightU: shelf.shelfHeightU,
           rackId: shelf.rackId,
           rackUnitStart: null,
-          rackFace: null,
+          rackFace: shelf.rackFace,
           siteId: shelf.siteId,
           areaId: shelf.areaId,
         }
@@ -242,6 +252,7 @@ export default class DeviceService {
             data.rackUnitStart !== undefined ? data.rackUnitStart : device.rackUnitStart,
           rackFace: data.rackFace !== undefined ? data.rackFace : device.rackFace,
           heightU,
+          isFullDepth: !!template?.isFullDepth,
           excludeDeviceId: device.id,
         })
         patch = {

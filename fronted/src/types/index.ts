@@ -83,6 +83,8 @@ export interface DeviceTemplatePort {
   speed: string | null
   description: string | null
   isPassthrough?: boolean
+  /** Physical chassis side for non-passthrough ports. */
+  chassisFace?: ChassisFace
 }
 
 export interface DeviceTemplate {
@@ -92,6 +94,8 @@ export interface DeviceTemplate {
   manufacturer: string | null
   model: string | null
   rackUnits: number | null
+  /** Occupies the same U on front and rear when mounted. */
+  isFullDepth?: boolean
   imageUrl: string | null
   frontViewUrl: string | null
   rearViewUrl: string | null
@@ -196,6 +200,11 @@ export interface DashboardRackSummary {
   name: string
   code: string | null
   heightU: number
+  /** Unidades ocupadas en cara frontal. */
+  usedFrontU: number
+  /** Unidades ocupadas en cara trasera. */
+  usedRearU: number
+  /** Agregado front+rear (compat / alertas). */
   usedU: number
   freeU: number
   percentUsed: number
@@ -281,6 +290,9 @@ export interface Rack {
 }
 
 export type RackFace = 'front' | 'rear'
+/** Device mount face; `both` = full-depth (same U on front + rear). */
+export type DeviceRackFace = RackFace | 'both'
+export type ChassisFace = 'front' | 'rear'
 export type ShelfMountType = 'front_only' | 'four_post'
 export type OccupantKind = 'device' | 'shelf' | 'shelf_device'
 
@@ -317,6 +329,8 @@ export interface RackOccupancyAccessory {
     heightU: number
     /** Last U occupied upward from shelf.unitStart. */
     unitEnd?: number
+    /** Face on the shelf (four_post allows rear). */
+    rackFace?: DeviceRackFace
   }>
 }
 
@@ -330,7 +344,7 @@ export interface RackOccupancy {
     id: string
     name: string
     rackUnitStart: number
-    rackFace: RackFace
+    rackFace: DeviceRackFace
     heightU: number
     rackUnitEnd: number
   }>
@@ -381,7 +395,7 @@ export interface Device {
   areaId: string | null
   rackId: string | null
   rackUnitStart: number | null
-  rackFace: RackFace | null
+  rackFace: DeviceRackFace | null
   supportedByAccessoryId?: string | null
   shelfSlotStart?: number | null
   shelfWidthSlots?: number | null
@@ -423,6 +437,8 @@ export interface Port {
   description: string | null
   /** Patch panel / bridge: front + rear faces each accept one physical link. */
   isPassthrough?: boolean
+  /** Physical chassis side for non-passthrough jacks. */
+  chassisFace?: ChassisFace
   device?: Device
   vlans?: Array<Vlan & { isTagged?: boolean }>
 }
@@ -540,6 +556,7 @@ export interface TopologyPortSummary {
   portType: Port['portType']
   status: Port['status']
   isPassthrough?: boolean
+  chassisFace?: ChassisFace
   connectedFront?: boolean
   connectedRear?: boolean
   /** True if any face is occupied. */
@@ -584,8 +601,9 @@ export interface TopologyNode {
     areaId?: string | null
     rackId?: string | null
     rackUnitStart?: number | null
-    rackFace?: RackFace | null
+    rackFace?: DeviceRackFace | null
     rackUnits?: number
+    isFullDepth?: boolean
     supportedByAccessoryId?: string | null
     shelfSlotStart?: number | null
     shelfWidthSlots?: number | null

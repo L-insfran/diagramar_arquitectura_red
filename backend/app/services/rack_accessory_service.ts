@@ -8,11 +8,14 @@ import type {
   ShelfMountType,
   UpdateRackAccessoryInput,
 } from '#dtos/rack_accessory_dto'
-import type { RackFace } from '#dtos/rack_dto'
+import { facesForMountType } from '#dtos/rack_accessory_dto'
+import type { DeviceRackFace } from '#dtos/rack_dto'
 import {
+  facesForDeviceRackFace,
   footprintsOverlap,
-  railDeviceFootprint,
+  railDeviceFootprints,
   rangesOverlap,
+  resolveShelfDeviceFace,
   shelfDeviceFootprints,
   shelfDeviceHeightU,
   shelfFootprints,
@@ -150,19 +153,25 @@ export default class RackAccessoryService {
     for (const other of mounted) {
       if (other.supportedByAccessoryId) continue
       if (other.rackUnitStart == null) continue
-      const otherFp = railDeviceFootprint({
+      const otherFace =
+        other.rackFace === 'both' || other.deviceTemplate?.isFullDepth
+          ? 'both'
+          : ((other.rackFace ?? 'front') as DeviceRackFace)
+      const otherFps = railDeviceFootprints({
         deviceId: other.id,
         deviceName: other.name,
-        face: (other.rackFace ?? 'front') as RackFace,
+        face: otherFace,
         unitStart: other.rackUnitStart,
         heightU: Math.max(1, other.deviceTemplate?.rackUnits ?? 1),
       })
       for (const fp of candidates) {
-        if (footprintsOverlap(fp, otherFp)) {
-          throw new Exception(
-            `Solape con equipo "${other.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd}, ${otherFp.face})`,
-            { status: 409 }
-          )
+        for (const otherFp of otherFps) {
+          if (footprintsOverlap(fp, otherFp)) {
+            throw new Exception(
+              `Solape con equipo "${other.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd}, ${otherFp.face})`,
+              { status: 409 }
+            )
+          }
         }
       }
     }
@@ -195,11 +204,16 @@ export default class RackAccessoryService {
       if (!shelf) continue
       if (params.excludeAccessoryId && shelf.id === params.excludeAccessoryId) continue
       const deviceHeight = shelfDeviceHeightU(device.shelfHeightU, device.deviceTemplate?.rackUnits)
+      const deviceFace = resolveShelfDeviceFace(
+        shelf.mountType,
+        device.rackFace as DeviceRackFace | null,
+        !!device.deviceTemplate?.isFullDepth
+      )
       const deviceFps = shelfDeviceFootprints({
         deviceId: device.id,
         deviceName: device.name,
         shelfUnitStart: shelf.unitStart,
-        shelfMountType: shelf.mountType,
+        face: deviceFace,
         heightU: deviceHeight,
         shelfSlotStart: device.shelfSlotStart ?? 0,
         shelfWidthSlots: device.shelfWidthSlots ?? 1,
@@ -218,8 +232,8 @@ export default class RackAccessoryService {
   }
 
   /**
-   * Place a device on a shelf (horizontal slots + vertical height U).
-   * Clears rail mount fields.
+   * Place a device on a shelf (horizontal slots + vertical height U + face).
+   * Clears rail mount fields. Four-post shelves allow front or rear.
    */
   async resolveShelfPlacement(params: {
     projectId: string
@@ -228,12 +242,15 @@ export default class RackAccessoryService {
     shelfWidthSlots: number
     shelfHeightU?: number | null
     templateRackUnits?: number | null
+    rackFace?: DeviceRackFace | null
+    isFullDepth?: boolean
     excludeDeviceId?: string
   }): Promise<{
     supportedByAccessoryId: string
     shelfSlotStart: number
     shelfWidthSlots: number
     shelfHeightU: number
+    rackFace: DeviceRackFace
     rackId: string
     siteId: string
     areaId: string
@@ -270,6 +287,24 @@ export default class RackAccessoryService {
       })
     }
 
+    const allowedFaces = facesForMountType(accessory.mountType)
+    if (
+      !params.isFullDepth &&
+      params.rackFace !== 'both' &&
+      params.rackFace === 'rear' &&
+      !allowedFaces.includes('rear')
+    ) {
+      throw new Exception(
+        'Esta bandeja es solo frontal; no admite equipos del lado trasero',
+        { status: 422 }
+      )
+    }
+    const rackFace = resolveShelfDeviceFace(
+      accessory.mountType,
+      params.rackFace,
+      params.isFullDepth
+    )
+
     const heightU = shelfDeviceHeightU(params.shelfHeightU, params.templateRackUnits)
     const unitStart = accessory.unitStart
     const unitEnd = unitStart + heightU - 1
@@ -285,53 +320,64 @@ export default class RackAccessoryService {
       deviceId: params.excludeDeviceId ?? 'new',
       deviceName: 'equipo',
       shelfUnitStart: unitStart,
-      shelfMountType: accessory.mountType,
+      face: rackFace,
       heightU,
       shelfSlotStart: start,
       shelfWidthSlots: width,
     })
 
-    // Horizontal collision with other devices on the same shelf
     const others = await this.accessories.findDevicesOnAccessory(
       accessory.id,
       params.excludeDeviceId
     )
+    const candidateFaces = new Set(facesForDeviceRackFace(rackFace))
     for (const other of others) {
+      const otherFace = resolveShelfDeviceFace(
+        accessory.mountType,
+        other.rackFace as DeviceRackFace | null,
+        !!other.deviceTemplate?.isFullDepth
+      )
+      const sharesFace = facesForDeviceRackFace(otherFace).some((f) => candidateFaces.has(f))
+      if (!sharesFace) continue
       const otherStart = other.shelfSlotStart ?? 0
       const otherWidth = other.shelfWidthSlots ?? 1
       const otherEnd = otherStart + otherWidth - 1
       if (rangesOverlap(start, end, otherStart, otherEnd)) {
         throw new Exception(
-          `Solape en bandeja con "${other.name}" (slots ${otherStart}–${otherEnd})`,
+          `Solape en bandeja (${rackFace}) con "${other.name}" (slots ${otherStart}–${otherEnd})`,
           { status: 409 }
         )
       }
     }
 
-    // Vertical collision with rail-mounted devices on affected faces
     const mounted = await this.racks.findMountedDevices(accessory.rackId)
     for (const other of mounted) {
       if (params.excludeDeviceId && other.id === params.excludeDeviceId) continue
       if (other.supportedByAccessoryId) continue
       if (other.rackUnitStart == null) continue
-      const otherFp = railDeviceFootprint({
+      const otherFace =
+        other.rackFace === 'both' || other.deviceTemplate?.isFullDepth
+          ? 'both'
+          : ((other.rackFace ?? 'front') as DeviceRackFace)
+      const otherFps = railDeviceFootprints({
         deviceId: other.id,
         deviceName: other.name,
-        face: (other.rackFace ?? 'front') as RackFace,
+        face: otherFace,
         unitStart: other.rackUnitStart,
         heightU: Math.max(1, other.deviceTemplate?.rackUnits ?? 1),
       })
       for (const fp of candidates) {
-        if (footprintsOverlap(fp, otherFp)) {
-          throw new Exception(
-            `Solape con equipo "${other.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd}, ${otherFp.face})`,
-            { status: 409 }
-          )
+        for (const otherFp of otherFps) {
+          if (footprintsOverlap(fp, otherFp)) {
+            throw new Exception(
+              `Solape con equipo "${other.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd}, ${otherFp.face})`,
+              { status: 409 }
+            )
+          }
         }
       }
     }
 
-    // Collision with other shelves (full width) on shared faces
     const shelves = await this.accessories.findByRack(accessory.rackId)
     for (const shelf of shelves) {
       if (shelf.id === accessory.id) continue
@@ -354,7 +400,6 @@ export default class RackAccessoryService {
       }
     }
 
-    // Vertical + horizontal collision with devices on other shelves
     const shelfDevices = await this.accessories.findShelfDevicesByRack(
       accessory.rackId,
       params.excludeDeviceId
@@ -363,11 +408,16 @@ export default class RackAccessoryService {
       const shelf = device.supportedByAccessory
       if (!shelf || shelf.id === accessory.id) continue
       const deviceHeight = shelfDeviceHeightU(device.shelfHeightU, device.deviceTemplate?.rackUnits)
+      const deviceFace = resolveShelfDeviceFace(
+        shelf.mountType,
+        device.rackFace as DeviceRackFace | null,
+        !!device.deviceTemplate?.isFullDepth
+      )
       const deviceFps = shelfDeviceFootprints({
         deviceId: device.id,
         deviceName: device.name,
         shelfUnitStart: shelf.unitStart,
-        shelfMountType: shelf.mountType,
+        face: deviceFace,
         heightU: deviceHeight,
         shelfSlotStart: device.shelfSlotStart ?? 0,
         shelfWidthSlots: device.shelfWidthSlots ?? 1,
@@ -384,17 +434,12 @@ export default class RackAccessoryService {
       }
     }
 
-    // Also check vertical overhang into units above this shelf that may already
-    // host other devices on THIS same shelf (same accessory) — only horizontal
-    // was checked above; if two devices share the shelf but different slots,
-    // their vertical spans can both rise into free U space. That's allowed
-    // as long as slots don't overlap (already checked). No extra check needed.
-
     return {
       supportedByAccessoryId: accessory.id,
       shelfSlotStart: start,
       shelfWidthSlots: width,
       shelfHeightU: heightU,
+      rackFace,
       rackId: accessory.rackId,
       siteId: rack.area.siteId,
       areaId: rack.areaId,

@@ -19,6 +19,7 @@ const initialForm = {
   manufacturer: '',
   model: '',
   rackUnits: '',
+  isFullDepth: false,
   notes: '',
 }
 
@@ -29,6 +30,7 @@ const initialPortForm = {
   speed: '',
   description: '',
   isPassthrough: false,
+  chassisFace: 'front' as 'front' | 'rear',
 }
 
 function formatError(err: unknown): string {
@@ -97,6 +99,7 @@ export default function DeviceTemplates() {
       manufacturer: tpl.manufacturer || '',
       model: tpl.model || '',
       rackUnits: tpl.rackUnits != null ? String(tpl.rackUnits) : '',
+      isFullDepth: !!tpl.isFullDepth,
       notes: tpl.notes || '',
     })
     setFormError(null)
@@ -137,6 +140,7 @@ export default function DeviceTemplates() {
         manufacturer: form.manufacturer.trim() || null,
         model: form.model.trim() || null,
         rackUnits,
+        isFullDepth: form.isFullDepth,
         notes: form.notes.trim() || null,
       }
       if (editingId) {
@@ -203,6 +207,7 @@ export default function DeviceTemplates() {
       speed: port.speed || '',
       description: port.description || '',
       isPassthrough: !!port.isPassthrough,
+      chassisFace: port.chassisFace === 'rear' ? 'rear' : 'front',
     })
     setPortError(null)
   }
@@ -226,6 +231,7 @@ export default function DeviceTemplates() {
       speed: portForm.speed.trim() || null,
       description: portForm.description.trim() || null,
       isPassthrough: portForm.isPassthrough,
+      chassisFace: portForm.isPassthrough ? ('front' as const) : portForm.chassisFace,
     }
 
     try {
@@ -305,6 +311,11 @@ export default function DeviceTemplates() {
       render: (tpl) => (
         <span className="text-sm text-gray-500 dark:text-gray-400">
           {tpl.rackUnits != null ? `${tpl.rackUnits}U` : '—'}
+          {tpl.isFullDepth ? (
+            <span className="ml-1 text-[10px] font-semibold uppercase text-violet-500">
+              full
+            </span>
+          ) : null}
         </span>
       ),
     },
@@ -408,7 +419,17 @@ export default function DeviceTemplates() {
           <Select
             label="Tipo de dispositivo"
             value={form.deviceTypeId}
-            onChange={(e) => setForm((prev) => ({ ...prev, deviceTypeId: e.target.value }))}
+            onChange={(e) => {
+              const deviceTypeId = e.target.value
+              const typeName =
+                (deviceTypes || []).find((t) => t.id === deviceTypeId)?.name ?? ''
+              const isServer = /server/i.test(typeName)
+              setForm((prev) => ({
+                ...prev,
+                deviceTypeId,
+                isFullDepth: editingId ? prev.isFullDepth : isServer ? true : prev.isFullDepth,
+              }))
+            }}
             options={(deviceTypes || []).map((t) => ({ value: t.id, label: t.name }))}
             placeholder="Selecciona un tipo"
             required
@@ -431,6 +452,22 @@ export default function DeviceTemplates() {
             onChange={(e) => setForm((prev) => ({ ...prev, rackUnits: e.target.value }))}
             placeholder="1"
           />
+          <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/40 px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+              checked={form.isFullDepth}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, isFullDepth: e.target.checked }))
+              }
+            />
+            <span className="text-sm text-gray-800 dark:text-gray-100">
+              <span className="font-medium">Profundidad completa (frente + dorso)</span>
+              <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Al montar en rack ocupa las mismas U en ambas caras. Ideal para servers.
+              </span>
+            </span>
+          </label>
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notas
@@ -498,7 +535,11 @@ export default function DeviceTemplates() {
                           <span className="ml-2 inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
                             Puente
                           </span>
-                        ) : null}
+                        ) : (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                            {port.chassisFace === 'rear' ? 'Dorso' : 'Frente'}
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-gray-500">
                         {port.portType}
@@ -588,6 +629,22 @@ export default function DeviceTemplates() {
                 </span>
               </span>
             </label>
+            {!portForm.isPassthrough && (
+              <Select
+                label="Cara del chasis"
+                value={portForm.chassisFace}
+                onChange={(e) =>
+                  setPortForm((prev) => ({
+                    ...prev,
+                    chassisFace: e.target.value as 'front' | 'rear',
+                  }))
+                }
+                options={[
+                  { value: 'front', label: 'Frontal' },
+                  { value: 'rear', label: 'Trasera' },
+                ]}
+              />
+            )}
             {portError && <p className="text-sm text-red-500">{portError}</p>}
             <div className="flex justify-end gap-2">
               {editingPortId && (

@@ -67,6 +67,7 @@ type PortSummary = {
   portType: Port['portType']
   status: Port['status']
   isPassthrough: boolean
+  chassisFace: 'front' | 'rear'
   connectedFront: boolean
   connectedRear: boolean
   /** True if any face is occupied (backward-compatible). */
@@ -89,8 +90,9 @@ type FlowTopologyNode = {
     areaId: string | null
     rackId: string | null
     rackUnitStart: number | null
-    rackFace: 'front' | 'rear' | null
+    rackFace: 'front' | 'rear' | 'both' | null
     rackUnits: number
+    isFullDepth: boolean
     supportedByAccessoryId: string | null
     shelfSlotStart: number | null
     shelfWidthSlots: number | null
@@ -210,6 +212,15 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
   )
 
   const rackUnits = Math.max(1, device.deviceTemplate?.rackUnits ?? 1)
+  const isFullDepth = !!device.deviceTemplate?.isFullDepth
+  const rackFace =
+    isFullDepth || device.rackFace === 'both'
+      ? ('both' as const)
+      : device.rackFace === 'rear'
+        ? ('rear' as const)
+        : device.rackFace === 'front'
+          ? ('front' as const)
+          : null
 
   return {
     id: device.id,
@@ -227,8 +238,9 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
       areaId: device.areaId ?? null,
       rackId: device.rackId ?? null,
       rackUnitStart: device.rackUnitStart ?? null,
-      rackFace: device.rackFace ?? null,
+      rackFace,
       rackUnits,
+      isFullDepth,
       supportedByAccessoryId: device.supportedByAccessoryId ?? null,
       shelfSlotStart: device.shelfSlotStart ?? null,
       shelfWidthSlots: device.shelfWidthSlots ?? null,
@@ -250,6 +262,7 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
           portType: port.portType,
           status: port.status,
           isPassthrough: !!port.isPassthrough,
+          chassisFace: port.isPassthrough ? 'front' : (port.chassisFace ?? 'front'),
           connectedFront,
           connectedRear,
           connected: connectedFront || connectedRear,
@@ -305,12 +318,16 @@ export default class TopologyService {
     }
   }
 
-  /** Resolve face for a port: endpoints always use front; passthrough accepts front|rear. */
+  /** Resolve face for a port: passthrough accepts front|rear; others use chassisFace only. */
   private resolveFace(port: Port, requested: PortFace | undefined): PortFace {
-    const face = requested ?? 'front'
-    if (!port.isPassthrough && face === 'rear') {
+    if (port.isPassthrough) {
+      return requested ?? 'front'
+    }
+    const chassis = port.chassisFace === 'rear' ? 'rear' : 'front'
+    const face = requested ?? chassis
+    if (face !== chassis) {
       throw new Exception(
-        `El puerto "${port.name}" no es passthrough: solo admite la cara front.`,
+        `El puerto "${port.name}" solo admite la cara ${chassis} del chasis.`,
         { status: 422 }
       )
     }

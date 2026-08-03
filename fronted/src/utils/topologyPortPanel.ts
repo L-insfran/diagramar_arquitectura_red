@@ -109,6 +109,28 @@ function isEthernetPortType(portType: string | null | undefined): boolean {
   return t === 'ethernet' || t === 'rj45' || t.includes('ethernet')
 }
 
+/** RJ11 / analógico de telefonía (más pequeño que RJ45 en el diagrama). */
+export function isRj11PortType(portType: string | null | undefined): boolean {
+  const t = (portType ?? '').trim().toLowerCase()
+  if (!t) return false
+  return (
+    t === 'rj11' ||
+    t === 'fxs' ||
+    t === 'fxo' ||
+    t.includes('rj11') ||
+    t.includes('fxs') ||
+    t.includes('fxo')
+  )
+}
+
+/**
+ * Escala visual de la celda respecto al slot del layout.
+ * RJ11 ≈ 2/3 del Ethernet para diferenciarlos en Telephone IP / gateways.
+ */
+export function portCellVisualScale(portType: string | null | undefined): number {
+  return isRj11PortType(portType) ? 0.62 : 1
+}
+
 function isNonEthernetPanelPortType(portType: string | null | undefined): boolean {
   const t = (portType ?? '').trim().toLowerCase()
   if (!t) return false
@@ -271,8 +293,25 @@ export function portFaceConnectable(
   readOnly: boolean,
 ): boolean {
   if (readOnly || port.status !== 'up') return false
-  if (face === 'rear' && !port.isPassthrough) return false
+  if (port.isPassthrough) {
+    return !portFaceConnected(port, face)
+  }
+  const chassis = port.chassisFace === 'rear' ? 'rear' : 'front'
+  if (face !== chassis) return false
   return !portFaceConnected(port, face)
+}
+
+/** Ports visible for a rack view face (chassis_face filter; passthrough always shown). */
+export function filterPortsForRackViewFace(
+  ports: TopologyPortSummary[],
+  rackViewFace: 'front' | 'rear' | 'both' | null | undefined,
+): TopologyPortSummary[] {
+  if (!rackViewFace || rackViewFace === 'both') return ports
+  return ports.filter((port) => {
+    if (port.isPassthrough) return true
+    const chassis = port.chassisFace === 'rear' ? 'rear' : 'front'
+    return chassis === rackViewFace
+  })
 }
 
 /** Siempre muestra todos los puertos del equipo (conectados y libres). */
@@ -595,10 +634,18 @@ const RACK_PORT_CELL_W_MIN = 10
 const RACK_PORT_CELL_H_MIN = 8
 const RACK_PORT_CELL_H_MAX = 22
 const RACK_PORT_CELL_W_MAX = 28
-/** Tope más holgado para equipos en bandeja (aprovechar ancho del slot). */
-const RACK_PORT_CELL_W_MAX_SHELF = 44
-const RACK_PORT_CELL_W_MAX_FACEPLATE = 16
-const RACK_PORT_CELL_W_MAX_FACEPLATE_SHELF = 22
+/** Tope más holgado para equipos en bandeja (nombres de puerto legibles). */
+const RACK_PORT_CELL_W_MAX_SHELF = 56
+/**
+ * Patch panel / faceplate en rack: jacks más grandes (antes 16px — ilegibles).
+ * El ancho real sigue limitado por `availableW / N`; este tope evita celdas ridículas
+ * cuando hay pocos puertos o el rack es ancho.
+ */
+const RACK_PORT_CELL_W_MAX_FACEPLATE = 26
+const RACK_PORT_CELL_W_MAX_FACEPLATE_SHELF = 32
+/** Alto de jack faceplate: llenar la U (antes se capaba a 14/18 y sobraba aire). */
+const RACK_PORT_CELL_H_MAX_FACEPLATE = 28
+const RACK_PORT_CELL_H_MAX_FACEPLATE_DENSE = 24
 const RACK_PORT_HEADER_H = 12
 const RACK_WIFI_CELL_H_MIN = 14
 const RACK_WIFI_CELL_H_MAX = 22
@@ -641,8 +688,10 @@ export function chooseShelfPortGrid(
       cellHMax,
       Math.max(1, Math.floor((heightBudget - (rows - 1) * gap) / rows)),
     )
-    const readableBonus = cellW >= 16 ? 1.25 : cellW >= 14 ? 1.1 : 1
-    const score = cellW * cellH * readableBonus
+    const readableBonus = cellW >= 28 ? 1.45 : cellW >= 20 ? 1.25 : cellW >= 14 ? 1.1 : 1
+    // Preferir menos filas cuando el ancho ya permite ~4+ chars (nombres cortos).
+    const nameFitBonus = cellW >= 22 && rows <= 2 ? 1.15 : 1
+    const score = cellW * cellH * readableBonus * nameFitBonus
     if (score > bestScore || (score === bestScore && rows < bestRows)) {
       bestScore = score
       bestCols = cols
@@ -668,17 +717,16 @@ export function computeRackMountedPortPanelLayout(
   const width = Math.max(80, targetWidth)
   const height = Math.max(RACK_MOUNTED_HEADER_HEIGHT_DENSE, targetHeight)
   const dense = height <= RACK_DENSE_HEIGHT_PX
-  const headerHeight = dense ? RACK_MOUNTED_HEADER_HEIGHT_DENSE : RACK_MOUNTED_HEADER_HEIGHT
-  const portPad = dense ? RACK_PORT_PAD : RACK_PORT_PAD_ROOMY
   const portGapBase = dense ? RACK_PORT_GAP : RACK_PORT_GAP_ROOMY
   const hasPhysical = physicalCount > 0
   const hasWireless = wirelessCount > 0
   const shelfMounted = hints?.shelfMounted === true
   const layoutMode = resolvePortPanelLayoutMode(totalPhysicalPortCount, hints)
   const faceplate = layoutMode === 'ethernetFaceplate'
-  const portGap = faceplate ? Math.min(portGapBase, 2) : portGapBase
+  // Faceplate: gaps mínimos para maximizar jack (24 puertos en ~380px).
+  const portGap = faceplate ? 1 : portGapBase
   const blockSize = faceplate ? ETHERNET_FACEPLATE_BLOCK_SIZE : undefined
-  const blockGap = faceplate ? Math.max(portGap + 3, dense ? 5 : 7) : undefined
+  const blockGap = faceplate ? (dense ? 3 : 5) : undefined
   const cellWMax = faceplate
     ? shelfMounted
       ? RACK_PORT_CELL_W_MAX_FACEPLATE_SHELF
@@ -686,6 +734,19 @@ export function computeRackMountedPortPanelLayout(
     : shelfMounted
       ? RACK_PORT_CELL_W_MAX_SHELF
       : RACK_PORT_CELL_W_MAX
+  // Cabecera un poco más baja en patch 1U → más alto para los jacks.
+  const headerHeight = faceplate && dense
+    ? Math.min(RACK_MOUNTED_HEADER_HEIGHT_DENSE, 14)
+    : dense
+      ? RACK_MOUNTED_HEADER_HEIGHT_DENSE
+      : RACK_MOUNTED_HEADER_HEIGHT
+  const portPad = faceplate
+    ? dense
+      ? 1
+      : 2
+    : dense
+      ? RACK_PORT_PAD
+      : RACK_PORT_PAD_ROOMY
 
   if (!hasPhysical && !hasWireless) {
     return {
@@ -796,8 +857,12 @@ export function computeRackMountedPortPanelLayout(
   let cellH = 0
   if (hasPhysical && rows > 0) {
     const raw = Math.floor((physBudget - (rows - 1) * portGap) / rows)
-    // Faceplate 1U: celdas bajas y anchas-relativas; cap más bajo para parecer jacks.
-    const maxH = faceplate ? Math.min(RACK_PORT_CELL_H_MAX, dense ? 14 : 18) : RACK_PORT_CELL_H_MAX
+    // Faceplate: jacks altos que llenan la U (no caparlos a 14px).
+    const maxH = faceplate
+      ? dense
+        ? RACK_PORT_CELL_H_MAX_FACEPLATE_DENSE
+        : RACK_PORT_CELL_H_MAX_FACEPLATE
+      : RACK_PORT_CELL_H_MAX
     cellH = Math.max(1, Math.min(maxH, raw))
   }
   const gridWidth = hasPhysical
@@ -1111,7 +1176,17 @@ export function portCellClasses(port: TopologyPortSummary, density: PortCellDens
       ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-500/80 dark:bg-emerald-950/55 dark:text-emerald-100'
       : 'border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-600/80 dark:bg-amber-950/45 dark:text-amber-100'
   }
-  // Libre: borde sólido sutil (sin dashed) — menos ruido en grillas densas.
+  // Libre: Up = habilitado/disponible; down = apagado (no confundir con disabled).
+  if (port.status === 'up') {
+    return rack
+      ? 'border-sky-500/55 bg-sky-950/35 text-sky-100'
+      : 'border-sky-400/80 bg-sky-50/80 text-sky-800 dark:border-sky-500/60 dark:bg-sky-950/30 dark:text-sky-200'
+  }
+  if (port.status === 'down') {
+    return rack
+      ? 'border-slate-700/60 bg-slate-900/55 text-slate-500'
+      : 'border-gray-300/80 bg-gray-100/80 text-gray-400 dark:border-gray-700/70 dark:bg-gray-900/40 dark:text-gray-500'
+  }
   return rack
     ? 'border-slate-600/70 bg-slate-800/70 text-slate-400'
     : 'border-gray-300/90 bg-gray-50/90 text-gray-400 dark:border-gray-600/80 dark:bg-gray-800/50 dark:text-gray-500'
@@ -1130,16 +1205,78 @@ export function wifiChipClasses(port: TopologyPortSummary): string {
 }
 
 /** Etiqueta corta para celdas densas; conserva el nombre del puerto (campo `port` / `name`). */
-export function abbreviatePortName(name: string): string {
+export function abbreviatePortName(name: string, maxChars = 8): string {
   const trimmed = name.trim()
-  if (trimmed.length <= 8) return trimmed
-  return `${trimmed.slice(0, 7)}…`
+  if (trimmed.length <= maxChars) return trimmed
+  if (maxChars <= 1) return trimmed.slice(0, 1)
+  return `${trimmed.slice(0, maxChars - 1)}…`
+}
+
+/** Ancho aproximado por glifo en fuente condensada (sans). */
+function rackPortCharWidth(fontSize: number): number {
+  return Math.max(2.2, fontSize * 0.48)
 }
 
 /**
- * Etiqueta para celdas de rack: solo el número (estilo faceplate).
- * El nombre completo queda en el `title` / tooltip.
+ * Cuántos caracteres caben aprox. en una celda densa según ancho y tamaño de fuente.
  */
-export function rackPortLabel(port: Pick<TopologyPortSummary, 'portNumber'>): string {
-  return String(port.portNumber)
+export function rackPortLabelMaxChars(cellW: number, fontSize: number): number {
+  return Math.max(2, Math.floor((cellW - 1) / rackPortCharWidth(fontSize)))
+}
+
+/**
+ * Fuente para celdas densas (rack / bandeja) según tamaño de celda y longitud del texto.
+ * Preferir valores bajos: el fit dinámico encoge antes de truncar.
+ */
+export function rackPortLabelFontSize(cellW: number, cellH: number, labelLength: number): number {
+  const heightCap = Math.max(4, Math.min(8, Math.floor(cellH * 0.7)))
+  if (labelLength <= 3 && cellW >= 14) return Math.min(heightCap, 7)
+  if (labelLength <= 5 && cellW >= 18) return Math.min(heightCap, 6)
+  if (labelLength <= 7 && cellW >= 22) return Math.min(heightCap, 5)
+  return Math.min(heightCap, 4)
+}
+
+/**
+ * Elige fuente (y solo si hace falta, abreviatura) para que el nombre entre en la celda.
+ * Prioridad: nombre completo con fuente más chica → truncar como último recurso.
+ */
+export function fitRackPortLabel(
+  name: string,
+  cellW: number,
+  cellH: number,
+): { label: string; fontSize: number } {
+  const full = name.trim()
+  if (!full) return { label: '', fontSize: 4 }
+
+  const minFont = 3.5
+  const maxFont = Math.min(8, Math.max(minFont, cellH * 0.68))
+  const pad = 1.5
+
+  for (let fs = maxFont; fs >= minFont - 0.01; fs -= 0.5) {
+    const maxChars = Math.floor((cellW - pad) / rackPortCharWidth(fs))
+    if (full.length <= maxChars) {
+      return { label: full, fontSize: Math.round(fs * 10) / 10 }
+    }
+  }
+
+  const maxChars = rackPortLabelMaxChars(cellW, minFont)
+  return {
+    label: abbreviatePortName(full, maxChars),
+    fontSize: minFont,
+  }
+}
+
+/**
+ * Etiqueta para celdas de rack/bandeja: nombre del puerto.
+ * Faceplate Ethernet sigue usando número (`preferNumber`).
+ * Preferí `fitRackPortLabel` en UI densa; esta helper queda para casos simples.
+ */
+export function rackPortLabel(
+  port: Pick<TopologyPortSummary, 'portNumber' | 'name'>,
+  opts?: { maxChars?: number; preferNumber?: boolean },
+): string {
+  if (opts?.preferNumber) return String(port.portNumber)
+  const name = port.name?.trim()
+  if (!name) return String(port.portNumber)
+  return abbreviatePortName(name, opts?.maxChars ?? 12)
 }

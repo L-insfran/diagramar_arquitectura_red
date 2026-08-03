@@ -38,7 +38,7 @@ export default class Device extends BaseModel {
   declare rackUnitStart: number | null
 
   @column()
-  declare rackFace: 'front' | 'rear' | null
+  declare rackFace: 'front' | 'rear' | 'both' | null
 
   /** Device resting on a rack shelf (not rail-mounted). */
   @column()

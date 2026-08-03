@@ -25,6 +25,10 @@ export default class DeviceTemplate extends BaseModel {
   @column()
   declare rackUnits: number | null
 
+  /** When true, rail/shelf instances occupy the same U on front and rear. */
+  @column()
+  declare isFullDepth: boolean
+
   @column()
   declare imageUrl: string | null
 

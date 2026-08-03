@@ -15,6 +15,7 @@ export interface CreatePortPayload {
   status?: Port['status']
   description?: string | null
   isPassthrough?: boolean
+  chassisFace?: 'front' | 'rear'
   vlanAssignments?: PortVlanAssignment[]
 }
 
@@ -28,6 +29,7 @@ export interface UpdatePortPayload {
   status: Port['status']
   description?: string
   isPassthrough?: boolean
+  chassisFace?: 'front' | 'rear'
   /** Si se envía (aunque sea []), reemplaza las VLANs del puerto. */
   vlanAssignments?: PortVlanAssignment[]
 }

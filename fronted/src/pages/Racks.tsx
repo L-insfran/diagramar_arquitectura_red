@@ -123,7 +123,7 @@ function RackElevation({
       })),
       ...mountedHere.map((d) => ({
         value: d.id,
-        label: `${d.name} — mover desde U${d.rackUnitStart ?? '?'}/${d.rackFace === 'rear' ? 'trasera' : 'frontal'}`,
+        label: `${d.name} — mover desde U${d.rackUnitStart ?? '?'}/${d.rackFace === 'both' ? 'ambas' : d.rackFace === 'rear' ? 'trasera' : 'frontal'}`,
       })),
     ],
     [unmounted, mountedHere]
@@ -271,8 +271,12 @@ function RackElevation({
             const isDraggingThis = Boolean(draggingId && slot.deviceId === draggingId)
             const shelfDevices =
               isShelf && slot.accessoryId
-                ? (occupancy.accessories ?? []).find((a) => a.id === slot.accessoryId)?.devices ??
-                  []
+                ? (
+                    (occupancy.accessories ?? []).find((a) => a.id === slot.accessoryId)
+                      ?.devices ?? []
+                  ).filter(
+                    (d) => d.rackFace === 'both' || (d.rackFace === 'rear' ? 'rear' : 'front') === face
+                  )
                 : []
             return (
               <div

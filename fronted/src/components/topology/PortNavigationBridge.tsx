@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useReactFlow, type Node } from '@xyflow/react'
+import { racksNeedingBothFacesForEdges } from '../../utils/topologyRackReveal'
 import type { PortLinkEdgeType } from './PortLinkEdge'
-import type { TopologyLinkSelection } from './TopologyCanvasContext'
 import { PortLinkCallout, type PortLinkCalloutItem } from './PortLinkCallout'
+import {
+  TopologyCanvasInteractionContext,
+  type TopologyLinkSelection,
+} from './TopologyCanvasContext'
 
 type PortNavigationBridgeProps = {
   selection: TopologyLinkSelection | null
@@ -49,55 +53,115 @@ function buildCalloutItems(
   return items
 }
 
-export function PortNavigationBridge({ selection, edges, nodes, onClearSelection }: PortNavigationBridgeProps) {
+function selectionKey(selection: TopologyLinkSelection): string {
+  return selection.kind === 'port' ? `port:${selection.portId}` : `edge:${selection.edgeId}`
+}
+
+export function PortNavigationBridge({
+  selection,
+  edges,
+  nodes,
+  onClearSelection,
+}: PortNavigationBridgeProps) {
   const { fitView } = useReactFlow()
+  const ctx = useContext(TopologyCanvasInteractionContext)
+  const setRackFace = ctx?.setRackFace
   const [calloutItems, setCalloutItems] = useState<PortLinkCalloutItem[]>([])
-  const lastHandledPortRef = useRef<string | null>(null)
+  const lastHandledKeyRef = useRef<string | null>(null)
+  const pendingFitRef = useRef<string[] | null>(null)
+
+  const runFitView = useCallback(
+    (nodeIds: string[]) => {
+      if (!nodeIds.length) return
+      requestAnimationFrame(() => {
+        void fitView({
+          nodes: nodeIds.map((id) => ({ id })),
+          padding: 0.4,
+          duration: 450,
+          maxZoom: 1.4,
+        })
+      })
+    },
+    [fitView],
+  )
 
   const dismissCallout = useCallback(() => {
     setCalloutItems([])
-    lastHandledPortRef.current = null
+    lastHandledKeyRef.current = null
+    pendingFitRef.current = null
     onClearSelection()
   }, [onClearSelection])
 
   useEffect(() => {
-    if (selection?.kind !== 'port') {
+    if (!selection) {
       setCalloutItems([])
-      lastHandledPortRef.current = null
+      lastHandledKeyRef.current = null
+      pendingFitRef.current = null
       return
     }
 
-    const portId = selection.portId
-    if (lastHandledPortRef.current === portId) return
+    const key = selectionKey(selection)
+    if (lastHandledKeyRef.current === key) return
 
-    const connectedEdges = edges.filter(
-      (edge) => edge.data?.sourcePortId === portId || edge.data?.targetPortId === portId,
-    )
-    if (!connectedEdges.length) return
+    let connectedEdges: PortLinkEdgeType[]
+    let focusNodeIds: string[]
 
-    lastHandledPortRef.current = portId
+    if (selection.kind === 'port') {
+      const portId = selection.portId
+      connectedEdges = edges.filter(
+        (edge) => edge.data?.sourcePortId === portId || edge.data?.targetPortId === portId,
+      )
+      if (!connectedEdges.length) return
 
-    const remoteNodeIds = [
-      ...new Set(
-        connectedEdges.map((edge) => {
-          const isSource = edge.data?.sourcePortId === portId
-          return isSource ? edge.target : edge.source
-        }),
-      ),
-    ]
+      lastHandledKeyRef.current = key
+      focusNodeIds = [
+        ...new Set(
+          connectedEdges.map((edge) => {
+            const isSource = edge.data?.sourcePortId === portId
+            return isSource ? edge.target : edge.source
+          }),
+        ),
+      ]
+      setCalloutItems(buildCalloutItems(portId, connectedEdges, nodes))
+    } else {
+      const edge = edges.find((e) => e.id === selection.edgeId)
+      if (!edge) return
 
-    const items = buildCalloutItems(portId, connectedEdges, nodes)
-    setCalloutItems(items)
+      lastHandledKeyRef.current = key
+      connectedEdges = [edge]
+      focusNodeIds = [edge.source, edge.target]
+      setCalloutItems([])
+    }
 
-    requestAnimationFrame(() => {
-      void fitView({
-        nodes: remoteNodeIds.map((id) => ({ id })),
-        padding: 0.4,
-        duration: 450,
-        maxZoom: 1.4,
-      })
-    })
-  }, [selection, edges, nodes, fitView])
+    const racksToReveal = racksNeedingBothFacesForEdges(nodes, connectedEdges)
+    const canReveal = racksToReveal.length > 0 && !!setRackFace
+    if (canReveal) {
+      for (const rackNodeId of racksToReveal) {
+        setRackFace(rackNodeId, 'both')
+      }
+    }
+
+    const fitTargets = [...new Set([...focusNodeIds, ...racksToReveal])]
+    if (canReveal) {
+      pendingFitRef.current = fitTargets
+    } else {
+      pendingFitRef.current = null
+      runFitView(fitTargets)
+    }
+  }, [selection, edges, nodes, setRackFace, runFitView])
+
+  /** Tras setRackFace('both'), esperar a que los nodos dejen de estar hidden. */
+  useEffect(() => {
+    const pending = pendingFitRef.current
+    if (!pending) return
+
+    const byId = new Map(nodes.map((n) => [n.id, n]))
+    const stillHidden = pending.some((id) => byId.get(id)?.hidden)
+    if (stillHidden) return
+
+    pendingFitRef.current = null
+    runFitView(pending)
+  }, [nodes, runFitView])
 
   if (!calloutItems.length) return null
 

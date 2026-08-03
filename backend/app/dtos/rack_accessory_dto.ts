@@ -51,7 +51,7 @@ export type UpdateRackAccessoryInput = {
   notes?: string | null
 }
 
-/** Faces blocked by a shelf according to mount type. */
+/** Faces blocked by a shelf according to mount type (and available for resting devices). */
 export function facesForMountType(mountType: ShelfMountType): RackFace[] {
   return mountType === 'four_post' ? ['front', 'rear'] : ['front']
 }

@@ -34,6 +34,10 @@ export default class Port extends BaseModel {
   @column()
   declare isPassthrough: boolean
 
+  /** Physical chassis side for non-passthrough jacks (ignored when isPassthrough). */
+  @column()
+  declare chassisFace: 'front' | 'rear'
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

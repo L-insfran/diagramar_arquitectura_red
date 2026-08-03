@@ -1,5 +1,9 @@
 export type DeviceStatus = 'online' | 'offline' | 'maintenance' | 'unknown'
+/** Physical rack face for footprints / views. */
 export type RackFace = 'front' | 'rear'
+/** Device mount face; `both` = full-depth (same U on front + rear). */
+export type DeviceRackFace = RackFace | 'both'
+export type ChassisFace = 'front' | 'rear'
 
 export type DeviceFilters = {
   status?: string
@@ -26,7 +30,7 @@ export type CreateDeviceInput = {
   areaId?: string | null
   rackId?: string | null
   rackUnitStart?: number | null
-  rackFace?: RackFace | null
+  rackFace?: DeviceRackFace | null
   supportedByAccessoryId?: string | null
   shelfSlotStart?: number | null
   shelfWidthSlots?: number | null
@@ -50,7 +54,7 @@ export type UpdateDeviceInput = {
   areaId?: string | null
   rackId?: string | null
   rackUnitStart?: number | null
-  rackFace?: RackFace | null
+  rackFace?: DeviceRackFace | null
   supportedByAccessoryId?: string | null
   shelfSlotStart?: number | null
   shelfWidthSlots?: number | null

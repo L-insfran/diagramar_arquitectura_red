@@ -1,7 +1,7 @@
 import vine from '@vinejs/vine'
 
 const deviceStatus = vine.enum(['online', 'offline', 'maintenance', 'unknown'] as const)
-const rackFace = vine.enum(['front', 'rear'] as const)
+const rackFace = vine.enum(['front', 'rear', 'both'] as const)
 const shelfWidthSlots = vine.enum([1, 3] as const)
 
 export const createDeviceValidator = vine.compile(

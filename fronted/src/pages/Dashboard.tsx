@@ -1,4 +1,4 @@
-import type { LucideIcon } from 'lucide-react'
+import { useEffect, useState, type LucideIcon } from 'react'
 import {
   Server,
   Layers,
@@ -22,8 +22,68 @@ import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { useApi } from '../hooks/useApi'
 import { dashboardService } from '../services/dashboard.service'
-import type { DashboardAlert, DashboardMetrics } from '../types'
+import type { DashboardAlert, DashboardMetrics, DashboardRackSummary } from '../types'
 import { useNavigate } from 'react-router-dom'
+
+/** Vista de ocupación U en el widget de racks del dashboard. */
+type RackOccupancyView = 'both' | 'front' | 'rear'
+
+const RACK_OCCUPANCY_VIEW_OPTIONS: { value: RackOccupancyView; label: string }[] = [
+  { value: 'both', label: 'Front+Back' },
+  { value: 'front', label: 'Front' },
+  { value: 'rear', label: 'Back' },
+]
+
+function rackOccupancyStorageKey(userId: string | undefined) {
+  return `nm.dashboard.rackOccupancyView:${userId || 'anon'}`
+}
+
+function readRackOccupancyView(userId: string | undefined): RackOccupancyView {
+  try {
+    const raw = localStorage.getItem(rackOccupancyStorageKey(userId))
+    if (raw === 'both' || raw === 'front' || raw === 'rear') return raw
+  } catch {
+    /* ignore */
+  }
+  return 'both'
+}
+
+function occupancyForView(rack: DashboardRackSummary, view: RackOccupancyView) {
+  if (view === 'front') {
+    const capacity = rack.heightU
+    const usedU = rack.usedFrontU ?? 0
+    const freeU = Math.max(0, capacity - usedU)
+    const percentUsed = capacity === 0 ? 0 : Math.round((usedU / capacity) * 1000) / 10
+    return { usedU, freeU, percentUsed, faceLabel: 'Front' }
+  }
+  if (view === 'rear') {
+    const capacity = rack.heightU
+    const usedU = rack.usedRearU ?? 0
+    const freeU = Math.max(0, capacity - usedU)
+    const percentUsed = capacity === 0 ? 0 : Math.round((usedU / capacity) * 1000) / 10
+    return { usedU, freeU, percentUsed, faceLabel: 'Back' }
+  }
+  return {
+    usedU: rack.usedU,
+    freeU: rack.freeU,
+    percentUsed: rack.percentUsed,
+    faceLabel: 'Front+Back',
+  }
+}
+
+function aggregateOccupancy(items: DashboardRackSummary[], view: RackOccupancyView) {
+  let usedU = 0
+  let totalCapacityU = 0
+  for (const rack of items) {
+    const o = occupancyForView(rack, view)
+    usedU += o.usedU
+    totalCapacityU += view === 'both' ? rack.heightU * 2 : rack.heightU
+  }
+  const freeU = Math.max(0, totalCapacityU - usedU)
+  const percentUsed =
+    totalCapacityU === 0 ? 0 : Math.round((usedU / totalCapacityU) * 1000) / 10
+  return { usedU, freeU, totalCapacityU, percentUsed }
+}
 
 const deviceTypeIcons: Record<string, LucideIcon> = {
   Router: Globe,
@@ -58,8 +118,27 @@ export default function Dashboard() {
     [activeProjectId]
   )
 
+  const [rackOccupancyView, setRackOccupancyView] = useState<RackOccupancyView>(() =>
+    readRackOccupancyView(user?.id)
+  )
+
+  useEffect(() => {
+    setRackOccupancyView(readRackOccupancyView(user?.id))
+  }, [user?.id])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(rackOccupancyStorageKey(user?.id), rackOccupancyView)
+    } catch {
+      /* ignore */
+    }
+  }, [rackOccupancyView, user?.id])
+
   const metrics: DashboardMetrics | null = data ?? null
   const c = metrics?.counts
+  const rackAgg = metrics
+    ? aggregateOccupancy(metrics.racks.items, rackOccupancyView)
+    : null
 
   return (
     <div className="space-y-6">
@@ -103,8 +182,8 @@ export default function Dashboard() {
               onClick={() => navigate('/racks')}
             >
               <p className="text-xs text-gray-500 mt-2">
-                Ocupación U: {metrics?.racks.percentUsed ?? 0}% ({metrics?.racks.usedU ?? 0}/
-                {metrics?.racks.totalCapacityU ?? 0})
+                Ocupación U: {rackAgg?.percentUsed ?? 0}% ({rackAgg?.usedU ?? 0}/
+                {rackAgg?.totalCapacityU ?? 0})
               </p>
             </Card>
             <Card title="Puertos" icon={<Cable className="w-5 h-5" />} value={c?.ports ?? 0}>
@@ -183,11 +262,36 @@ export default function Dashboard() {
             </div>
 
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center gap-2">
-                <HardDrive className="w-4 h-4 text-slate-400" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Ocupación de racks
-                </h2>
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <HardDrive className="w-4 h-4 text-slate-400 shrink-0" />
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
+                    Ocupación de racks
+                  </h2>
+                </div>
+                <div
+                  className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 p-0.5 bg-gray-50 dark:bg-gray-800/80"
+                  role="group"
+                  aria-label="Vista de ocupación por cara"
+                >
+                  {RACK_OCCUPANCY_VIEW_OPTIONS.map((opt) => {
+                    const active = rackOccupancyView === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setRackOccupancyView(opt.value)}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                          active
+                            ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
               <div className="p-4 space-y-3 max-h-80 overflow-y-auto">
                 {(metrics?.racks.items.length ?? 0) === 0 ? (
@@ -195,37 +299,40 @@ export default function Dashboard() {
                     No hay racks en el proyecto
                   </p>
                 ) : (
-                  metrics!.racks.items.map((rack) => (
-                    <button
-                      key={rack.id}
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() => navigate('/racks')}
-                    >
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="font-medium text-gray-900 dark:text-white truncate">
-                          {rack.name}
-                          <span className="text-gray-500 font-normal"> · {rack.heightU}U</span>
-                        </span>
-                        <span className="tabular-nums text-gray-500">{rack.percentUsed}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            rack.percentUsed >= 95
-                              ? 'bg-red-500'
-                              : rack.percentUsed >= 80
-                                ? 'bg-amber-500'
-                                : 'bg-blue-500'
-                          }`}
-                          style={{ width: `${Math.min(100, rack.percentUsed)}%` }}
-                        />
-                      </div>
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        {rack.usedU} usadas · {rack.freeU} libres (front+rear)
-                      </p>
-                    </button>
-                  ))
+                  metrics!.racks.items.map((rack) => {
+                    const occ = occupancyForView(rack, rackOccupancyView)
+                    return (
+                      <button
+                        key={rack.id}
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => navigate('/racks')}
+                      >
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="font-medium text-gray-900 dark:text-white truncate">
+                            {rack.name}
+                            <span className="text-gray-500 font-normal"> · {rack.heightU}U</span>
+                          </span>
+                          <span className="tabular-nums text-gray-500">{occ.percentUsed}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              occ.percentUsed >= 95
+                                ? 'bg-red-500'
+                                : occ.percentUsed >= 80
+                                  ? 'bg-amber-500'
+                                  : 'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min(100, occ.percentUsed)}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          {occ.usedU} usadas · {occ.freeU} libres ({occ.faceLabel})
+                        </p>
+                      </button>
+                    )
+                  })
                 )}
               </div>
             </div>

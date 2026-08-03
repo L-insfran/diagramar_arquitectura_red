@@ -37,6 +37,33 @@ import {
 } from './topologyRackLayout'
 import type { TopologyCanvasNode, TopologyDeviceNode } from './topologyWorkAreas'
 
+function isFullDepthMount(device: TopologyDeviceNode): boolean {
+  return !!device.data.isFullDepth || device.data.rackFace === 'both'
+}
+
+function deviceOccupiesFace(device: TopologyDeviceNode, face: RackFace): boolean {
+  if (isFullDepthMount(device)) return true
+  return normalizeRackFace(device.data.rackFace) === face
+}
+
+function isHiddenForRackView(
+  device: TopologyDeviceNode,
+  activeFace: RackViewFace,
+): boolean {
+  if (activeFace === 'both') return false
+  if (isFullDepthMount(device)) return false
+  return normalizeRackFace(device.data.rackFace) !== activeFace
+}
+
+function displayColumnForDevice(
+  device: TopologyDeviceNode,
+  activeFace: RackViewFace,
+): 0 | 1 {
+  if (activeFace !== 'both') return 0
+  if (isFullDepthMount(device)) return 0
+  return normalizeRackFace(device.data.rackFace) === 'rear' ? 1 : 0
+}
+
 function devicePlacementMeta(n: TopologyNode) {
   return {
     siteId: n.data.siteId ?? null,
@@ -45,6 +72,7 @@ function devicePlacementMeta(n: TopologyNode) {
     rackUnitStart: n.data.rackUnitStart ?? null,
     rackFace: n.data.rackFace ?? null,
     rackUnits: Math.max(1, n.data.rackUnits ?? 1),
+    isFullDepth: !!n.data.isFullDepth || n.data.rackFace === 'both',
     manufacturer: n.data.manufacturer ?? null,
     model: n.data.model ?? null,
     supportedByAccessoryId: n.data.supportedByAccessoryId ?? null,
@@ -163,11 +191,7 @@ function countDevicesByFace(
   return devices.filter((d) => {
     if (d.type === 'cloud') return false
     if (d.data.rackId !== rackId) return false
-    if (d.data.supportedByAccessoryId) {
-      // Equipos apoyados: visibles en frontal (v1)
-      return face === 'front'
-    }
-    return normalizeRackFace(d.data.rackFace) === face
+    return deviceOccupiesFace(d, face)
   }).length
 }
 
@@ -191,6 +215,38 @@ export function applyRackHierarchy(
     const activeFace = normalizeRackViewFace(rackFaces[id] ?? rackFaces[rack.id] ?? 'front')
     const size = rackOuterSize(rack.heightU, activeFace)
     const pos = rackPositions[id] ?? { x: 0, y: 0 }
+    const fullDepthGhosts =
+      activeFace === 'both'
+        ? devices
+            .filter(
+              (d) =>
+                d.type !== 'cloud' &&
+                d.data.rackId === rack.id &&
+                isFullDepthMount(d) &&
+                (d.data.supportedByAccessoryId || d.data.rackUnitStart != null),
+            )
+            .map((d) => {
+              const shelfId = d.data.supportedByAccessoryId
+              const shelf = shelfId
+                ? (rack.accessories ?? []).find((a) => a.id === shelfId)
+                : undefined
+              const unitStart = shelf
+                ? shelf.unitStart
+                : (d.data.rackUnitStart ?? 1)
+              const heightU = Math.max(
+                1,
+                shelf
+                  ? (d.data.shelfHeightU ?? d.data.rackUnits ?? 1)
+                  : (d.data.rackUnits ?? 1),
+              )
+              return {
+                deviceId: d.id,
+                name: d.data.label || d.id,
+                unitStart,
+                heightU,
+              }
+            })
+        : []
     return {
       id,
       type: 'rack',
@@ -212,6 +268,7 @@ export function applyRackHierarchy(
         deviceCountFront: countDevicesByFace(devices, rack.id, 'front'),
         deviceCountRear: countDevicesByFace(devices, rack.id, 'rear'),
         accessories: rack.accessories ?? [],
+        fullDepthGhosts,
       },
     }
   })
@@ -262,9 +319,9 @@ export function applyRackHierarchy(
       const activeFace = normalizeRackViewFace(
         rackFaces[rackNodeId] ?? rackFaces[rackId] ?? 'front',
       )
-      // v1: resting devices only on front column
-      const hidden = activeFace === 'rear'
-      const column: 0 | 1 = 0
+      const face = normalizeRackFace(device.data.rackFace)
+      const hidden = isHiddenForRackView(device, activeFace)
+      const column = displayColumnForDevice(device, activeFace)
       const units = Math.max(1, device.data.rackUnits ?? 1)
       const visualHeightU = Math.max(1, device.data.shelfHeightU ?? units)
       const slot = devicePositionOnShelf({
@@ -310,7 +367,9 @@ export function applyRackHierarchy(
           rackMounted: true,
           rackUnits: visualHeightU,
           shelfHeightU: visualHeightU,
-          rackFace: 'front',
+          rackFace: isFullDepthMount(device) ? 'both' : face,
+          isFullDepth: isFullDepthMount(device),
+          rackViewFace: activeFace,
           nodeWidth: rackLayout.width,
           nodeHeight: rackLayout.height,
         },
@@ -338,8 +397,8 @@ export function applyRackHierarchy(
     const activeFace = normalizeRackViewFace(
       rackFaces[rackNodeId] ?? rackFaces[rackId] ?? 'front',
     )
-    const hidden = activeFace !== 'both' && face !== activeFace
-    const column: 0 | 1 = activeFace === 'both' && face === 'rear' ? 1 : 0
+    const hidden = isHiddenForRackView(device, activeFace)
+    const column = displayColumnForDevice(device, activeFace)
     const units = Math.max(1, device.data.rackUnits ?? 1)
     const slot = devicePositionInRack(device.data.rackUnitStart, units, rack.heightU, column)
     const { physical, wireless } = partitionDiagramPorts(device.data.ports ?? [])
@@ -371,6 +430,9 @@ export function applyRackHierarchy(
         ...device.data,
         rackMounted: true,
         rackUnits: units,
+        rackFace: isFullDepthMount(device) ? 'both' : face,
+        isFullDepth: isFullDepthMount(device),
+        rackViewFace: activeFace,
         nodeWidth: rackLayout.width,
         nodeHeight: rackLayout.height,
       },

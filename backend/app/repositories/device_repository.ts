@@ -149,6 +149,7 @@ export default class DeviceRepository {
     status: 'up' | 'down' | 'disabled'
     description?: string | null
     isPassthrough?: boolean
+    chassisFace?: 'front' | 'rear'
   }) {
     return Port.create({
       deviceId: data.deviceId,
@@ -159,6 +160,7 @@ export default class DeviceRepository {
       status: data.status,
       description: data.description ?? null,
       isPassthrough: data.isPassthrough ?? false,
+      chassisFace: data.chassisFace ?? 'front',
     })
   }
 }

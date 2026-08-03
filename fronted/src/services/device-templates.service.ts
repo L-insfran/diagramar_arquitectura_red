@@ -7,6 +7,7 @@ export type DeviceTemplatePayload = {
   manufacturer?: string | null
   model?: string | null
   rackUnits?: number | null
+  isFullDepth?: boolean
   imageUrl?: string | null
   frontViewUrl?: string | null
   rearViewUrl?: string | null
@@ -22,6 +23,7 @@ export type DeviceTemplatePortPayload = {
   speed?: string | null
   description?: string | null
   isPassthrough?: boolean
+  chassisFace?: 'front' | 'rear'
 }
 
 export const deviceTemplatesService = {

@@ -98,7 +98,7 @@ export function devicePositionInRack(
 /**
  * Posición de un equipo apoyado en bandeja (slots horizontales 0–2).
  * Crece hacia arriba desde la U base de la bandeja; no se recorta a la altura de la bandeja.
- * Visible en cara frontal; en vista rear solo si la bandeja es four_post (ocupación de riel).
+ * Visible en la cara del equipo; en bandeja four_post el dorso admite equipos propios.
  */
 export function devicePositionOnShelf(params: {
   unitStart: number

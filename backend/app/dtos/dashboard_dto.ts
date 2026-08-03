@@ -13,6 +13,11 @@ export type DashboardRackSummary = {
   name: string
   code: string | null
   heightU: number
+  /** Unidades ocupadas en cara frontal. */
+  usedFrontU: number
+  /** Unidades ocupadas en cara trasera. */
+  usedRearU: number
+  /** Agregado front+rear (compat / alertas). */
   usedU: number
   freeU: number
   percentUsed: number

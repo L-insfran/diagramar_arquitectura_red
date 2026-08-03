@@ -66,6 +66,7 @@ export default class DeviceTemplateRepository {
       manufacturer: data.manufacturer ?? null,
       model: data.model ?? null,
       rackUnits: data.rackUnits ?? null,
+      isFullDepth: data.isFullDepth ?? false,
       imageUrl: data.imageUrl ?? null,
       frontViewUrl: data.frontViewUrl ?? null,
       rearViewUrl: data.rearViewUrl ?? null,
@@ -126,6 +127,7 @@ export default class DeviceTemplateRepository {
       speed: data.speed ?? null,
       description: data.description ?? null,
       isPassthrough: data.isPassthrough ?? false,
+      chassisFace: data.chassisFace ?? 'front',
     })
   }
 

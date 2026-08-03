@@ -1,7 +1,18 @@
 import db from '@adonisjs/lucid/services/db'
 import Device from '#models/device'
 import Rack from '#models/rack'
+import RackAccessory from '#models/rack_accessory'
 import type { DashboardRackSummary, DashboardRecentDevice } from '#dtos/dashboard_dto'
+import type { DeviceRackFace } from '#dtos/rack_dto'
+import {
+  aggregateUsedUnitsByFace,
+  railDeviceFootprints,
+  resolveShelfDeviceFace,
+  shelfDeviceFootprints,
+  shelfDeviceHeightU,
+  shelfFootprints,
+  type RackFootprint,
+} from '#services/rack_layout'
 
 type CountRow = { total: string | number }
 
@@ -168,14 +179,27 @@ export default class DashboardRepository {
       .whereNull('deleted_at')
       .orderBy('name', 'asc')
 
-    const mounted = await Device.query()
-      .where('project_id', projectId)
-      .whereNull('deleted_at')
-      .whereNotNull('rack_id')
-      .whereNotNull('rack_unit_start')
-      .preload('deviceTemplate')
+    const [mounted, accessories, shelfDevices] = await Promise.all([
+      Device.query()
+        .where('project_id', projectId)
+        .whereNull('deleted_at')
+        .whereNotNull('rack_id')
+        .whereNotNull('rack_unit_start')
+        .whereNull('supported_by_accessory_id')
+        .preload('deviceTemplate'),
+      RackAccessory.query()
+        .where('project_id', projectId)
+        .whereNull('deleted_at')
+        .orderBy('unit_start', 'asc'),
+      Device.query()
+        .where('project_id', projectId)
+        .whereNull('deleted_at')
+        .whereNotNull('supported_by_accessory_id')
+        .preload('deviceTemplate')
+        .preload('supportedByAccessory'),
+    ])
 
-    return { racks, mounted }
+    return { racks, mounted, accessories, shelfDevices }
   }
 
   async listRecentDevices(projectId: string, limit = 5): Promise<DashboardRecentDevice[]> {
@@ -225,14 +249,32 @@ export default class DashboardRepository {
 
   buildRackSummaries(
     racks: Rack[],
-    mounted: Device[]
+    mounted: Device[],
+    accessories: RackAccessory[] = [],
+    shelfDevices: Device[] = []
   ): { items: DashboardRackSummary[]; usedU: number; totalCapacityU: number } {
-    const byRack = new Map<string, Device[]>()
+    const railByRack = new Map<string, Device[]>()
     for (const d of mounted) {
       if (!d.rackId) continue
-      const list = byRack.get(d.rackId) ?? []
+      const list = railByRack.get(d.rackId) ?? []
       list.push(d)
-      byRack.set(d.rackId, list)
+      railByRack.set(d.rackId, list)
+    }
+
+    const shelvesByRack = new Map<string, RackAccessory[]>()
+    for (const a of accessories) {
+      const list = shelvesByRack.get(a.rackId) ?? []
+      list.push(a)
+      shelvesByRack.set(a.rackId, list)
+    }
+
+    const shelfDevicesByRack = new Map<string, Device[]>()
+    for (const d of shelfDevices) {
+      const rackId = d.rackId ?? d.supportedByAccessory?.rackId
+      if (!rackId) continue
+      const list = shelfDevicesByRack.get(rackId) ?? []
+      list.push(d)
+      shelfDevicesByRack.set(rackId, list)
     }
 
     let usedU = 0
@@ -242,26 +284,76 @@ export default class DashboardRepository {
     for (const rack of racks) {
       const capacity = rack.heightU * 2
       totalCapacityU += capacity
-      const usedUnits = new Set<string>()
-      for (const d of byRack.get(rack.id) ?? []) {
-        const height = Math.max(1, d.deviceTemplate?.rackUnits ?? 1)
+
+      const footprints: RackFootprint[] = []
+
+      for (const d of railByRack.get(rack.id) ?? []) {
+        const heightU = Math.max(1, d.deviceTemplate?.rackUnits ?? 1)
         const start = d.rackUnitStart ?? 1
-        const face = d.rackFace ?? 'front'
-        for (let u = start; u < start + height; u++) {
-          usedUnits.add(`${face}:${u}`)
-        }
+        const face: DeviceRackFace =
+          d.deviceTemplate?.isFullDepth || d.rackFace === 'both'
+            ? 'both'
+            : d.rackFace === 'rear'
+              ? 'rear'
+              : 'front'
+        footprints.push(
+          ...railDeviceFootprints({
+            deviceId: d.id,
+            deviceName: d.name,
+            face,
+            unitStart: start,
+            heightU,
+          })
+        )
       }
-      const rackUsed = usedUnits.size
-      usedU += rackUsed
-      const freeU = Math.max(0, capacity - rackUsed)
+
+      for (const shelf of shelvesByRack.get(rack.id) ?? []) {
+        footprints.push(
+          ...shelfFootprints({
+            accessoryId: shelf.id,
+            accessoryName: shelf.name,
+            unitStart: shelf.unitStart,
+            heightU: shelf.heightU,
+            mountType: shelf.mountType,
+          })
+        )
+      }
+
+      for (const d of shelfDevicesByRack.get(rack.id) ?? []) {
+        const shelf = d.supportedByAccessory
+        if (!shelf || shelf.deletedAt) continue
+        const heightU = shelfDeviceHeightU(d.shelfHeightU, d.deviceTemplate?.rackUnits)
+        const face = resolveShelfDeviceFace(
+          shelf.mountType,
+          d.rackFace as DeviceRackFace | null,
+          !!d.deviceTemplate?.isFullDepth
+        )
+        footprints.push(
+          ...shelfDeviceFootprints({
+            deviceId: d.id,
+            deviceName: d.name,
+            shelfUnitStart: shelf.unitStart,
+            face,
+            heightU,
+            shelfSlotStart: d.shelfSlotStart ?? 0,
+            shelfWidthSlots: d.shelfWidthSlots ?? 1,
+          })
+        )
+      }
+
+      const agg = aggregateUsedUnitsByFace(footprints)
+      usedU += agg.usedU
+      const freeU = Math.max(0, capacity - agg.usedU)
       items.push({
         id: rack.id,
         name: rack.name,
         code: rack.code,
         heightU: rack.heightU,
-        usedU: rackUsed,
+        usedFrontU: agg.usedFrontU,
+        usedRearU: agg.usedRearU,
+        usedU: agg.usedU,
         freeU,
-        percentUsed: capacity === 0 ? 0 : Math.round((rackUsed / capacity) * 1000) / 10,
+        percentUsed: capacity === 0 ? 0 : Math.round((agg.usedU / capacity) * 1000) / 10,
       })
     }
 

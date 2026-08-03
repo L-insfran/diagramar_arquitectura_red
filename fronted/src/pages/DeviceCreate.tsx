@@ -23,7 +23,7 @@ import type {
   RackOccupancy,
   Site,
 } from '../types'
-import { canPlaceAt, occupiedRangesForFace } from '../utils/rackPlacement'
+import { canPlaceAt, canPlaceFullDepthAt, occupiedRangesForFace } from '../utils/rackPlacement'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
 
@@ -61,7 +61,7 @@ interface DeviceFormState {
   mountMode: MountMode
   rackId: string
   rackUnitStart: string
-  rackFace: 'front' | 'rear' | ''
+  rackFace: 'front' | 'rear' | 'both' | ''
   supportedByAccessoryId: string
   shelfWidthSlots: '1' | '3'
   shelfSlotStart: string
@@ -192,6 +192,9 @@ export default function DeviceCreate() {
     1,
     selectedTemplate?.rackUnits ?? existingDevice?.deviceTemplate?.rackUnits ?? 1
   )
+  const isFullDepth = !!(
+    selectedTemplate?.isFullDepth ?? existingDevice?.deviceTemplate?.isFullDepth
+  )
 
   const shelfHeightUValue = useMemo(() => {
     const parsed = Number.parseInt(form.shelfHeightU, 10)
@@ -200,6 +203,11 @@ export default function DeviceCreate() {
   }, [form.shelfHeightU, templateHeightU])
 
   const activeFace: RackFace = form.rackFace === 'rear' ? 'rear' : 'front'
+  const mountFace = isFullDepth
+    ? ('both' as const)
+    : form.rackFace === 'rear'
+      ? ('rear' as const)
+      : ('front' as const)
   const parsedUnit = form.rackUnitStart.trim()
     ? Number.parseInt(form.rackUnitStart, 10)
     : null
@@ -292,16 +300,33 @@ export default function DeviceCreate() {
       if (prev.mountMode !== 'rail' || !prev.rackId || !prev.rackUnitStart.trim()) return prev
       const unit = Number.parseInt(prev.rackUnitStart, 10)
       if (Number.isNaN(unit)) return { ...prev, rackUnitStart: '' }
-      const face: RackFace = prev.rackFace === 'rear' ? 'rear' : 'front'
-      const check = canPlaceAt({
-        start: unit,
-        heightU: templateHeightU,
-        rackHeightU: occupancy.heightU,
-        occupied: occupiedRangesForFace(occupancy, face, id),
-      })
+      const check = isFullDepth
+        ? canPlaceFullDepthAt({
+            start: unit,
+            heightU: templateHeightU,
+            rackHeightU: occupancy.heightU,
+            occupancy,
+            excludeDeviceId: id,
+          })
+        : canPlaceAt({
+            start: unit,
+            heightU: templateHeightU,
+            rackHeightU: occupancy.heightU,
+            occupied: occupiedRangesForFace(
+              occupancy,
+              prev.rackFace === 'rear' ? 'rear' : 'front',
+              id
+            ),
+          })
       return check.ok ? prev : { ...prev, rackUnitStart: '' }
     })
-  }, [form.mountMode, form.rackId, activeFace, occupancy, templateHeightU, id])
+  }, [form.mountMode, form.rackId, activeFace, occupancy, templateHeightU, id, isFullDepth])
+
+  // Force both faces when template is full-depth
+  useEffect(() => {
+    if (!isFullDepth) return
+    setForm((prev) => (prev.rackFace === 'both' ? prev : { ...prev, rackFace: 'both' }))
+  }, [isFullDepth])
 
   const manufacturerModel = isEditMode
     ? [existingDevice?.manufacturer, existingDevice?.model].filter(Boolean).join(' ') || '—'
@@ -350,12 +375,20 @@ export default function DeviceCreate() {
         return
       }
       if (occupancy) {
-        const check = canPlaceAt({
-          start: unit,
-          heightU: templateHeightU,
-          rackHeightU: occupancy.heightU,
-          occupied: occupiedRangesForFace(occupancy, activeFace, id),
-        })
+        const check = isFullDepth
+          ? canPlaceFullDepthAt({
+              start: unit,
+              heightU: templateHeightU,
+              rackHeightU: occupancy.heightU,
+              occupancy,
+              excludeDeviceId: id,
+            })
+          : canPlaceAt({
+              start: unit,
+              heightU: templateHeightU,
+              rackHeightU: occupancy.heightU,
+              occupied: occupiedRangesForFace(occupancy, activeFace, id),
+            })
         if (!check.ok) {
           setFormError(check.reason)
           return
@@ -397,20 +430,34 @@ export default function DeviceCreate() {
             .find((a) => a.id === selectedShelf.id)
             ?.devices.map((d) => d.id) ?? []
         )
-        const faces: RackFace[] =
-          selectedShelf.mountType === 'four_post' ? ['front', 'rear'] : ['front']
-        for (const face of faces) {
+        const filterShelfSelf = (r: { kind?: string; deviceId: string }) => {
+          if (r.kind === 'shelf' && r.deviceId === selectedShelf.id) return false
+          if (r.kind === 'shelf_device' && sameShelfDeviceIds.has(r.deviceId)) return false
+          return true
+        }
+        if (isFullDepth) {
+          for (const face of ['front', 'rear'] as const) {
+            const check = canPlaceAt({
+              start: selectedShelf.unitStart,
+              heightU: shelfHeightUValue,
+              rackHeightU: occupancy.heightU,
+              occupied: occupiedRangesForFace(occupancy, face, id).filter(filterShelfSelf),
+            })
+            if (!check.ok) {
+              setFormError(check.reason)
+              return
+            }
+          }
+        } else {
+          const shelfFace: RackFace =
+            selectedShelf.mountType === 'four_post' && form.rackFace === 'rear'
+              ? 'rear'
+              : 'front'
           const check = canPlaceAt({
             start: selectedShelf.unitStart,
             heightU: shelfHeightUValue,
             rackHeightU: occupancy.heightU,
-            occupied: occupiedRangesForFace(occupancy, face, id).filter((r) => {
-              // La bandeja propia no bloquea; los hermanos en la misma bandeja
-              // se validan por slots horizontales (backend), no por U.
-              if (r.kind === 'shelf' && r.deviceId === selectedShelf.id) return false
-              if (r.kind === 'shelf_device' && sameShelfDeviceIds.has(r.deviceId)) return false
-              return true
-            }),
+            occupied: occupiedRangesForFace(occupancy, shelfFace, id).filter(filterShelfSelf),
           })
           if (!check.ok) {
             setFormError(check.reason)
@@ -443,7 +490,12 @@ export default function DeviceCreate() {
               shelfHeightU: shelfHeightUValue,
               // rackId lo resuelve el backend desde la bandeja; no enviar null (limpia el montaje).
               rackUnitStart: null,
-              rackFace: null,
+              rackFace: isFullDepth
+                ? 'both'
+                : (shelves || []).find((s) => s.id === form.supportedByAccessoryId)
+                      ?.mountType === 'four_post' && form.rackFace === 'rear'
+                  ? 'rear'
+                  : 'front',
               status: form.status,
               notes: form.notes.trim() || undefined,
             }
@@ -459,7 +511,7 @@ export default function DeviceCreate() {
                 areaId: form.areaId || null,
                 rackId: form.rackId,
                 rackUnitStart: unit,
-                rackFace: activeFace,
+                rackFace: mountFace,
                 supportedByAccessoryId: null,
                 shelfSlotStart: null,
                 shelfWidthSlots: null,
@@ -755,19 +807,30 @@ export default function DeviceCreate() {
               )}
               {form.mountMode === 'rail' && form.rackId && (
                 <>
-                  <Select
-                    label="Cara"
-                    value={form.rackFace || 'front'}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        rackFace: event.target.value as 'front' | 'rear',
-                        rackUnitStart: '',
-                      }))
-                    }
-                    options={faceOptions}
-                    hint="Frontal y trasera son caras independientes. Las bandejas integrales bloquean ambas."
-                  />
+                  {isFullDepth ? (
+                    <div className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/80 dark:bg-violet-950/30 px-3 py-2.5">
+                      <p className="text-sm font-medium text-violet-800 dark:text-violet-200">
+                        Ambas caras (profundidad completa)
+                      </p>
+                      <p className="text-xs text-violet-700/80 dark:text-violet-300/80 mt-0.5">
+                        Este template ocupa las mismas U en frente y dorso del rack.
+                      </p>
+                    </div>
+                  ) : (
+                    <Select
+                      label="Cara"
+                      value={form.rackFace === 'both' ? 'front' : form.rackFace || 'front'}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          rackFace: event.target.value as 'front' | 'rear',
+                          rackUnitStart: '',
+                        }))
+                      }
+                      options={faceOptions}
+                      hint="Frontal y trasera son caras independientes. Las bandejas integrales bloquean ambas."
+                    />
+                  )}
                   {selectedRack && (
                     <Input
                       label="Capacidad rack"
@@ -782,12 +845,21 @@ export default function DeviceCreate() {
                   <Select
                     label="Bandeja"
                     value={form.supportedByAccessoryId}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const shelfId = event.target.value
+                      const shelf = (shelves || []).find((s) => s.id === shelfId)
                       setForm((prev) => ({
                         ...prev,
-                        supportedByAccessoryId: event.target.value,
+                        supportedByAccessoryId: shelfId,
+                        rackFace: isFullDepth
+                          ? 'both'
+                          : shelf?.mountType === 'four_post'
+                            ? prev.rackFace === 'rear'
+                              ? 'rear'
+                              : 'front'
+                            : 'front',
                       }))
-                    }
+                    }}
                     options={[
                       { value: '', label: 'Seleccionar bandeja' },
                       ...(shelves || []).map((s) => ({
@@ -801,6 +873,38 @@ export default function DeviceCreate() {
                         : undefined
                     }
                   />
+                  {isFullDepth ? (
+                    <p className="text-xs text-violet-600 dark:text-violet-400 col-span-full">
+                      Profundidad completa: el equipo reserva frente y dorso sobre la bandeja.
+                    </p>
+                  ) : (
+                    (() => {
+                      const selectedShelf = (shelves || []).find(
+                        (s) => s.id === form.supportedByAccessoryId
+                      )
+                      if (!selectedShelf || selectedShelf.mountType !== 'four_post') {
+                        return selectedShelf ? (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 col-span-full">
+                            Bandeja solo frontal: el equipo queda del lado delantero.
+                          </p>
+                        ) : null
+                      }
+                      return (
+                        <Select
+                          label="Lado de la bandeja"
+                          value={form.rackFace === 'both' ? 'front' : form.rackFace || 'front'}
+                          onChange={(event) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              rackFace: event.target.value as 'front' | 'rear',
+                            }))
+                          }
+                          options={faceOptions}
+                          hint="La bandeja integral permite equipos independientes en frente y dorso."
+                        />
+                      )
+                    })()
+                  )}
                   <Select
                     label="Ancho en bandeja"
                     value={form.shelfWidthSlots}
@@ -884,6 +988,7 @@ export default function DeviceCreate() {
                     occupancy={occupancy}
                     face={activeFace}
                     heightU={templateHeightU}
+                    fullDepth={isFullDepth}
                     value={
                       parsedUnit != null && !Number.isNaN(parsedUnit) ? parsedUnit : null
                     }

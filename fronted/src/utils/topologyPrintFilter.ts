@@ -63,7 +63,10 @@ export function deviceMatchesPrintFilters(
   const rackId = node.data.rackId ?? null
   if (rackId) {
     if (filters.rackIds.length > 0 && !filters.rackIds.includes(rackId)) return false
-    if (filters.face !== 'both' && normalizeFace(node.data.rackFace) !== filters.face) return false
+    if (filters.face !== 'both' && normalizeFace(node.data.rackFace) !== filters.face) {
+      const fullDepth = !!node.data.isFullDepth || node.data.rackFace === 'both'
+      if (!fullDepth) return false
+    }
     return true
   }
 

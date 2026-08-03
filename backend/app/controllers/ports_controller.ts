@@ -90,8 +90,9 @@ export default class PortsController {
     }
 
     const isPassthrough = portData.isPassthrough ?? false
+    const chassisFace = isPassthrough ? 'front' : (portData.chassisFace ?? 'front')
     const status = this.portService.resolveStatusForCreate(isPassthrough, portData.status)
-    const port = await Port.create({ ...portData, isPassthrough, status })
+    const port = await Port.create({ ...portData, isPassthrough, chassisFace, status })
 
     if (vlanAssignments) {
       try {

@@ -4,6 +4,7 @@ import RackAccessoryRepository from '#repositories/rack_accessory_repository'
 import { facesForMountType } from '#dtos/rack_accessory_dto'
 import type {
   CreateRackInput,
+  DeviceRackFace,
   OccupantKind,
   RackFace,
   RackFilters,
@@ -14,11 +15,15 @@ import type {
   UpdateRackInput,
 } from '#dtos/rack_dto'
 import {
+  aggregateUsedUnitsByFace,
+  facesForDeviceRackFace,
   footprintsOverlap,
-  railDeviceFootprint,
+  railDeviceFootprints,
+  resolveShelfDeviceFace,
   shelfDeviceFootprints,
   shelfDeviceHeightU,
   shelfFootprints,
+  type RackFootprint,
 } from '#services/rack_layout'
 
 type RailOccupant = {
@@ -32,6 +37,15 @@ type RailOccupant = {
   mountType: ShelfMountType | null
   slotStart: number
   slotEnd: number
+}
+
+function normalizeDeviceRackFace(
+  face: DeviceRackFace | string | null | undefined,
+  isFullDepth?: boolean
+): DeviceRackFace {
+  if (isFullDepth || face === 'both') return 'both'
+  if (face === 'rear') return 'rear'
+  return 'front'
 }
 
 export default class RackService {
@@ -149,7 +163,10 @@ export default class RackService {
       .map((d) => {
         const heightU = Math.max(1, d.deviceTemplate?.rackUnits ?? 1)
         const start = d.rackUnitStart ?? 1
-        const face = (d.rackFace ?? 'front') as RackFace
+        const face = normalizeDeviceRackFace(
+          d.rackFace,
+          !!d.deviceTemplate?.isFullDepth
+        )
         return {
           id: d.id,
           name: d.name,
@@ -182,24 +199,31 @@ export default class RackService {
             shelfWidthSlots: d.shelfWidthSlots ?? 1,
             heightU,
             unitEnd: shelf.unitStart + heightU - 1,
+            rackFace: resolveShelfDeviceFace(
+              shelf.mountType,
+              d.rackFace as DeviceRackFace | null,
+              !!d.deviceTemplate?.isFullDepth
+            ),
           }
         }),
       })
     }
 
     const railOccupants: RailOccupant[] = [
-      ...devices.map((d) => ({
-        kind: 'device' as const,
-        id: d.id,
-        name: d.name,
-        rackUnitStart: d.rackUnitStart,
-        rackUnitEnd: d.rackUnitEnd,
-        heightU: d.heightU,
-        rackFace: d.rackFace,
-        mountType: null,
-        slotStart: 0,
-        slotEnd: 2,
-      })),
+      ...devices.flatMap((d) =>
+        facesForDeviceRackFace(d.rackFace).map((face) => ({
+          kind: 'device' as const,
+          id: d.id,
+          name: d.name,
+          rackUnitStart: d.rackUnitStart,
+          rackUnitEnd: d.rackUnitEnd,
+          heightU: d.heightU,
+          rackFace: face,
+          mountType: null,
+          slotStart: 0,
+          slotEnd: 2,
+        }))
+      ),
       ...accessories.flatMap((a) =>
         a.faces.map((face) => ({
           kind: 'shelf' as const,
@@ -220,7 +244,7 @@ export default class RackService {
             deviceId: d.id,
             deviceName: d.name,
             shelfUnitStart: a.unitStart,
-            shelfMountType: a.mountType,
+            face: d.rackFace,
             heightU: d.heightU,
             shelfSlotStart: d.shelfSlotStart,
             shelfWidthSlots: d.shelfWidthSlots,
@@ -241,13 +265,42 @@ export default class RackService {
       ),
     ]
 
-    const usedUnits = new Set<string>()
-    for (const d of railOccupants) {
-      for (let u = d.rackUnitStart; u <= d.rackUnitEnd; u++) {
-        usedUnits.add(`${d.rackFace}:${u}`)
-      }
-    }
-    const usedU = usedUnits.size
+    const footprints: RackFootprint[] = [
+      ...devices.flatMap((d) =>
+        railDeviceFootprints({
+          deviceId: d.id,
+          deviceName: d.name,
+          face: d.rackFace,
+          unitStart: d.rackUnitStart,
+          heightU: d.heightU,
+        })
+      ),
+      ...accessories.flatMap((a) =>
+        shelfFootprints({
+          accessoryId: a.id,
+          accessoryName: a.name,
+          unitStart: a.unitStart,
+          heightU: a.heightU,
+          mountType: a.mountType,
+        })
+      ),
+      ...accessories.flatMap((a) =>
+        a.devices.flatMap((d) =>
+          shelfDeviceFootprints({
+            deviceId: d.id,
+            deviceName: d.name,
+            shelfUnitStart: a.unitStart,
+            face: d.rackFace,
+            heightU: d.heightU,
+            shelfSlotStart: d.shelfSlotStart,
+            shelfWidthSlots: d.shelfWidthSlots,
+          })
+        )
+      ),
+    ]
+
+    const agg = aggregateUsedUnitsByFace(footprints)
+    const usedU = agg.usedU
     const capacity = rack.heightU * 2
     const freeU = Math.max(0, capacity - usedU)
 
@@ -321,18 +374,20 @@ export default class RackService {
    * Validate rack mount and sync site/area from rack.
    * Clears mount fields when rackId is null.
    * Also rejects overlap with shelves and shelf-resting devices on the affected face(s).
+   * Full-depth templates force rackFace = both and check both faces.
    */
   async resolveRackPlacement(params: {
     projectId: string
     rackId?: string | null
     rackUnitStart?: number | null
-    rackFace?: RackFace | null
+    rackFace?: DeviceRackFace | null
     heightU: number
+    isFullDepth?: boolean
     excludeDeviceId?: string
   }): Promise<{
     rackId: string
     rackUnitStart: number
-    rackFace: RackFace
+    rackFace: DeviceRackFace
     siteId: string
     areaId: string
   }> {
@@ -362,8 +417,8 @@ export default class RackService {
       )
     }
 
-    const face: RackFace = params.rackFace ?? 'front'
-    const candidate = railDeviceFootprint({
+    const face = normalizeDeviceRackFace(params.rackFace, params.isFullDepth)
+    const candidates = railDeviceFootprints({
       deviceId: params.excludeDeviceId ?? 'new',
       deviceName: 'equipo',
       face,
@@ -376,18 +431,26 @@ export default class RackService {
       if (params.excludeDeviceId && other.id === params.excludeDeviceId) continue
       if (other.supportedByAccessoryId) continue
       if (other.rackUnitStart == null) continue
-      const otherFp = railDeviceFootprint({
+      const otherFace = normalizeDeviceRackFace(
+        other.rackFace,
+        !!other.deviceTemplate?.isFullDepth
+      )
+      const otherFps = railDeviceFootprints({
         deviceId: other.id,
         deviceName: other.name,
-        face: (other.rackFace ?? 'front') as RackFace,
+        face: otherFace,
         unitStart: other.rackUnitStart,
         heightU: Math.max(1, other.deviceTemplate?.rackUnits ?? 1),
       })
-      if (footprintsOverlap(candidate, otherFp)) {
-        throw new Exception(
-          `Solape con "${other.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd}, ${otherFp.face})`,
-          { status: 409 }
-        )
+      for (const candidate of candidates) {
+        for (const otherFp of otherFps) {
+          if (footprintsOverlap(candidate, otherFp)) {
+            throw new Exception(
+              `Solape con "${other.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd}, ${otherFp.face})`,
+              { status: 409 }
+            )
+          }
+        }
       }
     }
 
@@ -400,12 +463,14 @@ export default class RackService {
         heightU: shelf.heightU,
         mountType: shelf.mountType,
       })
-      for (const otherFp of shelfFps) {
-        if (footprintsOverlap(candidate, otherFp)) {
-          throw new Exception(
-            `Solape con bandeja "${shelf.name}" (U${shelf.unitStart}–U${shelf.unitStart + shelf.heightU - 1}, ${shelf.mountType === 'four_post' ? 'integral' : 'frontal'})`,
-            { status: 409 }
-          )
+      for (const candidate of candidates) {
+        for (const otherFp of shelfFps) {
+          if (footprintsOverlap(candidate, otherFp)) {
+            throw new Exception(
+              `Solape con bandeja "${shelf.name}" (U${shelf.unitStart}–U${shelf.unitStart + shelf.heightU - 1}, ${shelf.mountType === 'four_post' ? 'integral' : 'frontal'})`,
+              { status: 409 }
+            )
+          }
         }
       }
     }
@@ -418,21 +483,28 @@ export default class RackService {
       const shelf = device.supportedByAccessory
       if (!shelf) continue
       const deviceHeight = shelfDeviceHeightU(device.shelfHeightU, device.deviceTemplate?.rackUnits)
+      const deviceFace = resolveShelfDeviceFace(
+        shelf.mountType,
+        device.rackFace as DeviceRackFace | null,
+        !!device.deviceTemplate?.isFullDepth
+      )
       const deviceFps = shelfDeviceFootprints({
         deviceId: device.id,
         deviceName: device.name,
         shelfUnitStart: shelf.unitStart,
-        shelfMountType: shelf.mountType,
+        face: deviceFace,
         heightU: deviceHeight,
         shelfSlotStart: device.shelfSlotStart ?? 0,
         shelfWidthSlots: device.shelfWidthSlots ?? 1,
       })
-      for (const otherFp of deviceFps) {
-        if (footprintsOverlap(candidate, otherFp)) {
-          throw new Exception(
-            `Solape con equipo apoyado "${device.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd})`,
-            { status: 409 }
-          )
+      for (const candidate of candidates) {
+        for (const otherFp of deviceFps) {
+          if (footprintsOverlap(candidate, otherFp)) {
+            throw new Exception(
+              `Solape con equipo apoyado "${device.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd})`,
+              { status: 409 }
+            )
+          }
         }
       }
     }

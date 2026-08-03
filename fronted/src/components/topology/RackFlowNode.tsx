@@ -2,6 +2,7 @@ import { type Node, type NodeProps } from '@xyflow/react'
 import { useContext, useMemo } from 'react'
 import type { TopologyRackAccessory } from '../../types'
 import {
+  devicePositionInRack,
   RACK_COLUMN_GAP,
   RACK_CONTENT_WIDTH,
   RACK_HEADER_H,
@@ -12,6 +13,13 @@ import {
   type RackViewFace,
 } from '../../utils/topologyRackLayout'
 import { TopologyCanvasInteractionContext } from './TopologyCanvasContext'
+
+export type FullDepthGhost = {
+  deviceId: string
+  name: string
+  unitStart: number
+  heightU: number
+}
 
 export type RackNodeData = {
   rackId: string
@@ -24,6 +32,8 @@ export type RackNodeData = {
   deviceCountFront: number
   deviceCountRear: number
   accessories?: TopologyRackAccessory[]
+  /** Full-depth devices shown as occupancy ghosts on the rear column in "Ambas". */
+  fullDepthGhosts?: FullDepthGhost[]
 }
 
 export type RackFlowNodeType = Node<RackNodeData, 'rack'>
@@ -80,6 +90,14 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
     }
     return bands
   }, [data.accessories, data.activeFace, heightU])
+
+  const fullDepthGhostBands = useMemo(() => {
+    if (data.activeFace !== 'both') return []
+    return (data.fullDepthGhosts ?? []).map((g) => {
+      const pos = devicePositionInRack(g.unitStart, g.heightU, heightU, 1)
+      return { ...g, ...pos }
+    })
+  }, [data.activeFace, data.fullDepthGhosts, heightU])
 
   return (
     <div
@@ -244,6 +262,24 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
             aria-hidden
             title={`Bandeja fija · ${band.label}`}
           />
+        </div>
+      ))}
+
+      {fullDepthGhostBands.map((ghost) => (
+        <div
+          key={`ghost-${ghost.deviceId}`}
+          className="pointer-events-none absolute z-[1] overflow-hidden rounded-sm border border-dashed border-violet-400/70 bg-violet-950/40"
+          style={{
+            left: ghost.x,
+            top: ghost.y,
+            width: ghost.width,
+            height: ghost.height,
+          }}
+          title={`${ghost.name} · profundidad completa (dorso)`}
+        >
+          <div className="flex h-full items-center px-2 text-[9px] font-bold uppercase tracking-wide text-violet-200/90">
+            <span className="truncate">{ghost.name} · dorso</span>
+          </div>
         </div>
       ))}
     </div>
