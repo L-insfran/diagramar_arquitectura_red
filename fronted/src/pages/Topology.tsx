@@ -9,13 +9,8 @@ import {
   Pencil,
   Search,
   Trash2,
-  Wifi,
-  Cable,
-  Zap,
-  Cloud,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
-import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { Select } from '../components/Select'
 import { ConnectionModal } from '../components/topology/ConnectionModal'
@@ -102,13 +97,6 @@ function filterPhysicalTopology(
   }
 }
 
-const MEDIUM_ICON: Record<MediumType, typeof Cable> = {
-  utp: Cable,
-  fiber: Zap,
-  wifi: Wifi,
-  internet: Cloud,
-}
-
 export default function Topology() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -185,8 +173,6 @@ export default function Topology() {
 
   const canvasTopology = printOverride?.topology ?? physicalDiagram
   const canvasRacks = printOverride?.racks ?? topologyRacks
-
-  const summary = topology?.summary
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEdge, setEditingEdge] = useState<TopologyEdge | null>(null)
@@ -594,15 +580,6 @@ export default function Topology() {
     return chips
   }, [connSearch, filterSourceDevice, filterTargetDevice, filterMedium, filterBandwidth, filterVlan, filterNetwork, graphTopology.nodes, vlanFilterOptions, networkFilterOptions])
 
-  const mediumStats = useMemo(() => {
-    const counts: Record<MediumType, number> = { utp: 0, fiber: 0, wifi: 0, internet: 0 }
-    for (const edge of physicalDiagram.edges) {
-      const mt = edge.medium?.mediumType ?? 'utp'
-      if (mt in counts) counts[mt as MediumType]++
-    }
-    return counts
-  }, [physicalDiagram.edges])
-
   const statusStats = useMemo(() => {
     const counts = { planned: 0, implemented: 0, verified: 0 }
     for (const edge of physicalDiagram.edges) {
@@ -613,66 +590,40 @@ export default function Topology() {
   }, [physicalDiagram.edges])
 
   const logicalLinkCount = graphTopology.edges.length - physicalDiagram.edges.length
+  const canPrintReport =
+    physicalDiagram.nodes.length > 0 || topologyRacks.length > 0 || physicalDiagram.edges.length > 0
 
   return (
     <div className="space-y-3">
       <PageHeader
         title={projectName ? `${projectName} — Arquitectura de Red` : 'Arquitectura de Red'}
         subtitle={`Documentación visual unificada · Rol: ${roleInActiveProject === 'admin' ? 'Administrador' : roleInActiveProject === 'operator' ? 'Operador' : 'Visualizador'}`}
-        actions={
-          <div className="flex gap-2">
-            {canMutate && projectId && (
-              <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>Nueva conexión</Button>
-            )}
-            {(physicalDiagram.nodes.length > 0 || topologyRacks.length > 0 || physicalDiagram.edges.length > 0) && (
-              <Button variant="secondary" icon={<Download className="w-4 h-4" />} onClick={handleExportPdf} isLoading={exporting} disabled={exporting}>
-                Imprimir reporte
-              </Button>
-            )}
-          </div>
-        }
       />
 
       {!isLoading && !error && topology && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-            <Card compact title="Dispositivos" value={physicalDiagram.nodes.length} subtitle="Capa física" />
-            <Card compact title="Enlaces" value={physicalDiagram.edges.length} subtitle="Capa física" />
-            <Card compact title="VLANs" value={summary?.vlanCount ?? 0} subtitle="En inventario" />
-            <Card compact title="Redes" value={summary?.networkCount ?? 0} subtitle="Documentadas" />
-            {Object.entries(mediumStats).map(([mt, count]) => {
-              const Icon = MEDIUM_ICON[mt as MediumType]
-              return (
-                <Card key={mt} compact title={MEDIUM_LABELS[mt as MediumType]} value={count}
-                  subtitle={<span className="inline-flex items-center gap-1"><Icon className="w-2.5 h-2.5" style={{ color: MEDIUM_COLORS[mt as MediumType] }} />{mt.toUpperCase()}</span>} />
-              )
-            })}
-          </div>
-
           {physicalDiagram.edges.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Leyenda:</span>
-              {([['utp', 'Cable UTP', '─'], ['fiber', 'Fibra óptica', '─'], ['wifi', 'WiFi', '┈'], ['internet', 'Internet / WAN', '·─']] as const).map(([mt, label, line]) => (
-                <span key={mt} className="inline-flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-                  <span className="font-mono font-bold" style={{ color: MEDIUM_COLORS[mt] }}>{line}{line}</span>
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-2.5 py-1.5 rounded-md border border-gray-200/80 dark:border-gray-700/80 bg-white/80 dark:bg-gray-900/80">
+              <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Leyenda</span>
+              {([['utp', 'UTP', '─'], ['fiber', 'Fibra', '─'], ['wifi', 'WiFi', '┈'], ['internet', 'WAN', '·─']] as const).map(([mt, label, line]) => (
+                <span key={mt} className="inline-flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
+                  <span className="font-mono font-bold text-[10px]" style={{ color: MEDIUM_COLORS[mt] }}>{line}{line}</span>
                   {label}
                 </span>
               ))}
-              <span className="mx-2 h-4 w-px bg-gray-200 dark:bg-gray-700" />
-              <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300">Trunk</span>
-                Multi-VLAN
+              <span className="mx-1 h-3 w-px bg-gray-200 dark:bg-gray-700" />
+              <span className="inline-flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
+                <span className="rounded px-1 py-0.5 text-[8px] font-bold uppercase bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300">Trunk</span>
               </span>
-              <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">Access</span>
-                Una VLAN
+              <span className="inline-flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
+                <span className="rounded px-1 py-0.5 text-[8px] font-bold uppercase bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">Access</span>
               </span>
-              <span className="mx-2 h-4 w-px bg-gray-200 dark:bg-gray-700" />
+              <span className="mx-1 h-3 w-px bg-gray-200 dark:bg-gray-700" />
               {Object.entries(CONNECTION_STATUS_LABELS).map(([key, label]) => {
                 const dotColor = key === 'planned' ? 'bg-yellow-400' : key === 'verified' ? 'bg-emerald-400' : 'bg-blue-400'
                 return (
-                  <span key={key} className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                    <span className={`size-2 rounded-full ${dotColor}`} />
+                  <span key={key} className="inline-flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
+                    <span className={`size-1.5 rounded-full ${dotColor}`} />
                     {label}{statusStats[key as keyof typeof statusStats] ? ` (${statusStats[key as keyof typeof statusStats]})` : ''}
                   </span>
                 )
@@ -684,10 +635,10 @@ export default function Topology() {
             <div className="mb-2 px-1">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Diagrama de topología (capa física)</h3>
               <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400 mt-0.5">
-                Los racks aparecen como gabinetes con equipos por U y puertos visibles. Clic en un puerto conectado
-                para resaltar su enlace; doble clic en el cable para editarlo. Equipos sin rack quedan como nodos sueltos.
-                Los enlaces lógicos quedan en la tabla inferior
-                {logicalLinkCount > 0 ? ` (${logicalLinkCount} oculto${logicalLinkCount === 1 ? '' : 's'} en el diagrama)` : ''}.
+                Clic en puerto conectado para resaltar; doble clic en el cable para editar.
+                {logicalLinkCount > 0
+                  ? ` ${logicalLinkCount} enlace${logicalLinkCount === 1 ? '' : 's'} lógico${logicalLinkCount === 1 ? '' : 's'} solo en la tabla.`
+                  : ''}
               </p>
             </div>
             {physicalDiagram.nodes.length === 0 && topologyRacks.length === 0 ? (
@@ -778,7 +729,15 @@ export default function Topology() {
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-3 justify-between sm:justify-end">
+            <div className="flex flex-wrap items-center gap-2 justify-between sm:justify-end">
+              {canMutate && projectId && (
+                <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>Nueva conexión</Button>
+              )}
+              {canPrintReport && (
+                <Button variant="secondary" icon={<Download className="w-4 h-4" />} onClick={handleExportPdf} isLoading={exporting} disabled={exporting}>
+                  Imprimir reporte
+                </Button>
+              )}
               <button type="button" onClick={() => setConnectionsCollapsed((v) => !v)}
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 shadow-sm transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                 aria-expanded={!connectionsCollapsed}>

@@ -13,7 +13,7 @@ import {
   type Ref,
   type SetStateAction,
 } from 'react'
-import { Download, Maximize2, Minimize2, Printer, Save, Scaling, SquareDashedMousePointer } from 'lucide-react'
+import { Download, Maximize2, Minimize2, MoreVertical, Printer, Save, Scaling, SquareDashedMousePointer } from 'lucide-react'
 import {
   Background,
   BackgroundVariant,
@@ -930,11 +930,30 @@ function TopologyFlowPanels({
   persistLayoutLocalFromNodes: (nds: TopologyCanvasNode[]) => void
 }) {
   const { fitView, fitBounds, getNodes } = useReactFlow()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
 
   const handleFitToPrint = useCallback(() => {
     const rect = computeExportCaptureRect(getNodes(), printOrientation)
     if (!rect) return
     onShowPrintBounds()
+    setMenuOpen(false)
     requestAnimationFrame(() => {
       void fitBounds(rect, { padding: 0, duration: 300 })
     })
@@ -949,6 +968,7 @@ function TopologyFlowPanels({
     persistLayoutLocalFromNodes(next)
     setEdges((prev) => withIntraRackEdgeLegibility(next, withOrientedPortHandles(next, prev)))
     onShowPrintBounds()
+    setMenuOpen(false)
     requestAnimationFrame(() => {
       const rect = computeExportCaptureRect(next, printOrientation)
       if (rect) void fitBounds(rect, { padding: 0.04, duration: 300 })
@@ -975,142 +995,190 @@ function TopologyFlowPanels({
     clearNodeParents(persistenceKey)
     edgeLayoutsRef.current = {}
     onResetGraph()
+    setMenuOpen(false)
     requestAnimationFrame(() => fitView({ padding: 0.2 }))
   }, [persistenceKey, onClearServerLayout, edgeLayoutsRef, onResetGraph, fitView])
 
   void topology
 
+  const iconBtnClass =
+    'inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50'
+  const menuItemClass =
+    'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50'
+  const menuItemActiveClass =
+    'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition bg-orange-100 text-orange-900 dark:bg-orange-950/60 dark:text-orange-100'
+
   return (
     <Panel
       position="top-right"
-      className="!m-2 !rounded-lg !border !border-gray-200 !bg-white/95 !p-1 !shadow-md dark:!border-gray-700 dark:!bg-gray-900/95"
+      className="!m-2 !rounded-lg !border !border-gray-200/80 !bg-white/90 !p-0.5 !shadow-sm dark:!border-gray-700/80 dark:!bg-gray-900/90"
     >
-      <div className="flex flex-col gap-1 min-w-[188px]">
+      <div className="relative flex items-center gap-0.5" ref={menuRef}>
         {!fullscreen && (
-          <button type="button" onClick={() => onFullscreenChange(true)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-            title="Ver diagrama en pantalla completa">
-            <Maximize2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            Pantalla completa
-          </button>
-        )}
-        {onExportPdf && (
-          <button type="button" onClick={onExportPdf} disabled={exporting}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
-            title="Exportar diagrama a PDF">
-            <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {exporting ? 'Exportando…' : 'Exportar PDF'}
-          </button>
-        )}
-        <div className="flex items-stretch rounded-md border border-gray-200 overflow-hidden dark:border-gray-700">
           <button
             type="button"
-            onClick={() => onPrintOrientationChange('landscape')}
-            aria-pressed={printOrientation === 'landscape'}
-            className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
-              printOrientation === 'landscape'
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'
-            }`}
-            title="Imprimir / exportar en horizontal (A4 apaisado)">
-            Horizontal
+            onClick={() => onFullscreenChange(true)}
+            className={iconBtnClass}
+            title="Pantalla completa"
+            aria-label="Pantalla completa"
+          >
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden />
           </button>
-          <button
-            type="button"
-            onClick={() => onPrintOrientationChange('portrait')}
-            aria-pressed={printOrientation === 'portrait'}
-            className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
-              printOrientation === 'portrait'
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'
-            }`}
-            title="Imprimir / exportar en vertical (A4 retrato)">
-            Vertical
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={handleFitToPrint}
-          className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-          title="Centra la vista al tamaño real que se exportará y muestra los límites de impresión">
-          <Printer className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          Vista para impresión
-        </button>
-        <button
-          type="button"
-          onClick={onTogglePrintBounds}
-          aria-pressed={showPrintBounds}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-            showPrintBounds
-              ? 'bg-orange-100 text-orange-900 ring-1 ring-orange-300 dark:bg-orange-950/60 dark:text-orange-100 dark:ring-orange-700'
-              : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'
-          }`}
-          title="Muestra la página 1 (A4) y los sectores extra si el diagrama desborda">
-          {showPrintBounds ? 'Ocultar límites' : 'Mostrar límites'}
-        </button>
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={handleFitToA4}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-orange-900 transition hover:bg-orange-50 dark:text-orange-100 dark:hover:bg-orange-950/40"
-            title="Mueve y escala el diagrama para que entre en la página 1 A4">
-            <Scaling className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            Ajustar a A4
-          </button>
-        )}
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={onToggleDrawAreaMode}
-            aria-pressed={drawAreaMode}
-            className={`inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-              drawAreaMode
-                ? 'bg-sky-100 text-sky-900 ring-1 ring-sky-300 dark:bg-sky-950/60 dark:text-sky-100 dark:ring-sky-700'
-                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'
-            }`}
-            title="Arrastrá en el lienzo para dibujar un área de trabajo punteada">
-            <SquareDashedMousePointer className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {drawAreaMode ? 'Dibujando área…' : 'Dibujar área'}
-          </button>
-        )}
-        {(persistenceKey && (onPersistLayout || persistenceKey)) && (
-          <div className="h-px bg-gray-200/80 dark:bg-gray-700/70 mx-1 my-1" />
         )}
         {persistenceKey && onPersistLayout && (
-          <button type="button" onClick={onSaveLayout} disabled={layoutSaveState === 'saving'}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-950/50 disabled:opacity-50"
-            title="Guardar posiciones en el servidor">
-            <Save className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {saveLayoutButtonLabel(layoutSaveState)}
+          <button
+            type="button"
+            onClick={onSaveLayout}
+            disabled={layoutSaveState === 'saving'}
+            className={`${iconBtnClass} ${
+              layoutSaveState === 'saved'
+                ? 'text-emerald-700 dark:text-emerald-300'
+                : layoutSaveState === 'error'
+                  ? 'text-red-600 dark:text-red-400'
+                  : ''
+            }`}
+            title={saveLayoutButtonLabel(layoutSaveState)}
+            aria-label={saveLayoutButtonLabel(layoutSaveState)}
+          >
+            <Save className="h-3.5 w-3.5" aria-hidden />
           </button>
         )}
-        {persistenceKey && (
-          <button type="button" onClick={() => void handleReset()}
-            className="rounded-md px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800">
-            Restaurar posiciones
-          </button>
-        )}
-        {readOnly && (
-          <div className="px-2 pt-1">
-            <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-              Solo lectura
-            </span>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          className={`${iconBtnClass} ${menuOpen ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
+          title="Opciones del diagrama"
+          aria-label="Opciones del diagrama"
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+        >
+          <MoreVertical className="h-3.5 w-3.5" aria-hidden />
+        </button>
+
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+            role="menu"
+          >
+            {onExportPdf && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onExportPdf()
+                  setMenuOpen(false)
+                }}
+                disabled={exporting}
+                className={menuItemClass}
+              >
+                <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                {exporting ? 'Exportando…' : 'Exportar PDF'}
+              </button>
+            )}
+
+            <div className="px-2.5 py-1.5">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Orientación</p>
+              <div className="flex overflow-hidden rounded-md border border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => onPrintOrientationChange('landscape')}
+                  aria-pressed={printOrientation === 'landscape'}
+                  className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
+                    printOrientation === 'landscape'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  Horizontal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPrintOrientationChange('portrait')}
+                  aria-pressed={printOrientation === 'portrait'}
+                  className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
+                    printOrientation === 'portrait'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  Vertical
+                </button>
+              </div>
+            </div>
+
+            <button type="button" role="menuitem" onClick={handleFitToPrint} className={menuItemClass}>
+              <Printer className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Vista para impresión
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onTogglePrintBounds()
+                setMenuOpen(false)
+              }}
+              aria-pressed={showPrintBounds}
+              className={showPrintBounds ? menuItemActiveClass : menuItemClass}
+            >
+              {showPrintBounds ? 'Ocultar límites' : 'Mostrar límites'}
+            </button>
+            {!readOnly && (
+              <button type="button" role="menuitem" onClick={handleFitToA4} className={menuItemClass}>
+                <Scaling className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Ajustar a A4
+              </button>
+            )}
+            {!readOnly && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onToggleDrawAreaMode()
+                  setMenuOpen(false)
+                }}
+                aria-pressed={drawAreaMode}
+                className={drawAreaMode
+                  ? 'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition bg-sky-100 text-sky-900 dark:bg-sky-950/60 dark:text-sky-100'
+                  : menuItemClass}
+              >
+                <SquareDashedMousePointer className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                {drawAreaMode ? 'Dibujando área…' : 'Dibujar área'}
+              </button>
+            )}
+
+            {persistenceKey && (
+              <>
+                <div className="my-1 h-px bg-gray-200 dark:bg-gray-700" />
+                <button type="button" role="menuitem" onClick={() => void handleReset()} className={menuItemClass}>
+                  Restaurar posiciones
+                </button>
+              </>
+            )}
+
+            {readOnly && (
+              <div className="px-2.5 py-1.5">
+                <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                  Solo lectura
+                </span>
+              </div>
+            )}
+
+            <div className="border-t border-gray-100 px-2.5 py-1.5 dark:border-gray-800">
+              {drawAreaMode ? (
+                <p className="text-[10px] leading-snug text-sky-800 dark:text-sky-200">
+                  Arrastrá en el fondo para crear el recuadro. Esc cancela.
+                </p>
+              ) : showPrintBounds ? (
+                <p className="text-[10px] leading-snug text-orange-800 dark:text-orange-200">
+                  Página 1 resaltada. Arrastrá equipos para que entren, o usá «Ajustar a A4».
+                </p>
+              ) : !readOnly ? (
+                <p className="text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                  Arrastrá de un puerto libre a otro para crear un enlace.
+                </p>
+              ) : null}
+            </div>
           </div>
-        )}
-        {drawAreaMode && (
-          <p className="px-2 pb-1 text-[10px] leading-snug text-sky-800 dark:text-sky-200">
-            Arrastrá en el fondo para crear el recuadro. Esc cancela.
-          </p>
-        )}
-        {showPrintBounds && !drawAreaMode && (
-          <p className="px-2 pb-1 text-[10px] leading-snug text-orange-800 dark:text-orange-200">
-            Página 1 resaltada. Arrastrá equipos para que entren, o usá «Ajustar a A4».
-          </p>
-        )}
-        {!readOnly && !drawAreaMode && !showPrintBounds && (
-          <p className="px-2 pb-1 text-[10px] leading-snug text-gray-500 dark:text-gray-400">
-            Arrastrá de un puerto libre a otro para crear un enlace.
-          </p>
         )}
       </div>
     </Panel>
@@ -1606,7 +1674,7 @@ function TopologyFlowInner({
 
   const shellClass = fullscreen
     ? 'fixed inset-0 z-[130] flex flex-col overflow-hidden bg-slate-50 dark:bg-gray-950'
-    : 'relative h-[min(calc(100dvh-14rem),88vh)] w-full min-h-[420px] rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-950'
+    : 'relative h-[min(calc(100dvh-8rem),92vh)] w-full min-h-[520px] rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-950'
 
   return (
     <div className={shellClass} ref={setShellRef}>
