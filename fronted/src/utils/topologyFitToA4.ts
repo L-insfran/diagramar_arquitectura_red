@@ -1,9 +1,6 @@
 import { getNodesBounds, type Node } from '@xyflow/react'
 import {
   computeExportCaptureRect,
-  computeTileGrid,
-  getA4DiagramUsableMm,
-  getExportCapturePixelSize,
   type PrintOrientation,
 } from './printDiagramSectorGrid'
 
@@ -42,9 +39,7 @@ export function fitTopologyNodesToA4Page1(
   const capture = computeExportCaptureRect(nodes, orientation)
   if (!capture) return null
 
-  const { imgW, imgH } = getExportCapturePixelSize(nodes.length, orientation)
-  const { usableW, usableH } = getA4DiagramUsableMm(orientation)
-  const { cols, rows } = computeTileGrid(imgW, imgH, usableW, usableH)
+  const { cols, rows } = capture
   const pagesBefore = cols * rows
   const alreadySinglePage = pagesBefore <= 1
 

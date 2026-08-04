@@ -599,6 +599,8 @@ export interface TopologyNode {
     model: string | null
     siteId?: string | null
     areaId?: string | null
+    siteName?: string | null
+    areaName?: string | null
     rackId?: string | null
     rackUnitStart?: number | null
     rackFace?: DeviceRackFace | null

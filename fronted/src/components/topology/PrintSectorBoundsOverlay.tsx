@@ -2,9 +2,6 @@ import { useMemo, type ReactElement } from 'react'
 import { useStore, ViewportPortal } from '@xyflow/react'
 import {
   computeExportCaptureRect,
-  computeTileGrid,
-  getA4DiagramUsableMm,
-  getExportCapturePixelSize,
   type PrintOrientation,
 } from '../../utils/printDiagramSectorGrid'
 
@@ -24,10 +21,7 @@ export function PrintSectorBoundsOverlay({ enabled, orientation }: PrintSectorBo
   const data = useMemo(() => {
     const rect = computeExportCaptureRect(nodes, orientation)
     if (!rect) return null
-    const { imgW, imgH } = getExportCapturePixelSize(nodes.length, orientation)
-    const { usableW, usableH } = getA4DiagramUsableMm(orientation)
-    const { cols, rows } = computeTileGrid(imgW, imgH, usableW, usableH)
-    return { rect, cols, rows }
+    return { rect, cols: rect.cols, rows: rect.rows }
   }, [nodes, orientation])
 
   if (!enabled || !data) return null
@@ -109,7 +103,6 @@ export function PrintSectorBoundsOverlay({ enabled, orientation }: PrintSectorBo
         />
         {verticals}
         {horizontals}
-        {/* Página 1 destacada */}
         <rect
           x={x}
           y={y}

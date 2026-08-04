@@ -1,80 +1,125 @@
-import { jsPDF } from 'jspdf'
 import { getNodesBounds, getViewportForBounds, type Node } from '@xyflow/react'
+import {
+  getA4DiagramUsableMm,
+  getA4Geometry,
+  MARGIN,
+  HEADER_H,
+  FOOTER_H,
+  LEGEND_H,
+  SECTOR_HEADER_H,
+  type PrintOrientation,
+} from './pdf/a4Geometry'
+import {
+  captureRectFromPlan,
+  CAPTURE_FIT_MAX_ZOOM,
+  CAPTURE_FIT_MIN_ZOOM,
+  CAPTURE_FIT_PADDING,
+  planDiagramPages,
+  type DiagramPagePlan,
+} from './pdf/diagramScale'
 
-/** Orientación de impresión / exportación PDF. */
-export type PrintOrientation = 'landscape' | 'portrait'
+export type { PrintOrientation }
+export {
+  MARGIN,
+  HEADER_H,
+  FOOTER_H,
+  LEGEND_H,
+  SECTOR_HEADER_H,
+  getA4DiagramUsableMm,
+  getA4Geometry,
+}
+export {
+  planDiagramPages,
+  captureRectFromPlan,
+  CAPTURE_FIT_PADDING,
+  CAPTURE_FIT_MIN_ZOOM,
+  CAPTURE_FIT_MAX_ZOOM,
+  TARGET_MM_PER_FLOW_PX,
+  MIN_MM_PER_FLOW_PX,
+  TILE_OVERLAP_MM,
+  type DiagramPagePlan,
+  type FlowBounds,
+} from './pdf/diagramScale'
 
-/** Márgenes y cabeceras (mm) alineados con la exportación PDF. */
-export const MARGIN = 12
-export const HEADER_H = 42
-export const FOOTER_H = 16
-export const LEGEND_H = 12
-
-const cachedA4Usable: Partial<Record<PrintOrientation, { usableW: number; usableH: number }>> = {}
+/** @deprecated Prefer CAPTURE_FIT_*; kept for callers that still import these names. */
+export const EXPORT_FIT_PADDING = CAPTURE_FIT_PADDING
+export const EXPORT_FIT_MAX_ZOOM = CAPTURE_FIT_MAX_ZOOM
+export const EXPORT_FIT_MIN_ZOOM = CAPTURE_FIT_MIN_ZOOM
 
 /**
- * Área útil (mm) de la página de portada del PDF para encajar la vista general del diagrama,
- * misma fórmula que `exportTopologyPdf`.
+ * Nodos de nivel superior visibles (racks/áreas/sueltos).
+ * Los hijos montados ya entran en el bbox del rack padre.
  */
-export function getA4DiagramUsableMm(orientation: PrintOrientation): { usableW: number; usableH: number } {
-  const cached = cachedA4Usable[orientation]
-  if (cached) return cached
-  const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
-  const pageW = pdf.internal.pageSize.getWidth()
-  const pageH = pdf.internal.pageSize.getHeight()
-  const value = {
-    usableW: pageW - MARGIN * 2,
-    usableH: pageH - HEADER_H - FOOTER_H - LEGEND_H - 4,
-  }
-  cachedA4Usable[orientation] = value
-  return value
+export function getTopLevelVisibleNodes(nodes: Node[]): Node[] {
+  return nodes.filter((n) => !n.hidden && !n.parentId)
 }
 
 /**
- * Mismos parámetros de fitView que `prepareExportCapture` usa antes de capturar el PNG
- * (`fitView({ padding: 0.08, maxZoom: 4 })`). `minZoom` replica el `<ReactFlow minZoom=0.15>`.
+ * Plan de páginas a partir de los nodos actuales del canvas.
+ * Devuelve `null` si no hay nodos medidos.
  */
-export const EXPORT_FIT_PADDING = 0.08
-export const EXPORT_FIT_MAX_ZOOM = 4
-export const EXPORT_FIT_MIN_ZOOM = 0.15
+export function planFromNodes(
+  nodes: Node[],
+  orientation: PrintOrientation,
+): { plan: DiagramPagePlan; bounds: { x: number; y: number; width: number; height: number } } | null {
+  const top = getTopLevelVisibleNodes(nodes)
+  if (top.length === 0) return null
+  const bounds = getNodesBounds(top)
+  if (!(bounds.width > 0) || !(bounds.height > 0)) return null
+  const plan = planDiagramPages(bounds, orientation)
+  return { plan, bounds }
+}
 
 /**
- * Mismo tamaño CSS de lienzo que `prepareExportCapture` aplica antes de capturar.
- * Para orientación retrato se invierten ancho/alto para que el aspect ratio coincida con A4 vertical.
+ * @deprecated Heurística por cantidad de nodos. Preferir `planFromNodes`.
+ * Mantiene compatibilidad: dimensiones CSS equivalentes al plan con un bounds sintético.
  */
 export function getExportShellCssDimensions(
   nodeCount: number,
-  orientation: PrintOrientation = 'landscape'
+  orientation: PrintOrientation = 'landscape',
 ): { w: number; h: number } {
+  // Bounds sintético proporcional a la cantidad de nodos (solo fallback legacy).
   const longSide = Math.min(6400, Math.max(1920, 1280 + nodeCount * 56))
   const shortSide = Math.min(4800, Math.max(1100, 900 + nodeCount * 42))
-  return orientation === 'landscape'
-    ? { w: longSide, h: shortSide }
-    : { w: shortSide, h: longSide }
+  const w = orientation === 'landscape' ? longSide : shortSide
+  const h = orientation === 'landscape' ? shortSide : longSide
+  const plan = planDiagramPages({ x: 0, y: 0, width: w, height: h }, orientation)
+  return { w: plan.cssW, h: plan.cssH }
 }
 
 /**
- * Dimensiones en píxeles de la captura PNG de exportación (heurística `html-to-image`
- * alineada con `exportTopologyPdf` cuando el lienzo tiene el tamaño de exportación).
+ * Dimensiones en píxeles de la captura PNG según el plan real de nodos
+ * (si se pasa `nodes`) o una heurística por cantidad.
  */
 export function getExportCapturePixelSize(
-  nodeCount: number,
-  orientation: PrintOrientation = 'landscape'
-): { imgW: number; imgH: number } {
-  const { w, h } = getExportShellCssDimensions(nodeCount, orientation)
-  const approxCssPixels = Math.max(1, w * h)
-  const pixelRatio = approxCssPixels * 9 > 28_000_000 ? 2 : 3
-  return {
-    imgW: Math.round(w * pixelRatio),
-    imgH: Math.round(h * pixelRatio),
+  nodeCountOrNodes: number | Node[],
+  orientation: PrintOrientation = 'landscape',
+): { imgW: number; imgH: number; cols?: number; rows?: number } {
+  if (Array.isArray(nodeCountOrNodes)) {
+    const planned = planFromNodes(nodeCountOrNodes, orientation)
+    if (planned) {
+      return {
+        imgW: planned.plan.imgW,
+        imgH: planned.plan.imgH,
+        cols: planned.plan.cols,
+        rows: planned.plan.rows,
+      }
+    }
+    return { imgW: 1, imgH: 1, cols: 1, rows: 1 }
   }
+  const { w, h } = getExportShellCssDimensions(nodeCountOrNodes, orientation)
+  return { imgW: w, imgH: h }
 }
 
+/**
+ * Fallback de grilla (scoring) — preferir `planDiagramPages` con bounds reales.
+ * Se mantiene para callers que solo tienen dimensiones de imagen.
+ */
 export function computeTileGrid(
   imgW: number,
   imgH: number,
   usableW: number,
-  usableH: number
+  usableH: number,
 ): { cols: number; rows: number } {
   const minReadablePx = 480
   const imgMin = Math.min(imgW, imgH)
@@ -121,31 +166,34 @@ export function computeTileGrid(
 }
 
 /**
- * Rectángulo (en coordenadas de flujo) que la exportación PDF realmente capturará:
- * simula el `fitView` que `prepareExportCapture` aplica sobre un lienzo del tamaño de exportación.
- * Devuelve `null` si aún no hay nodos medidos.
+ * Rectángulo (en coordenadas de flujo) que la exportación PDF capturará,
+ * derivado del mismo `planDiagramPages` que usa la exportación real.
  */
 export function computeExportCaptureRect(
   nodes: Node[],
-  orientation: PrintOrientation = 'landscape'
-): { x: number; y: number; width: number; height: number } | null {
-  if (nodes.length === 0) return null
-  const bounds = getNodesBounds(nodes)
-  if (!(bounds.width > 0) || !(bounds.height > 0)) return null
-  const { w: shellW, h: shellH } = getExportShellCssDimensions(nodes.length, orientation)
-  const vp = getViewportForBounds(
+  orientation: PrintOrientation = 'landscape',
+): { x: number; y: number; width: number; height: number; cols: number; rows: number } | null {
+  const planned = planFromNodes(nodes, orientation)
+  if (!planned) return null
+  const rect = captureRectFromPlan(planned.bounds, planned.plan, orientation)
+  return { ...rect, cols: planned.plan.cols, rows: planned.plan.rows }
+}
+
+/**
+ * Viewport (translate + scale) que `toPng` aplicará sobre el viewport de React Flow
+ * para capturar exactamente el plan.
+ */
+export function getCaptureViewport(
+  bounds: { x: number; y: number; width: number; height: number },
+  cssW: number,
+  cssH: number,
+) {
+  return getViewportForBounds(
     bounds,
-    shellW,
-    shellH,
-    EXPORT_FIT_MIN_ZOOM,
-    EXPORT_FIT_MAX_ZOOM,
-    EXPORT_FIT_PADDING
+    cssW,
+    cssH,
+    CAPTURE_FIT_MIN_ZOOM,
+    CAPTURE_FIT_MAX_ZOOM,
+    CAPTURE_FIT_PADDING,
   )
-  if (!Number.isFinite(vp.zoom) || vp.zoom <= 0) return null
-  return {
-    x: -vp.x / vp.zoom,
-    y: -vp.y / vp.zoom,
-    width: shellW / vp.zoom,
-    height: shellH / vp.zoom,
-  }
 }

@@ -13,7 +13,7 @@ import {
   type Ref,
   type SetStateAction,
 } from 'react'
-import { Download, Maximize2, Minimize2, MoreVertical, Printer, Save, Scaling, SquareDashedMousePointer } from 'lucide-react'
+import { Download, Maximize2, Minimize2, MoreVertical, Plus, Printer, Save, Scaling, SquareDashedMousePointer } from 'lucide-react'
 import {
   Background,
   BackgroundVariant,
@@ -69,12 +69,15 @@ import {
 import { isRackFlowNodeId, normalizeRackViewFace, type RackViewFace } from '../../utils/topologyRackLayout'
 import {
   computeExportCaptureRect,
-  computeTileGrid,
-  getA4DiagramUsableMm,
-  getExportCapturePixelSize,
-  getExportShellCssDimensions,
+  getCaptureViewport,
+  planFromNodes,
   type PrintOrientation,
 } from '../../utils/printDiagramSectorGrid'
+import {
+  captureReactFlowViewport,
+  countDiagramPdfPages,
+  type CapturedDiagram,
+} from '../../utils/pdf/diagramCapturePdf'
 import { PrintSectorBoundsOverlay } from './PrintSectorBoundsOverlay'
 import { PortNavigationBridge } from './PortNavigationBridge'
 import {
@@ -89,6 +92,7 @@ import {
   createWorkAreaNode,
   detachChildrenFromWorkArea,
   newWorkAreaId,
+  nodeSize,
   reparentDevicesAfterDrag,
   snapshotDevicePositions,
   snapshotNodeParents,
@@ -164,16 +168,29 @@ function orientPortEdgeHandles(
     const sourceIsCloud = sourceNode.type === 'cloud'
     const targetIsCloud = targetNode.type === 'cloud'
 
-    const sourceH = sourceNode.height ?? (sourceNode.style?.height as number | undefined) ?? 0
-    const targetH = targetNode.height ?? (targetNode.style?.height as number | undefined) ?? 0
     const sourceAbs = absoluteNodePosition(sourceNode, byId)
     const targetAbs = absoluteNodePosition(targetNode, byId)
-    const sourceCy = sourceAbs.y + sourceH / 2
-    const targetCy = targetAbs.y + targetH / 2
+    const sourceDim = nodeSize(sourceNode)
+    const targetDim = nodeSize(targetNode)
+    const sourceCy = sourceAbs.y + sourceDim.height / 2
+    const targetCy = targetAbs.y + targetDim.height / 2
     const targetAbove = targetCy < sourceCy - 12
 
     const sourceSide: 'top' | 'bottom' = targetAbove ? 'top' : 'bottom'
     const targetSide: 'top' | 'bottom' = targetAbove ? 'bottom' : 'top'
+
+    const sourceBounds = {
+      x: sourceAbs.x,
+      y: sourceAbs.y,
+      width: sourceDim.width,
+      height: sourceDim.height,
+    }
+    const targetBounds = {
+      x: targetAbs.x,
+      y: targetAbs.y,
+      width: targetDim.width,
+      height: targetDim.height,
+    }
 
     const sourceLayout = layoutByNodeId.get(edge.source)
     const targetLayout = layoutByNodeId.get(edge.target)
@@ -205,6 +222,8 @@ function orientPortEdgeHandles(
         targetEntrySide: targetSide,
         sourceLaneOffsetX,
         targetLaneOffsetX,
+        sourceBounds,
+        targetBounds,
       },
     }
   })
@@ -698,13 +717,17 @@ export type TopologyServerLayout = {
 
 export type TopologyFlowCanvasHandle = {
   /**
-   * Amplía temporalmente el lienzo y ajusta el zoom para que la captura PNG/PDF
-   * tenga más píxeles por nodo. Devuelve una función para restaurar la vista.
+   * Captura el diagrama React Flow a escala planificada (sin redimensionar el shell).
+   * Usa getNodesBounds + getViewportForBounds + toPng con transform explícito.
+   */
+  captureDiagramPng: (orientation?: PrintOrientation) => Promise<CapturedDiagram | null>
+  /**
+   * @deprecated Preferir `captureDiagramPng`. Amplía el lienzo y hace fitView.
    */
   prepareExportCapture: (orientation?: PrintOrientation) => Promise<() => void>
   /** Orientación actualmente seleccionada por el usuario para impresión / exportación. */
   getPrintOrientation: () => PrintOrientation
-  /** Estima cuántos sectores A4 ocupará el diagrama con el layout actual. */
+  /** Estima cuántos sectores A4 (+ portada) ocupará el diagrama con el layout actual. */
   estimatePrintPages: () => number
 }
 
@@ -834,18 +857,59 @@ function ExportCaptureBridge({
 }) {
   const { fitView } = useReactFlow()
 
+  const captureDiagramPng = useCallback(async (orientation?: PrintOrientation): Promise<CapturedDiagram | null> => {
+    const shell = shellElRef.current
+    if (!shell) return null
+    const effectiveOrientation = orientation ?? printOrientationRef.current
+    const nodes = getNodesRef.current?.() ?? []
+    const planned = planFromNodes(nodes, effectiveOrientation)
+    if (!planned) return null
+
+    const { plan, bounds } = planned
+    const vp = getCaptureViewport(bounds, plan.cssW, plan.cssH)
+    if (!Number.isFinite(vp.zoom) || vp.zoom <= 0) return null
+
+    const imgData = await captureReactFlowViewport({
+      canvasElement: shell,
+      cssW: plan.cssW,
+      cssH: plan.cssH,
+      pixelRatio: plan.pixelRatio,
+      viewport: { x: vp.x, y: vp.y, zoom: vp.zoom },
+    })
+
+    // Confirmar dimensiones reales del PNG (html-to-image puede redondear).
+    const img = new Image()
+    img.src = imgData
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('Captura PNG inválida'))
+    })
+
+    return {
+      imgData,
+      imgW: img.naturalWidth || plan.imgW,
+      imgH: img.naturalHeight || plan.imgH,
+      plan,
+    }
+  }, [getNodesRef, shellElRef, printOrientationRef])
+
+  /** Legacy: agranda el shell + fitView. Preferir captureDiagramPng. */
   const prepareExportCapture = useCallback(async (orientation?: PrintOrientation) => {
     const shell = shellElRef.current
     if (!shell) return () => {}
     const effectiveOrientation = orientation ?? printOrientationRef.current
-    const nodeCount = (getNodesRef.current?.() ?? []).length
-    const { w, h } = getExportShellCssDimensions(nodeCount, effectiveOrientation)
+    const nodes = getNodesRef.current?.() ?? []
+    const planned = planFromNodes(nodes, effectiveOrientation)
+    const w = planned?.plan.cssW ?? 1920
+    const h = planned?.plan.cssH ?? 1080
     const prevCssText = shell.style.cssText
     const extra = `position:fixed!important;left:0!important;top:0!important;width:${w}px!important;height:${h}px!important;min-height:${h}px!important;max-height:none!important;z-index:2147483646!important;background:#f8fafc!important;`
     shell.style.cssText = prevCssText + extra
 
     await new Promise<void>((r) => requestAnimationFrame(() => r()))
     await new Promise<void>((r) => requestAnimationFrame(() => r()))
+    // Esperar ResizeObserver de React Flow
+    await new Promise<void>((r) => setTimeout(r, 80))
     await fitView({ padding: 0.08, duration: 0, maxZoom: 4 })
     await new Promise<void>((r) => requestAnimationFrame(() => r()))
 
@@ -861,18 +925,17 @@ function ExportCaptureBridge({
 
   const estimatePrintPages = useCallback(() => {
     const nodes = getNodesRef.current?.() ?? []
-    if (nodes.length === 0) return 1
+    if (nodes.length === 0) return 0
     const orientation = printOrientationRef.current
-    const { imgW, imgH } = getExportCapturePixelSize(nodes.length, orientation)
-    const { usableW, usableH } = getA4DiagramUsableMm(orientation)
-    const { cols, rows } = computeTileGrid(imgW, imgH, usableW, usableH)
-    return Math.max(1, cols * rows)
+    const planned = planFromNodes(nodes, orientation)
+    if (!planned) return 0
+    return countDiagramPdfPages(planned.plan.cols, planned.plan.rows)
   }, [getNodesRef, printOrientationRef])
 
   useImperativeHandle(
     exportHandleRef,
-    () => ({ prepareExportCapture, getPrintOrientation, estimatePrintPages }),
-    [prepareExportCapture, getPrintOrientation, estimatePrintPages]
+    () => ({ captureDiagramPng, prepareExportCapture, getPrintOrientation, estimatePrintPages }),
+    [captureDiagramPng, prepareExportCapture, getPrintOrientation, estimatePrintPages]
   )
 
   return null
@@ -902,7 +965,7 @@ function saveLayoutButtonLabel(state: LayoutSaveState): string {
 
 function TopologyFlowPanels({
   persistenceKey, topology, setNodes, setEdges, edgeLayoutsRef, fullscreen, onFullscreenChange, onExportPdf, exporting, readOnly,
-  onPersistLayout, onClearServerLayout, layoutSaveState, onSaveLayout, showPrintBounds, onTogglePrintBounds, onShowPrintBounds,
+  onNewConnection, onPersistLayout, onClearServerLayout, layoutSaveState, onSaveLayout, showPrintBounds, onTogglePrintBounds, onShowPrintBounds,
   printOrientation, onPrintOrientationChange, drawAreaMode, onToggleDrawAreaMode, onResetGraph, persistLayoutLocalFromNodes,
 }: {
   persistenceKey: string | undefined
@@ -915,6 +978,7 @@ function TopologyFlowPanels({
   onExportPdf?: () => void
   exporting?: boolean
   readOnly?: boolean
+  onNewConnection?: () => void
   onPersistLayout?: (payload: TopologyServerLayout) => Promise<void>
   onClearServerLayout?: () => Promise<void>
   layoutSaveState: LayoutSaveState
@@ -1060,6 +1124,20 @@ function TopologyFlowPanels({
             className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
             role="menu"
           >
+            {onNewConnection && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onNewConnection()
+                  setMenuOpen(false)
+                }}
+                className={menuItemClass}
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Nueva conexión
+              </button>
+            )}
             {onExportPdf && (
               <button
                 type="button"
@@ -1072,8 +1150,12 @@ function TopologyFlowPanels({
                 className={menuItemClass}
               >
                 <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                {exporting ? 'Exportando…' : 'Exportar PDF'}
+                {exporting ? 'Exportando…' : 'Imprimir reporte'}
               </button>
+            )}
+
+            {(onNewConnection || onExportPdf) && (
+              <div className="my-1 h-px bg-gray-200 dark:bg-gray-700" />
             )}
 
             <div className="px-2.5 py-1.5">
@@ -1203,6 +1285,7 @@ interface InnerProps {
   canvasRef?: MutableRefObject<HTMLDivElement | null>
   onExportPdf?: () => void
   exporting?: boolean
+  onNewConnection?: () => void
   /** `undefined`: aún no cargó el layout del servidor */
   serverLayout?: TopologyServerLayout | undefined
   onPersistLayout?: (payload: TopologyServerLayout) => Promise<void>
@@ -1212,7 +1295,7 @@ interface InnerProps {
 
 function TopologyFlowInner({
   topology, racks = [], persistenceKey, readOnly, onNavigateToDevice, onNavigateToConnection, onConnectPorts, fullscreen, onFullscreenChange, canvasRef, onExportPdf, exporting,
-  serverLayout, onPersistLayout, onClearServerLayout, exportHandleRef,
+  onNewConnection, serverLayout, onPersistLayout, onClearServerLayout, exportHandleRef,
 }: InnerProps) {
   const { theme } = useTheme()
   const colorMode: ColorMode = theme === 'dark' ? 'dark' : 'light'
@@ -1690,11 +1773,18 @@ function TopologyFlowInner({
                 {saveLayoutButtonLabel(layoutSaveState)}
               </button>
             )}
+            {onNewConnection && (
+              <button type="button" onClick={onNewConnection}
+                className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/50">
+                <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Nueva conexión
+              </button>
+            )}
             {onExportPdf && (
               <button type="button" onClick={onExportPdf} disabled={exporting}
-                className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/50">
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 shadow-sm transition hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700">
                 <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                {exporting ? 'Exportando…' : 'Exportar PDF'}
+                {exporting ? 'Exportando…' : 'Imprimir reporte'}
               </button>
             )}
             <button type="button" onClick={() => onFullscreenChange(false)}
@@ -1747,6 +1837,7 @@ function TopologyFlowInner({
               setNodes={setNodes} setEdges={setEdges} edgeLayoutsRef={edgeLayoutsRef}
               fullscreen={fullscreen} onFullscreenChange={onFullscreenChange}
               onExportPdf={onExportPdf} exporting={exporting}
+              onNewConnection={onNewConnection}
               readOnly={readOnly}
               onPersistLayout={onPersistLayout} onClearServerLayout={onClearServerLayout}
               layoutSaveState={layoutSaveState} onSaveLayout={handleSaveLayout}
@@ -1796,6 +1887,7 @@ export interface TopologyFlowCanvasProps {
   canvasRef?: MutableRefObject<HTMLDivElement | null>
   onExportPdf?: () => void
   exporting?: boolean
+  onNewConnection?: () => void
   serverLayout?: TopologyServerLayout | undefined
   onPersistLayout?: (payload: TopologyServerLayout) => Promise<void>
   onClearServerLayout?: () => Promise<void>
@@ -1804,7 +1896,7 @@ export interface TopologyFlowCanvasProps {
 export const TopologyFlowCanvas = forwardRef<TopologyFlowCanvasHandle, TopologyFlowCanvasProps>(function TopologyFlowCanvas(
   {
     topology, racks, persistenceKey, readOnly, onNavigateToDevice, onNavigateToConnection, onConnectPorts, canvasRef, onExportPdf, exporting,
-    serverLayout, onPersistLayout, onClearServerLayout,
+    onNewConnection, serverLayout, onPersistLayout, onClearServerLayout,
   },
   ref
 ) {
@@ -1836,6 +1928,7 @@ export const TopologyFlowCanvas = forwardRef<TopologyFlowCanvasHandle, TopologyF
         canvasRef={canvasRef}
         onExportPdf={onExportPdf}
         exporting={exporting}
+        onNewConnection={onNewConnection}
         serverLayout={serverLayout}
         onPersistLayout={onPersistLayout}
         onClearServerLayout={onClearServerLayout}

@@ -23,7 +23,7 @@ import {
   TOPOLOGY_HEADER_HEIGHT,
   TOPOLOGY_HEADER_HEIGHT_PATCH,
 } from './topologyPortPanel'
-import { normalizeTopologyHostname } from './topologyNodeData'
+import { normalizeTopologyHostname, readTopologySiteAreaNames } from './topologyNodeData'
 import {
   devicePositionInRack,
   devicePositionOnShelf,
@@ -65,9 +65,12 @@ function displayColumnForDevice(
 }
 
 function devicePlacementMeta(n: TopologyNode) {
+  const { siteName, areaName } = readTopologySiteAreaNames(n.data)
   return {
     siteId: n.data.siteId ?? null,
     areaId: n.data.areaId ?? null,
+    siteName,
+    areaName,
     rackId: n.data.rackId ?? null,
     rackUnitStart: n.data.rackUnitStart ?? null,
     rackFace: n.data.rackFace ?? null,

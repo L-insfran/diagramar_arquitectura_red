@@ -67,6 +67,8 @@ export type DeviceNodeData = {
   model?: string | null
   siteId?: string | null
   areaId?: string | null
+  siteName?: string | null
+  areaName?: string | null
   rackId?: string | null
   rackUnitStart?: number | null
   rackFace?: 'front' | 'rear' | 'both' | null
@@ -452,6 +454,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
   const wirelessInUse = wirelessPorts.filter((p) => p.connected).length
   const freePhysicalCount = Math.max(0, totalPhysicalCount - physicalInUse)
   const manufacturerModel = [data.manufacturer, data.model].filter(Boolean).join(' ')
+  const siteAreaLabel = [data.siteName, data.areaName].filter(Boolean).join(' · ')
 
   const baseWidth = layout.width
   const baseHeight = layout.height
@@ -817,6 +820,13 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
               {data.deviceType && (
                 <p className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 truncate">{data.deviceType}</p>
               )}
+
+              <p
+                className="truncate text-[10px] text-gray-500 dark:text-slate-400"
+                title={siteAreaLabel || undefined}
+              >
+                {siteAreaLabel || 'Sin sitio/área'}
+              </p>
 
               {data.hostname && (
                 <p className="text-[11px] font-mono font-medium text-gray-700 dark:text-gray-200 truncate">{data.hostname}</p>

@@ -88,6 +88,8 @@ type FlowTopologyNode = {
     model: string | null
     siteId: string | null
     areaId: string | null
+    siteName: string | null
+    areaName: string | null
     rackId: string | null
     rackUnitStart: number | null
     rackFace: 'front' | 'rear' | 'both' | null
@@ -234,8 +236,10 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
       deviceType: device.deviceType?.name ?? null,
       manufacturer: device.manufacturer,
       model: device.model,
-      siteId: device.siteId ?? null,
+      siteId: device.siteId ?? device.area?.siteId ?? null,
       areaId: device.areaId ?? null,
+      siteName: device.site?.name ?? device.area?.site?.name ?? null,
+      areaName: device.area?.name ?? null,
       rackId: device.rackId ?? null,
       rackUnitStart: device.rackUnitStart ?? null,
       rackFace,
@@ -406,6 +410,8 @@ export default class TopologyService {
       .whereNull('deleted_at')
       .preload('deviceType')
       .preload('deviceTemplate')
+      .preload('site')
+      .preload('area', (a) => a.preload('site'))
       .preload('ports', (p) => p.preload('vlans', (v) => v.preload('networks')))
 
     const deviceNodes = new Map<string, FlowTopologyNode>()

@@ -32,12 +32,20 @@ import type {
   ConnectionStatusType,
 } from '../../types'
 
+/** Cara física del chasis para puertos no-passthrough (ADR 0007). */
+function portChassisFace(p: Port): PortFace {
+  return p.chassisFace === 'rear' ? 'rear' : 'front'
+}
+
 function portOptionLabel(
   p: Port,
   opts?: { frontOccupied?: boolean; rearOccupied?: boolean },
 ) {
   const base = `${p.name} (#${p.portNumber}) — ${p.portType}`
-  if (!p.isPassthrough) return base
+  if (!p.isPassthrough) {
+    const chassis = portChassisFace(p)
+    return chassis === 'rear' ? `${base} — Dorso` : base
+  }
   const front = opts?.frontOccupied
   const rear = opts?.rearOccupied
   if (front && rear) return `${base} — Ambas caras en uso`
@@ -401,7 +409,7 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
       if (p.isPassthrough) {
         return isFaceOccupied(p.id, 'front') && isFaceOccupied(p.id, 'rear')
       }
-      return isFaceOccupied(p.id, 'front')
+      return isFaceOccupied(p.id, portChassisFace(p))
     },
     [isPhysical, isFaceOccupied],
   )
@@ -430,8 +438,9 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
           ? 'front'
           : sourceFace
       if (free !== sourceFace) setSourceFace(free)
-    } else if (sourceFace !== 'front') {
-      setSourceFace('front')
+    } else if (port) {
+      const chassis = portChassisFace(port)
+      if (sourceFace !== chassis) setSourceFace(chassis)
     }
   }, [sourcePorts, sourcePortId, sourceFace, isFaceOccupied])
 
@@ -447,8 +456,9 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
           ? 'front'
           : targetFace
       if (free !== targetFace) setTargetFace(free)
-    } else if (targetFace !== 'front') {
-      setTargetFace('front')
+    } else if (port) {
+      const chassis = portChassisFace(port)
+      if (targetFace !== chassis) setTargetFace(chassis)
     }
   }, [targetPorts, targetPortId, targetFace, isFaceOccupied])
 
@@ -457,7 +467,9 @@ export function ConnectionModal({ isOpen, onClose, projectId, edge, onSaved, mod
       ports.map((p) => {
         const portDown = p.status !== 'up'
         const frontOccupied = isFaceOccupied(p.id, 'front')
-        const rearOccupied = p.isPassthrough ? isFaceOccupied(p.id, 'rear') : false
+        const rearOccupied = p.isPassthrough
+          ? isFaceOccupied(p.id, 'rear')
+          : portChassisFace(p) === 'rear' && isFaceOccupied(p.id, 'rear')
         const occupied = portFullyOccupied(p)
         const blocked = portDown || occupied
         let reason: string | undefined

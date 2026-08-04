@@ -32,6 +32,14 @@ export type PortLinkBundleMember = {
   portRole?: 'trunk' | 'access'
 }
 
+/** Bounding box absoluto del nodo extremo (flujo → mundo React Flow). */
+export type PortNodeBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export type PortLinkEdgeData = {
   sourcePort: string
   targetPort: string
@@ -48,6 +56,9 @@ export type PortLinkEdgeData = {
   targetEntrySide?: 'top' | 'bottom'
   sourceLaneOffsetX?: number
   targetLaneOffsetX?: number
+  /** Bounds absolutos para costear el nodo sin atravesar la faceplate. */
+  sourceBounds?: PortNodeBounds
+  targetBounds?: PortNodeBounds
   sourceFanIndex: number
   sourceFanCount: number
   targetFanIndex: number
@@ -167,12 +178,17 @@ function smoothStepPathWithHandleBridges(
 }
 
 type Pt = { x: number; y: number }
+type CableSide = 'top' | 'bottom'
 
 /** Tramo recto mínimo antes de entrar o salir de un puerto. */
 const CABLE_STUB = 16
 const CABLE_RADIUS = 8
-/** Ancho del desvío lateral cuando el destino queda por encima del origen. */
-const CABLE_BACKTRACK_X = 130
+/** Holgura fuera del bbox del nodo antes de trazar horizontal. */
+const CABLE_MARGIN = 8
+/** Separación extra al costear por el lateral de ambos nodos. */
+const CABLE_SIDE_PAD = 28
+/** Umbral mínimo de hueco vertical entre salida y entrada para cruce “de frente”. */
+const CABLE_FACING_GAP = 4
 
 function dedupePoints(points: Pt[]): Pt[] {
   const out: Pt[] = []
@@ -217,36 +233,124 @@ function roundedOrthogonalPath(points: Pt[], radius: number): string {
   return `${path} L ${end.x} ${end.y}`
 }
 
+function sideSign(side: CableSide): 1 | -1 {
+  return side === 'top' ? -1 : 1
+}
+
+/**
+ * Y fuera del nodo (y al menos un stub desde el handle) en el sentido del ancla.
+ * Así el primer horizontal nunca corta los números del puerto.
+ */
+function clearanceY(
+  handleY: number,
+  side: CableSide,
+  bounds: PortNodeBounds | undefined,
+  stub: number,
+): number {
+  const stubY = handleY + sideSign(side) * stub
+  if (!bounds || !(bounds.height > 0)) return stubY
+  if (side === 'top') return Math.min(stubY, bounds.y - CABLE_MARGIN)
+  return Math.max(stubY, bounds.y + bounds.height + CABLE_MARGIN)
+}
+
+function boundsRight(b: PortNodeBounds): number {
+  return b.x + b.width
+}
+
+/** X de corredor lateral fuera de ambos nodos (o en el hueco entre ellos). */
+function pickSkirtCorridorX(
+  sourceX: number,
+  targetX: number,
+  sourceBounds: PortNodeBounds | undefined,
+  targetBounds: PortNodeBounds | undefined,
+  pathBendX: number,
+): number {
+  const sourceLeft = sourceBounds?.x ?? sourceX
+  const sourceRight = sourceBounds ? boundsRight(sourceBounds) : sourceX
+  const targetLeft = targetBounds?.x ?? targetX
+  const targetRight = targetBounds ? boundsRight(targetBounds) : targetX
+
+  if (sourceRight + CABLE_MARGIN < targetLeft) {
+    return (sourceRight + targetLeft) / 2 + pathBendX
+  }
+  if (targetRight + CABLE_MARGIN < sourceLeft) {
+    return (targetRight + sourceLeft) / 2 + pathBendX
+  }
+
+  const left = Math.min(sourceLeft, targetLeft)
+  const right = Math.max(sourceRight, targetRight)
+  const side = targetX >= sourceX ? 1 : -1
+  const outside = side >= 0 ? right + CABLE_MARGIN + CABLE_SIDE_PAD : left - CABLE_MARGIN - CABLE_SIDE_PAD
+  return outside + pathBendX
+}
+
+type PortCablePathArgs = {
+  sourceX: number
+  sourceY: number
+  targetX: number
+  targetY: number
+  sourceExitSide?: CableSide
+  targetEntrySide?: CableSide
+  sourceLaneOffsetX: number
+  targetLaneOffsetX: number
+  pathBendX: number
+  pathBendY: number
+  sourceBounds?: PortNodeBounds
+  targetBounds?: PortNodeBounds
+}
+
 /**
  * Cable entre handles de cada puerto (celda → celda).
- * Sale del puerto, baja/sube por su vía y entra en el puerto destino.
+ * Sale/entra solo en vertical según el lado del handle; horizontales fuera del bbox.
  */
-function portCablePath(
-  sourceX: number,
-  sourceY: number,
-  targetX: number,
-  targetY: number,
-  sourceLaneOffsetX: number,
-  targetLaneOffsetX: number,
-  pathBendX: number,
-  pathBendY: number,
-): [path: string, controlX: number, controlY: number] {
+function portCablePath(args: PortCablePathArgs): [path: string, controlX: number, controlY: number] {
+  const {
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourceLaneOffsetX,
+    targetLaneOffsetX,
+    pathBendX,
+    pathBendY,
+    sourceBounds,
+    targetBounds,
+  } = args
+
+  const sourceExitSide: CableSide =
+    args.sourceExitSide ?? (targetY < sourceY ? 'top' : 'bottom')
+  const targetEntrySide: CableSide =
+    args.targetEntrySide ?? (targetY < sourceY ? 'bottom' : 'top')
+
+  const exitY = clearanceY(sourceY, sourceExitSide, sourceBounds, CABLE_STUB)
+  const entryY = clearanceY(targetY, targetEntrySide, targetBounds, CABLE_STUB)
   const sourceLaneX = sourceX + sourceLaneOffsetX + pathBendX
   const targetLaneX = targetX + targetLaneOffsetX + pathBendX
 
-  // Destino por debajo: bajada limpia con cruce horizontal a media altura.
-  if (targetY > sourceY + CABLE_STUB * 2) {
-    const corridorY = Math.min(
-      Math.max((sourceY + targetY) / 2 + pathBendY, sourceY + CABLE_STUB),
-      targetY - CABLE_STUB,
-    )
+  const facingDown =
+    sourceExitSide === 'bottom' &&
+    targetEntrySide === 'top' &&
+    exitY < entryY - CABLE_FACING_GAP
+  const facingUp =
+    sourceExitSide === 'top' &&
+    targetEntrySide === 'bottom' &&
+    exitY > entryY + CABLE_FACING_GAP
+
+  if (facingDown || facingUp) {
+    let corridorY = (exitY + entryY) / 2 + pathBendY
+    corridorY = facingDown
+      ? Math.min(Math.max(corridorY, exitY), entryY)
+      : Math.min(Math.max(corridorY, entryY), exitY)
+
     const path = roundedOrthogonalPath(
       [
         { x: sourceX, y: sourceY },
-        { x: sourceLaneX, y: sourceY },
+        { x: sourceX, y: exitY },
+        { x: sourceLaneX, y: exitY },
         { x: sourceLaneX, y: corridorY },
         { x: targetLaneX, y: corridorY },
-        { x: targetLaneX, y: targetY },
+        { x: targetLaneX, y: entryY },
+        { x: targetX, y: entryY },
         { x: targetX, y: targetY },
       ],
       CABLE_RADIUS,
@@ -254,26 +358,38 @@ function portCablePath(
     return [path, (sourceLaneX + targetLaneX) / 2, corridorY]
   }
 
-  // Destino a la misma altura o por encima: rodea por un lateral cercano.
-  const midX = (sourceX + targetX) / 2
-  const side = targetX >= sourceX ? 1 : -1
-  const corridorX =
-    (Math.abs(targetX - sourceX) < CABLE_BACKTRACK_X ? midX + side * CABLE_BACKTRACK_X : midX) +
-    pathBendX
-  const exitY = sourceY + CABLE_STUB + Math.max(0, pathBendY)
-  const entryY = targetY - CABLE_STUB
+  // Lateral / solapados: costear por fuera del ancho de ambos nodos.
+  const corridorX = pickSkirtCorridorX(
+    sourceX,
+    targetX,
+    sourceBounds,
+    targetBounds,
+    pathBendX,
+  )
+  // pathBendY solo empuja más hacia fuera (no hacia el interior del nodo).
+  const skirtExitY =
+    sourceExitSide === 'bottom'
+      ? exitY + Math.max(0, pathBendY)
+      : exitY + Math.min(0, pathBendY)
+  const skirtEntryY =
+    targetEntrySide === 'bottom'
+      ? entryY + Math.max(0, pathBendY)
+      : entryY + Math.min(0, pathBendY)
+  const controlY = (skirtExitY + skirtEntryY) / 2
   const path = roundedOrthogonalPath(
     [
       { x: sourceX, y: sourceY },
-      { x: sourceX, y: exitY },
-      { x: corridorX, y: exitY },
-      { x: corridorX, y: entryY },
-      { x: targetX, y: entryY },
+      { x: sourceX, y: skirtExitY },
+      { x: sourceLaneX, y: skirtExitY },
+      { x: corridorX, y: skirtExitY },
+      { x: corridorX, y: skirtEntryY },
+      { x: targetLaneX, y: skirtEntryY },
+      { x: targetX, y: skirtEntryY },
       { x: targetX, y: targetY },
     ],
     CABLE_RADIUS,
   )
-  return [path, corridorX, (exitY + entryY) / 2]
+  return [path, corridorX, controlY]
 }
 
 const MEDIUM_BADGE_CONFIG: Record<MediumType, { bg: string; text: string; icon: string }> = {
@@ -332,12 +448,31 @@ export function PortLinkEdge({
   const pairLinkCount = d?.pairLinkCount ?? 1
   const sourceLaneOffsetX = d?.sourceLaneOffsetX ?? 0
   const targetLaneOffsetX = d?.targetLaneOffsetX ?? 0
+  const sourceExitSide = d?.sourceExitSide
+  const targetEntrySide = d?.targetEntrySide
+  const sourceBounds = d?.sourceBounds
+  const targetBounds = d?.targetBounds
 
   const sourceOffset = usePortHandles ? 0 : laneOffset(sourceFanIndex, sourceFanCount)
   const targetOffset = usePortHandles ? 0 : laneOffset(targetFanIndex, targetFanCount)
 
   const storedPathBendX = d?.pathBendX ?? 0
   const storedPathBendY = d?.pathBendY ?? 0
+
+  const cablePathArgs = {
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourceExitSide,
+    targetEntrySide,
+    sourceLaneOffsetX,
+    targetLaneOffsetX,
+    pathBendX: storedPathBendX,
+    pathBendY: storedPathBendY,
+    sourceBounds,
+    targetBounds,
+  }
 
   let edgePath: string
   let labelX: number
@@ -347,11 +482,7 @@ export function PortLinkEdge({
 
   if (usePortHandles) {
     // Cada puerto tiene su propia vía; no se aplica spread por fan-out del nodo.
-    ;[edgePath, controlX, controlY] = portCablePath(
-      sourceX, sourceY, targetX, targetY,
-      sourceLaneOffsetX, targetLaneOffsetX,
-      storedPathBendX, storedPathBendY,
-    )
+    ;[edgePath, controlX, controlY] = portCablePath(cablePathArgs)
     labelX = controlX
     labelY = controlY
   } else {
@@ -541,11 +672,11 @@ export function PortLinkEdge({
   const liveControlY = controlY + bendDragDelta.y
   const liveEdgePath =
     usePortHandles && (bendDragDelta.x !== 0 || bendDragDelta.y !== 0)
-      ? portCablePath(
-          sourceX, sourceY, targetX, targetY,
-          sourceLaneOffsetX, targetLaneOffsetX,
-          storedPathBendX + bendDragDelta.x, storedPathBendY + bendDragDelta.y,
-        )[0]
+      ? portCablePath({
+          ...cablePathArgs,
+          pathBendX: storedPathBendX + bendDragDelta.x,
+          pathBendY: storedPathBendY + bendDragDelta.y,
+        })[0]
       : edgePath
 
   const fullTooltip = buildFullTooltip(sourcePort, targetPort, mediumLabel, connectionStatus, networkLabel, vlanLabel, d?.portRole)

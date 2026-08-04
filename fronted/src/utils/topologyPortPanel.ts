@@ -4,9 +4,9 @@ import type { TopologyPortSummary } from '../types'
 export const TOPOLOGY_NODE_MIN_WIDTH = 320
 
 /** Alto fijo de la sección de información del dispositivo (sin panel de puertos). */
-export const TOPOLOGY_HEADER_HEIGHT = 118
+export const TOPOLOGY_HEADER_HEIGHT = 132
 /** Cabecera más baja para patch panels (sin IP / VLANs). */
-export const TOPOLOGY_HEADER_HEIGHT_PATCH = 92
+export const TOPOLOGY_HEADER_HEIGHT_PATCH = 106
 
 export const PORT_CELL_WIDTH = 24
 export const PORT_CELL_HEIGHT = 22

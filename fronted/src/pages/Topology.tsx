@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
-  Download,
   Plus,
   Pencil,
   Search,
@@ -27,6 +26,11 @@ import { usePermissions } from '../hooks/usePermissions'
 import { topologyService } from '../services/topology.service'
 import { sitesService } from '../services/sites.service'
 import { coerceWorkAreasArray } from '../utils/topologyWorkAreas'
+import {
+  enrichTopologyNodesSiteArea,
+  mergeHostnamesFromInventory,
+  normalizeTopologyHostname,
+} from '../utils/topologyNodeData'
 import { exportTopologyPdf } from '../utils/exportPdf'
 import type {
   Area,
@@ -43,7 +47,6 @@ import {
   MEDIUM_COLORS,
   CONNECTION_STATUS_LABELS,
 } from '../types'
-import { mergeHostnamesFromInventory, normalizeTopologyHostname } from '../utils/topologyNodeData'
 import { useToast } from '../contexts/ToastContext'
 import {
   buildPortConnectLookup,
@@ -84,15 +87,15 @@ function formatEdgeVlanLabel(edge: TopologyEdge): string | undefined {
   return labels.length ? labels.join(' · ') : undefined
 }
 
-/** Solo enlaces de capa física; incluye todos los dispositivos del inventario (no solo los conectados). */
+/** Solo enlaces de capa física; los nodos ya vienen del inventario (preparados en graphTopology). */
 function filterPhysicalTopology(
   topology: TopologyData,
   inventory?: TopologyNode[],
 ): TopologyData {
   const edges = topology.edges.filter((edge) => edge.connectionType !== 'logical')
-  const inventoryNodes = inventory?.length ? inventory : topology.nodes
+  const nodes = topology.nodes.length ? topology.nodes : inventory?.length ? inventory : []
   return {
-    nodes: inventoryNodes,
+    nodes,
     edges,
   }
 }
@@ -113,10 +116,19 @@ export default function Topology() {
     [projectId]
   )
 
+  const topologyRacks = topology?.racks ?? []
+
+  const { data: sitesData } = useApi<Site[]>(
+    () => (projectId ? sitesService.getAll() : Promise.resolve([])),
+    [projectId]
+  )
+  const sites = sitesData ?? []
+
   const graphTopology: TopologyData = useMemo(() => {
     const base = topology?.graph ?? { nodes: [], edges: [] }
     const sourceNodes = topology?.inventory?.length ? topology.inventory : base.nodes
-    const nodes = mergeHostnamesFromInventory(sourceNodes, topology?.inventory)
+    const withHostnames = mergeHostnamesFromInventory(sourceNodes, topology?.inventory)
+    const nodes = enrichTopologyNodesSiteArea(withHostnames, sites)
     return {
       nodes,
       edges: base.edges.map((edge) => ({
@@ -126,20 +138,12 @@ export default function Topology() {
         description: edge.description ?? edge.metadata?.notes ?? null,
       })),
     }
-  }, [topology?.graph, topology?.inventory])
+  }, [topology?.graph, topology?.inventory, sites])
 
   const physicalDiagram = useMemo(
     () => filterPhysicalTopology(graphTopology, topology?.inventory),
     [graphTopology, topology?.inventory]
   )
-
-  const topologyRacks = topology?.racks ?? []
-
-  const { data: sitesData } = useApi<Site[]>(
-    () => (projectId ? sitesService.getAll() : Promise.resolve([])),
-    [projectId]
-  )
-  const sites = sitesData ?? []
 
   const areasBySiteId = useMemo(() => {
     const map: Record<string, Area[]> = {}
@@ -413,19 +417,33 @@ export default function Topology() {
       filters: import('../utils/topologyPrintFilter').TopologyPrintFilters
       filteredTopology: TopologyData
       filteredRacks: TopologyRackSummary[]
+      externalNodesById: Map<string, import('../types').TopologyNode>
+      externalEdgeCount: number
       subtitle: string
     }) => {
-      const { filters, filteredTopology, filteredRacks, subtitle } = payload
+      const {
+        filters,
+        filteredTopology,
+        filteredRacks,
+        externalNodesById,
+        externalEdgeCount,
+        subtitle,
+      } = payload
       setExporting(true)
       try {
         const authorName = user?.firstName ? `${user.firstName} ${user.lastName}` : undefined
+        const externalHint =
+          externalEdgeCount > 0 ? ` · ${externalEdgeCount} enlaces hacia el exterior` : ''
         const baseOpts = {
           title: 'Arquitectura de Red',
-          subtitle: `${subtitle} · ${filteredTopology.nodes.length} equipos · ${filteredTopology.edges.length} enlaces`,
+          subtitle: `${subtitle} · ${filteredTopology.nodes.length} equipos · ${filteredTopology.edges.length} enlaces${externalHint}`,
           projectName: projectName ?? undefined,
           authorName,
           topology: filteredTopology,
           orientation: filters.orientation,
+          racks: filteredRacks,
+          rackFace: filters.face,
+          externalNodesById,
         }
 
         if (filters.content === 'table') {
@@ -449,8 +467,8 @@ export default function Topology() {
           ...baseOpts,
           content: filters.content === 'diagram' ? 'diagram' : 'full',
           canvasElement: canvasEl,
-          prepareHighResCanvas: (orientation) =>
-            topologyFlowRef.current?.prepareExportCapture(orientation) ?? Promise.resolve(() => {}),
+          captureDiagram: (orientation) =>
+            topologyFlowRef.current?.captureDiagramPng(orientation) ?? Promise.resolve(null),
         })
         toast.success(
           'PDF exportado',
@@ -664,8 +682,9 @@ export default function Topology() {
                 onNavigateToConnection={handleNavigateToConnection}
                 onConnectPorts={canMutate ? handleConnectPorts : undefined}
                 canvasRef={canvasRef}
-                onExportPdf={handleExportPdf}
+                onExportPdf={canPrintReport ? handleExportPdf : undefined}
                 exporting={exporting}
+                onNewConnection={canMutate && projectId ? openCreate : undefined}
                 serverLayout={serverLayout}
                 onPersistLayout={
                   projectId
@@ -730,14 +749,6 @@ export default function Topology() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 justify-between sm:justify-end">
-              {canMutate && projectId && (
-                <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>Nueva conexión</Button>
-              )}
-              {canPrintReport && (
-                <Button variant="secondary" icon={<Download className="w-4 h-4" />} onClick={handleExportPdf} isLoading={exporting} disabled={exporting}>
-                  Imprimir reporte
-                </Button>
-              )}
               <button type="button" onClick={() => setConnectionsCollapsed((v) => !v)}
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 shadow-sm transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                 aria-expanded={!connectionsCollapsed}>
@@ -812,7 +823,9 @@ export default function Topology() {
                 <div className="px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
                   Aún no hay conexiones documentadas.
                   {canMutate && projectId && (
-                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Presiona &quot;Nueva conexión&quot; para documentar tu primer enlace.</p>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Usá &quot;Nueva conexión&quot; en el menú del diagrama (⋮) o arrastrá entre puertos libres.
+                    </p>
                   )}
                 </div>
               ) : filteredEdges.length === 0 ? (

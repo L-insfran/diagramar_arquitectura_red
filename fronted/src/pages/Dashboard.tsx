@@ -7,7 +7,6 @@ import {
   Radio,
   Network,
   GitBranch,
-  Users,
   HardDrive,
   Cable,
   Link2,
@@ -342,7 +341,7 @@ export default function Dashboard() {
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Acciones rápidas
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <Card
                 title="Dispositivos"
                 subtitle="Inventario y estado"
@@ -360,12 +359,6 @@ export default function Dashboard() {
                 subtitle="Mapa de conexiones"
                 icon={<GitBranch className="w-5 h-5" />}
                 onClick={() => navigate('/topology')}
-              />
-              <Card
-                title="Empleados"
-                subtitle="Personas y asignaciones"
-                icon={<Users className="w-5 h-5" />}
-                onClick={() => navigate('/employees')}
               />
             </div>
           </div>
