@@ -476,18 +476,30 @@ export default function Topology() {
         // Pequeña pausa para que React Flow mida nodos filtrados
         await new Promise((r) => setTimeout(r, 120))
 
+        const restorePrint = await topologyFlowRef.current?.prepareForPrint({
+          face: filters.face,
+          orientation: filters.orientation,
+        })
+        await waitFrames(2)
+        await new Promise((r) => setTimeout(r, 80))
+
         const canvasEl = canvasRef.current
         if (!canvasEl) {
+          restorePrint?.()
           throw new Error('No se encontró el lienzo del diagrama')
         }
 
-        await exportTopologyPdf({
-          ...baseOpts,
-          content: filters.content === 'diagram' ? 'diagram' : 'full',
-          canvasElement: canvasEl,
-          captureDiagram: (orientation) =>
-            topologyFlowRef.current?.captureDiagramPng(orientation) ?? Promise.resolve(null),
-        })
+        try {
+          await exportTopologyPdf({
+            ...baseOpts,
+            content: filters.content === 'diagram' ? 'diagram' : 'full',
+            canvasElement: canvasEl,
+            captureDiagram: (orientation) =>
+              topologyFlowRef.current?.captureDiagramPng(orientation) ?? Promise.resolve(null),
+          })
+        } finally {
+          restorePrint?.()
+        }
         toast.success(
           'PDF exportado',
           filters.content === 'diagram'

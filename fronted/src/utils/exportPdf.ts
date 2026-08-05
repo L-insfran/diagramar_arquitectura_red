@@ -18,7 +18,6 @@ import {
   appendRackElevationPages,
   buildRackElevationModel,
   estimateRackElevationPages,
-  hasUnrackedNodes,
   type RackElevationModel,
 } from './pdf/rackElevationPdf'
 
@@ -169,7 +168,8 @@ async function exportFullArchitecturePdf(
     buildRackElevationModel(rack, topology.nodes, rackFace),
   )
   const includeRackPages = rackModels.length > 0
-  const needCanvasCapture = !includeRackPages || hasUnrackedNodes(topology.nodes, racks)
+  // Siempre capturar el diagrama cuando el modo lo incluye y hay nodos (no solo si hay sueltos).
+  const needCanvasCapture = topology.nodes.length > 0
 
   const probe = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
   const rackPageCount = includeRackPages

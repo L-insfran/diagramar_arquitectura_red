@@ -66,7 +66,12 @@ import {
   buildDeviceFlowNodes,
   isIntraRackEdge,
 } from '../../utils/topologyRackAssemble'
-import { isRackFlowNodeId, normalizeRackViewFace, type RackViewFace } from '../../utils/topologyRackLayout'
+import {
+  isRackFlowNodeId,
+  normalizeRackViewFace,
+  rackFlowNodeId,
+  type RackViewFace,
+} from '../../utils/topologyRackLayout'
 import {
   computeExportCaptureRect,
   getCaptureViewport,
@@ -715,6 +720,11 @@ export type TopologyServerLayout = {
   nodeParents: Record<string, string>
 }
 
+export type PrepareForPrintOpts = {
+  face: RackViewFace
+  orientation: PrintOrientation
+}
+
 export type TopologyFlowCanvasHandle = {
   /**
    * Captura el diagrama React Flow a escala planificada (sin redimensionar el shell).
@@ -729,6 +739,41 @@ export type TopologyFlowCanvasHandle = {
   getPrintOrientation: () => PrintOrientation
   /** Estima cuántos sectores A4 (+ portada) ocupará el diagrama con el layout actual. */
   estimatePrintPages: () => number
+  /**
+   * Aplica cara/orientación del modal de impresión, espera medición y ajusta a A4
+   * sin persistir. Devuelve restore() para revertir caras, nodos y orientación.
+   */
+  prepareForPrint: (opts: PrepareForPrintOpts) => Promise<() => void>
+}
+
+function waitAnimationFrames(count = 2): Promise<void> {
+  return new Promise((resolve) => {
+    let left = count
+    const tick = () => {
+      left -= 1
+      if (left <= 0) resolve()
+      else requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+}
+
+function snapshotCanvasNodes(nodes: TopologyCanvasNode[]): TopologyCanvasNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    position: { ...n.position },
+    style: n.style ? { ...n.style } : n.style,
+    data: { ...n.data },
+    measured: n.measured ? { ...n.measured } : n.measured,
+  }))
+}
+
+function snapshotCanvasEdges(edges: PortLinkEdgeType[]): PortLinkEdgeType[] {
+  return edges.map((e) => ({
+    ...e,
+    data: e.data ? { ...e.data } : e.data,
+    style: e.style ? { ...e.style } : e.style,
+  }))
 }
 
 function DrawWorkAreaSession({
@@ -848,12 +893,14 @@ function ExportCaptureBridge({
   getNodesRef,
   fullscreen,
   printOrientationRef,
+  prepareForPrintRef,
 }: {
   exportHandleRef?: Ref<TopologyFlowCanvasHandle | null>
   shellElRef: MutableRefObject<HTMLDivElement | null>
   getNodesRef: MutableRefObject<(() => Node[]) | null>
   fullscreen: boolean
   printOrientationRef: MutableRefObject<PrintOrientation>
+  prepareForPrintRef: MutableRefObject<TopologyFlowCanvasHandle['prepareForPrint'] | null>
 }) {
   const { fitView } = useReactFlow()
 
@@ -932,10 +979,19 @@ function ExportCaptureBridge({
     return countDiagramPdfPages(planned.plan.cols, planned.plan.rows)
   }, [getNodesRef, printOrientationRef])
 
+  const prepareForPrint = useCallback(
+    (opts: PrepareForPrintOpts) => {
+      const fn = prepareForPrintRef.current
+      if (!fn) return Promise.resolve(() => {})
+      return fn(opts)
+    },
+    [prepareForPrintRef],
+  )
+
   useImperativeHandle(
     exportHandleRef,
-    () => ({ captureDiagramPng, prepareExportCapture, getPrintOrientation, estimatePrintPages }),
-    [captureDiagramPng, prepareExportCapture, getPrintOrientation, estimatePrintPages]
+    () => ({ captureDiagramPng, prepareExportCapture, getPrintOrientation, estimatePrintPages, prepareForPrint }),
+    [captureDiagramPng, prepareExportCapture, getPrintOrientation, estimatePrintPages, prepareForPrint]
   )
 
   return null
@@ -1311,6 +1367,11 @@ function TopologyFlowInner({
   const [draftRect, setDraftRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [rackFaces, setRackFaces] = useState<Record<string, RackViewFace>>({})
   const printOrientationRef = useRef<PrintOrientation>('landscape')
+  const prepareForPrintRef = useRef<TopologyFlowCanvasHandle['prepareForPrint'] | null>(null)
+  const skipHierarchyRebuildRef = useRef(false)
+  const edgesRef = useRef<PortLinkEdgeType[]>([])
+  const rackFacesRef = useRef(rackFaces)
+  rackFacesRef.current = rackFaces
   useEffect(() => { printOrientationRef.current = printOrientation }, [printOrientation])
 
   const setRackFace = useCallback((rackNodeId: string, face: RackViewFace) => {
@@ -1427,6 +1488,7 @@ function TopologyFlowInner({
 
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<TopologyCanvasNode>(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<PortLinkEdgeType>(initialEdges)
+  edgesRef.current = edges
 
   // Quitar extent:'parent' legado de work areas; conservar extent en hijos de rack.
   useEffect(() => {
@@ -1490,6 +1552,7 @@ function TopologyFlowInner({
   }, [selection, setEdges, nodes])
 
   useEffect(() => {
+    if (skipHierarchyRebuildRef.current) return
     const { nodes: nextDevices, edges: nextEdges } = topologyToFlowElements(topology)
     const live = getNodesRef.current?.() ?? null
     const currentPositions = live ? snapshotDevicePositions(live) : {}
@@ -1518,6 +1581,68 @@ function TopologyFlowInner({
     setNodes(n)
     setEdges(e)
   }, [topology, racks, rackFaces, persistenceKey, serverLayout, setNodes, setEdges, resolveWorkAreasAndParents])
+
+  const prepareForPrint = useCallback(
+    async (opts: PrepareForPrintOpts): Promise<() => void> => {
+      const face = normalizeRackViewFace(opts.face)
+      const orientation = opts.orientation
+
+      const prevFaces = { ...rackFacesRef.current }
+      const prevOrientation = printOrientationRef.current
+      const liveNodes = (getNodesRef.current?.() ?? nodes) as TopologyCanvasNode[]
+      const prevNodes = snapshotCanvasNodes(liveNodes)
+      const prevEdges = snapshotCanvasEdges(edgesRef.current)
+
+      const nextFaces: Record<string, RackViewFace> = { ...prevFaces }
+      for (const n of liveNodes) {
+        if (n.type !== 'rack') continue
+        nextFaces[n.id] = face
+        const rid = (n.data as { rackId?: string }).rackId
+        if (rid) {
+          nextFaces[rid] = face
+          nextFaces[rackFlowNodeId(rid)] = face
+        }
+      }
+      for (const rack of racks) {
+        nextFaces[rack.id] = face
+        nextFaces[rackFlowNodeId(rack.id)] = face
+      }
+
+      setPrintOrientation(orientation)
+      setRackFaces(nextFaces)
+
+      await waitAnimationFrames(3)
+      await new Promise((r) => setTimeout(r, 120))
+
+      const afterFace = (getNodesRef.current?.() ?? []) as TopologyCanvasNode[]
+      const fit = fitTopologyNodesToA4Page1(afterFace, orientation)
+      if (fit) {
+        const fitted = fit.nodes as TopologyCanvasNode[]
+        setNodes(fitted)
+        setEdges((prev) => withIntraRackEdgeLegibility(fitted, withOrientedPortHandles(fitted, prev)))
+        await waitAnimationFrames(2)
+        await new Promise((r) => setTimeout(r, 80))
+      }
+
+      let restored = false
+      return () => {
+        if (restored) return
+        restored = true
+        skipHierarchyRebuildRef.current = true
+        setRackFaces(prevFaces)
+        setPrintOrientation(prevOrientation)
+        setNodes(prevNodes)
+        setEdges(prevEdges)
+        // Liberar el skip en microtask para que el clear de printOverride pueda rearmar el grafo.
+        queueMicrotask(() => {
+          skipHierarchyRebuildRef.current = false
+        })
+      }
+    },
+    [nodes, racks, setNodes, setEdges],
+  )
+
+  prepareForPrintRef.current = prepareForPrint
 
   const persistLayoutLocalFromNodes = useCallback((nds: TopologyCanvasNode[]) => {
     persistCanvasLocal(persistenceKey, nds, edgeLayoutsRef.current)
@@ -1830,6 +1955,7 @@ function TopologyFlowInner({
               getNodesRef={getNodesRef}
               fullscreen={fullscreen}
               printOrientationRef={printOrientationRef}
+              prepareForPrintRef={prepareForPrintRef}
             />
             <FitViewAfterLayoutChange fullscreen={fullscreen} />
             <PortNavigationBridge selection={selection} edges={edges} nodes={nodes} onClearSelection={clearPortSelection} />

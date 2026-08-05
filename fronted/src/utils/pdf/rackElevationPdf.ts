@@ -15,6 +15,9 @@ import {
   type PdfTableColumn,
 } from './pdfTable'
 
+/** Slots horizontales por bandeja (alineado con topologyRackLayout). */
+const SHELF_SLOT_COUNT = 3
+
 export type RackElevationDevice = {
   id: string
   label: string
@@ -28,6 +31,10 @@ export type RackElevationDevice = {
   face: DeviceRackFace
   isFullDepth: boolean
   onShelf: boolean
+  /** Slot horizontal 0–2 cuando está en bandeja. */
+  shelfSlotStart: number
+  /** Ancho en slots (1 = ⅓, 3 = todo el ancho). */
+  shelfWidthSlots: number
   portCount: number
 }
 
@@ -94,6 +101,16 @@ export function buildRackElevationModel(
 
     if (face !== 'both' && !isFullDepth && deviceFace !== face) continue
 
+    const shelfSlotStart = shelf
+      ? Math.min(SHELF_SLOT_COUNT - 1, Math.max(0, Math.round(node.data.shelfSlotStart ?? 0)))
+      : 0
+    const shelfWidthSlots = shelf
+      ? Math.min(
+          SHELF_SLOT_COUNT - shelfSlotStart,
+          Math.max(1, Math.round(node.data.shelfWidthSlots ?? 1)),
+        )
+      : SHELF_SLOT_COUNT
+
     devices.push({
       id: node.id,
       label: node.label,
@@ -107,6 +124,8 @@ export function buildRackElevationModel(
       face: isFullDepth ? 'front' : deviceFace,
       isFullDepth,
       onShelf: !!shelf,
+      shelfSlotStart,
+      shelfWidthSlots,
       portCount: node.data.ports?.length ?? 0,
     })
   }
@@ -289,18 +308,34 @@ function drawElevationGraphic(
         const contentX = col.x + col.railW + 0.6
         const contentW = col.w - col.railW - 1.2
 
+        // Equipos en bandeja: mismos slots horizontales que el canvas (⅓ / full).
+        // Sin esto, cada uno se dibujaba a ancho completo y el último tapaba al resto.
+        const slotGap = 0.4
+        let drawX = contentX
+        let drawW = contentW
+        if (dev.onShelf) {
+          const slotW = contentW / SHELF_SLOT_COUNT
+          const slotStart = Math.min(SHELF_SLOT_COUNT - 1, Math.max(0, dev.shelfSlotStart))
+          const widthSlots = Math.min(
+            SHELF_SLOT_COUNT - slotStart,
+            Math.max(1, dev.shelfWidthSlots),
+          )
+          drawX = contentX + slotStart * slotW + slotGap / 2
+          drawW = Math.max(2, slotW * widthSlots - slotGap)
+        }
+
         pdf.setFillColor(color[0], color[1], color[2])
-        pdf.roundedRect(contentX, yTop + 0.3, contentW, h - 0.6, 0.8, 0.8, 'F')
+        pdf.roundedRect(drawX, yTop + 0.3, drawW, h - 0.6, 0.8, 0.8, 'F')
 
         // Texto
         pdf.setTextColor(255, 255, 255)
         const fontSize = h >= 8 ? 7 : h >= 5 ? 5.5 : 4.5
         pdf.setFontSize(fontSize)
         pdf.setFont('helvetica', 'bold')
-        const nameMaxW = contentW - 2
+        const nameMaxW = drawW - 2
         const nameLines = pdf.splitTextToSize(dev.label, nameMaxW) as string[]
         let ty = yTop + Math.min(fontSize * 0.45 + 1.2, h * 0.45)
-        pdf.text(nameLines[0] ?? dev.label, contentX + 1, ty)
+        pdf.text(nameLines[0] ?? dev.label, drawX + 1, ty)
 
         if (h >= 7) {
           pdf.setFont('helvetica', 'normal')
@@ -315,7 +350,7 @@ function drawElevationGraphic(
           ty += fontSize * 0.55 + 0.8
           if (ty < yTop + h - 1) {
             const metaLines = pdf.splitTextToSize(meta, nameMaxW) as string[]
-            pdf.text(metaLines[0] ?? meta, contentX + 1, ty)
+            pdf.text(metaLines[0] ?? meta, drawX + 1, ty)
           }
         }
 
@@ -323,14 +358,15 @@ function drawElevationGraphic(
         const badges: string[] = []
         if (dev.isFullDepth) badges.push('Full')
         if (dev.onShelf) badges.push('Bandeja')
-        if (badges.length && h >= 5) {
+        if (badges.length && h >= 5 && drawW >= 14) {
           pdf.setFontSize(4)
           pdf.setFont('helvetica', 'bold')
           pdf.setTextColor(255, 255, 255)
           pdf.setFillColor(15, 23, 42)
-          let bx = contentX + contentW - 1
+          let bx = drawX + drawW - 1
           for (const b of badges.reverse()) {
             const bw = pdf.getTextWidth(b) + 1.6
+            if (bx - bw < drawX + 0.5) break
             bx -= bw + 0.6
             pdf.roundedRect(bx, yTop + 0.6, bw, 2.8, 0.5, 0.5, 'F')
             pdf.text(b, bx + 0.8, yTop + 2.5)
