@@ -2,7 +2,7 @@ import type { jsPDF } from 'jspdf'
 import type { TopologyData, TopologyNode } from '../../types'
 import { formatMediumLabel, CONNECTION_STATUS_LABELS, MEDIUM_LABELS } from '../../types'
 import { getA4Geometry, MARGIN, type PrintOrientation } from './a4Geometry'
-import { drawFooter, drawHeader } from './pdfChrome'
+import { drawFooter, drawHeader, type PdfHeaderBranding } from './pdfChrome'
 import {
   drawPdfTableBody,
   drawPdfTableHeader,
@@ -43,11 +43,20 @@ function resolveNodeHostname(ctx: ConnectionTableContext, id: string): string | 
   return s && s.length > 0 ? s : null
 }
 
+function resolveNodeTemplateName(ctx: ConnectionTableContext, id: string): string | null {
+  const node = ctx.nodes.find((n) => n.id === id) ?? ctx.externalNodesById?.get(id)
+  const raw = node?.data?.templateName
+  const s = typeof raw === 'string' ? raw.trim() : raw
+  return s && s.length > 0 ? s : null
+}
+
 function resolveNodeDisplay(ctx: ConnectionTableContext, id: string): { text: string; external: boolean } {
   const external = !!(ctx.inScopeNodeIds && !ctx.inScopeNodeIds.has(id))
   const label = resolveNodeLabel(ctx, id)
+  const templateName = resolveNodeTemplateName(ctx, id)
   const host = resolveNodeHostname(ctx, id)
-  const base = host ? `${label} (${host})` : label
+  const secondary = templateName ?? host
+  const base = secondary ? `${label} (${secondary})` : label
   return {
     text: external ? `${base} (fuera del alcance)` : base,
     external,
@@ -96,6 +105,46 @@ export function buildConnectionRow(
       null,
     ],
   }
+}
+
+export type ConnectionTableSortBy = 'source' | 'target'
+
+const LOCALE_COMPARE_OPTS: Intl.CollatorOptions = { sensitivity: 'base', numeric: true }
+
+function compareLabel(a: string, b: string): number {
+  return a.localeCompare(b, 'es', LOCALE_COMPARE_OPTS)
+}
+
+/**
+ * Ordena edges por equipo (origen o destino), luego puerto, luego el otro extremo.
+ * Usa el label del nodo (sin sufijo «fuera del alcance») para agrupar equipos iguales.
+ */
+export function sortConnectionEdges(
+  edges: TopologyData['edges'],
+  ctx: ConnectionTableContext,
+  sortBy: ConnectionTableSortBy = 'source',
+): TopologyData['edges'] {
+  return [...edges].sort((a, b) => {
+    const aPrimaryId = sortBy === 'source' ? a.source : a.target
+    const bPrimaryId = sortBy === 'source' ? b.source : b.target
+    const aPrimaryPort = sortBy === 'source' ? a.sourcePort : a.targetPort
+    const bPrimaryPort = sortBy === 'source' ? b.sourcePort : b.targetPort
+    const aOtherId = sortBy === 'source' ? a.target : a.source
+    const bOtherId = sortBy === 'source' ? b.target : b.source
+    const aOtherPort = sortBy === 'source' ? a.targetPort : a.sourcePort
+    const bOtherPort = sortBy === 'source' ? b.targetPort : b.sourcePort
+
+    const byDevice = compareLabel(resolveNodeLabel(ctx, aPrimaryId), resolveNodeLabel(ctx, bPrimaryId))
+    if (byDevice !== 0) return byDevice
+
+    const byPort = compareLabel(aPrimaryPort || '', bPrimaryPort || '')
+    if (byPort !== 0) return byPort
+
+    const byOther = compareLabel(resolveNodeLabel(ctx, aOtherId), resolveNodeLabel(ctx, bOtherId))
+    if (byOther !== 0) return byOther
+
+    return compareLabel(aOtherPort || '', bOtherPort || '')
+  })
 }
 
 function drawSummary(
@@ -168,6 +217,8 @@ export function appendConnectionsTablePages(
     startingPageNumber: number
     totalPages: number
     addPageBeforeEach?: boolean
+    branding?: PdfHeaderBranding
+    tableSortBy?: ConnectionTableSortBy
   },
 ): number {
   const {
@@ -179,8 +230,9 @@ export function appendConnectionsTablePages(
     ctx,
     startingPageNumber,
     totalPages,
+    branding,
   } = opts
-  const edges = topology.edges
+  const edges = sortConnectionEdges(topology.edges, ctx, opts.tableSortBy ?? 'source')
   if (!edges.length) return 0
 
   const geom = getA4Geometry(orientation)
@@ -218,6 +270,7 @@ export function appendConnectionsTablePages(
       `${edges.length} conexiones documentadas${externalCount > 0 ? ` · ${externalCount} hacia el exterior` : ''}`,
       authorName,
       dateStr,
+      branding,
     )
 
     const layout = getPdfTableLayout(pw, CONNECTION_COLUMNS)
@@ -248,8 +301,10 @@ export function estimateConnectionTablePages(
   orientation: PrintOrientation,
   topology: TopologyData,
   ctx: ConnectionTableContext,
+  tableSortBy: ConnectionTableSortBy = 'source',
 ): number {
   if (!topology.edges.length) return 0
+  const edges = sortConnectionEdges(topology.edges, ctx, tableSortBy)
   const geom = getA4Geometry(orientation)
   const pages = paginatePdfRows(
     pdf,
@@ -257,7 +312,7 @@ export function estimateConnectionTablePages(
     geom.table.y,
     geom.table.y + geom.table.h,
     CONNECTION_COLUMNS,
-    topology.edges,
+    edges,
     (edge) => buildConnectionRow(ctx, edge).cells,
   )
   return pages.length

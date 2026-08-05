@@ -11,6 +11,7 @@ import {
   filterTopologyForPrint,
   type TopologyPrintContent,
   type TopologyPrintFilters,
+  type TopologyPrintTableSortBy,
 } from '../../utils/topologyPrintFilter'
 import type { PrintOrientation } from '../../utils/printDiagramSectorGrid'
 
@@ -374,6 +375,28 @@ export function PrintReportModal({
               ))}
             </div>
           </fieldset>
+
+          {filters.content !== 'diagram' ? (
+            <div>
+              <Select
+                label="Ordenar tabla por"
+                value={filters.tableSortBy}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    tableSortBy: e.target.value as TopologyPrintTableSortBy,
+                  }))
+                }
+                options={[
+                  { value: 'source', label: 'Origen (equipo)' },
+                  { value: 'target', label: 'Destino (equipo)' },
+                ]}
+              />
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                Agrupa las filas por nombre de equipo y luego por puerto.
+              </p>
+            </div>
+          ) : null}
         </section>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">

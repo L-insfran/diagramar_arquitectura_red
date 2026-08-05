@@ -26,6 +26,7 @@ const SystemUsersController = () => import('#controllers/system_users_controller
 const MeController = () => import('#controllers/me_controller')
 const DashboardController = () => import('#controllers/dashboard_controller')
 const UserMembershipsController = () => import('#controllers/user_memberships_controller')
+const SystemBrandingController = () => import('#controllers/system_branding_controller')
 
 // Health check
 router.get('/', async () => {
@@ -46,6 +47,12 @@ router
     router.get('/auth/me', [AuthController, 'me'])
     router.get('/me/projects', [MeController, 'projects'])
     router.get('/dashboard', [DashboardController, 'show'])
+
+    // System branding (logo + tagline globales para reportes)
+    router.get('/system/branding', [SystemBrandingController, 'show'])
+    router.get('/system/branding/logo', [SystemBrandingController, 'downloadLogo'])
+    router.put('/system/branding', [SystemBrandingController, 'update'])
+    router.delete('/system/branding/logo', [SystemBrandingController, 'destroyLogo'])
 
     // Projects
     router.get('/projects', [ProjectsController, 'index'])

@@ -10,6 +10,10 @@ export type ScannedRoutes = {
     'auth.me': { paramsTuple?: []; params?: {} }
     'me.projects': { paramsTuple?: []; params?: {} }
     'dashboard.show': { paramsTuple?: []; params?: {} }
+    'system_branding.show': { paramsTuple?: []; params?: {} }
+    'system_branding.download_logo': { paramsTuple?: []; params?: {} }
+    'system_branding.update': { paramsTuple?: []; params?: {} }
+    'system_branding.destroy_logo': { paramsTuple?: []; params?: {} }
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.store': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -138,6 +142,8 @@ export type ScannedRoutes = {
     'auth.me': { paramsTuple?: []; params?: {} }
     'me.projects': { paramsTuple?: []; params?: {} }
     'dashboard.show': { paramsTuple?: []; params?: {} }
+    'system_branding.show': { paramsTuple?: []; params?: {} }
+    'system_branding.download_logo': { paramsTuple?: []; params?: {} }
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
@@ -191,6 +197,8 @@ export type ScannedRoutes = {
     'auth.me': { paramsTuple?: []; params?: {} }
     'me.projects': { paramsTuple?: []; params?: {} }
     'dashboard.show': { paramsTuple?: []; params?: {} }
+    'system_branding.show': { paramsTuple?: []; params?: {} }
+    'system_branding.download_logo': { paramsTuple?: []; params?: {} }
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
@@ -269,6 +277,7 @@ export type ScannedRoutes = {
     'employee_credentials.store': { paramsTuple?: []; params?: {} }
   }
   PUT: {
+    'system_branding.update': { paramsTuple?: []; params?: {} }
     'projects.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.bulk_update_ports_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -299,6 +308,7 @@ export type ScannedRoutes = {
     'employee_credentials.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   DELETE: {
+    'system_branding.destroy_logo': { paramsTuple?: []; params?: {} }
     'projects.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }

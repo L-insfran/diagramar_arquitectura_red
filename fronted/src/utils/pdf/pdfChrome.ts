@@ -1,6 +1,11 @@
 import type { jsPDF } from 'jspdf'
 import { FOOTER_H, HEADER_H, MARGIN, SECTOR_HEADER_H } from './a4Geometry'
 
+export type PdfHeaderBranding = {
+  logoDataUrl?: string
+  reportTagline?: string
+}
+
 export function drawHeader(
   pdf: jsPDF,
   pageW: number,
@@ -9,28 +14,77 @@ export function drawHeader(
   subtitle: string | undefined,
   authorName: string | undefined,
   dateStr: string,
+  branding?: PdfHeaderBranding,
 ) {
   pdf.setFillColor(15, 23, 42)
   pdf.rect(0, 0, pageW, HEADER_H - 4, 'F')
 
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFontSize(14)
-  pdf.setFont('helvetica', 'bold')
+  const logoMaxH = 12
+  const logoMaxW = 48
+  const logoY = 4.5
+  const hasLogo = Boolean(branding?.logoDataUrl)
+  const tagline = branding?.reportTagline?.trim() || undefined
+  const rightReserved = 52
+  let brandBottom = logoY
 
-  if (projectName) {
+  if (hasLogo && branding?.logoDataUrl) {
+    try {
+      const format = branding.logoDataUrl.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG'
+      const props = pdf.getImageProperties(branding.logoDataUrl)
+      const aspect = props.width / Math.max(1, props.height)
+      let logoW = logoMaxH * aspect
+      let logoH = logoMaxH
+      if (logoW > logoMaxW) {
+        logoW = logoMaxW
+        logoH = logoW / aspect
+      }
+      pdf.addImage(branding.logoDataUrl, format, MARGIN, logoY, logoW, logoH)
+      brandBottom = logoY + logoH
+    } catch {
+      // logo inválido: continuar solo con texto
+    }
+
+    if (tagline) {
+      pdf.setFontSize(6.5)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(180, 190, 210)
+      pdf.text(tagline, MARGIN, brandBottom + 3.5, {
+        maxWidth: pageW - MARGIN * 2 - rightReserved,
+      })
+      brandBottom += 5
+    }
+  } else if (projectName) {
+    // Sin logo: el nombre del proyecto actúa como marca (comportamiento legacy)
+    pdf.setTextColor(255, 255, 255)
+    pdf.setFontSize(14)
+    pdf.setFont('helvetica', 'bold')
     pdf.text(projectName, MARGIN, 13)
-    pdf.setFontSize(10)
-    pdf.setFont('helvetica', 'normal')
-    pdf.text(title, MARGIN, 21)
-  } else {
-    pdf.text(title, MARGIN, 15)
+    brandBottom = 13
+
+    if (tagline) {
+      pdf.setFontSize(6.5)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(180, 190, 210)
+      pdf.text(tagline, MARGIN, 18, {
+        maxWidth: pageW - MARGIN * 2 - rightReserved,
+      })
+      brandBottom = 18
+    }
   }
+
+  pdf.setTextColor(255, 255, 255)
+  pdf.setFontSize(hasLogo || projectName ? 10 : 14)
+  pdf.setFont('helvetica', hasLogo || projectName ? 'normal' : 'bold')
+  const titleY = hasLogo || projectName ? Math.max(24, brandBottom + 6) : 15
+  pdf.text(title, MARGIN, titleY)
 
   if (subtitle) {
     pdf.setFontSize(8)
     pdf.setFont('helvetica', 'normal')
     pdf.setTextColor(200, 200, 200)
-    pdf.text(subtitle, MARGIN, projectName ? 28 : 24, { maxWidth: pageW - MARGIN * 2 - 50 })
+    pdf.text(subtitle, MARGIN, titleY + 8, {
+      maxWidth: pageW - MARGIN * 2 - rightReserved,
+    })
   }
 
   pdf.setTextColor(255, 255, 255)

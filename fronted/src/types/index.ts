@@ -9,6 +9,16 @@ export interface Project {
   updatedAt: string
 }
 
+/** Branding global del sistema (logo + tagline de reportes). */
+export interface SystemBranding {
+  reportTagline: string | null
+  hasLogo: boolean
+  logoMimeType: string | null
+  logoOriginalFilename: string | null
+  logoSizeBytes: number | null
+  updatedAt: string | null
+}
+
 export interface ProjectMembershipSummary {
   id?: string
   projectId: string
@@ -595,6 +605,7 @@ export interface TopologyNode {
     status: string
     location: string | null
     deviceType: string | null
+    templateName?: string | null
     manufacturer: string | null
     model: string | null
     siteId?: string | null

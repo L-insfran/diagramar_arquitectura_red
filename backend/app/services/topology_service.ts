@@ -84,6 +84,7 @@ type FlowTopologyNode = {
     status: string
     location: string | null
     deviceType: string | null
+    templateName: string | null
     manufacturer: string | null
     model: string | null
     siteId: string | null
@@ -234,6 +235,7 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
       status: device.status,
       location: device.location,
       deviceType: device.deviceType?.name ?? null,
+      templateName: device.deviceTemplate?.name ?? null,
       manufacturer: device.manufacturer,
       model: device.model,
       siteId: device.siteId ?? device.area?.siteId ?? null,

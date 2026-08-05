@@ -760,6 +760,27 @@ export class SiteSchema extends BaseModel {
   declare updatedBy: string | null
 }
 
+export class SystemSettingSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'logoMimeType', 'logoOriginalFilename', 'logoSizeBytes', 'logoStoragePath', 'reportTagline', 'updatedAt'] as const
+  $columns = SystemSettingSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare logoMimeType: string | null
+  @column()
+  declare logoOriginalFilename: string | null
+  @column()
+  declare logoSizeBytes: bigint | number | null
+  @column()
+  declare logoStoragePath: string | null
+  @column()
+  declare reportTagline: string | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class SystemUserSchema extends BaseModel {
   static $columns = ['createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'password', 'projectId', 'role', 'updatedAt'] as const
   $columns = SystemUserSchema.$columns

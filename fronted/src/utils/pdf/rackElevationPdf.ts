@@ -6,7 +6,7 @@ import type {
   TopologyRackSummary,
 } from '../../types'
 import { getA4Geometry, type PrintOrientation } from './a4Geometry'
-import { drawFooter, drawHeader } from './pdfChrome'
+import { drawFooter, drawHeader, type PdfHeaderBranding } from './pdfChrome'
 import {
   drawPdfTableBody,
   drawPdfTableHeader,
@@ -379,6 +379,7 @@ export function appendRackElevationPages(
     title: string
     startingPageNumber: number
     totalPages: number
+    branding?: PdfHeaderBranding
   },
 ): number {
   const {
@@ -390,6 +391,7 @@ export function appendRackElevationPages(
     title,
     startingPageNumber,
     totalPages,
+    branding,
   } = opts
 
   let pagesAdded = 0
@@ -416,7 +418,7 @@ export function appendRackElevationPages(
       .filter(Boolean)
       .join(' · ')
 
-    drawHeader(pdf, pw, `Elevación de rack — ${title}`, projectName, subtitle, authorName, dateStr)
+    drawHeader(pdf, pw, `Elevación de rack — ${title}`, projectName, subtitle, authorName, dateStr, branding)
 
     const elevArea = {
       x: geom.cover.x,
@@ -457,6 +459,7 @@ export function appendRackElevationPages(
         `${model.devices.length} equipos montados`,
         authorName,
         dateStr,
+        branding,
       )
 
       const layout = getPdfTableLayout(pw, DEVICE_TABLE_COLUMNS)

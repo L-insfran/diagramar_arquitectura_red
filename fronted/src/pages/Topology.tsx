@@ -32,6 +32,7 @@ import {
   normalizeTopologyHostname,
 } from '../utils/topologyNodeData'
 import { exportTopologyPdf } from '../utils/exportPdf'
+import { systemBrandingService } from '../services/systemBranding.service'
 import type {
   Area,
   Site,
@@ -434,16 +435,33 @@ export default function Topology() {
         const authorName = user?.firstName ? `${user.firstName} ${user.lastName}` : undefined
         const externalHint =
           externalEdgeCount > 0 ? ` · ${externalEdgeCount} enlaces hacia el exterior` : ''
+
+        let branding: { logoDataUrl?: string; reportTagline?: string } | undefined
+        try {
+          const meta = await systemBrandingService.get()
+          const logoDataUrl = meta.hasLogo
+            ? (await systemBrandingService.fetchLogoPngDataUrl()) ?? undefined
+            : undefined
+          branding = {
+            logoDataUrl,
+            reportTagline: meta.reportTagline ?? undefined,
+          }
+        } catch {
+          branding = undefined
+        }
+
         const baseOpts = {
           title: 'Arquitectura de Red',
           subtitle: `${subtitle} · ${filteredTopology.nodes.length} equipos · ${filteredTopology.edges.length} enlaces${externalHint}`,
           projectName: projectName ?? undefined,
           authorName,
+          branding,
           topology: filteredTopology,
           orientation: filters.orientation,
           racks: filteredRacks,
           rackFace: filters.face,
           externalNodesById,
+          tableSortBy: filters.tableSortBy,
         }
 
         if (filters.content === 'table') {

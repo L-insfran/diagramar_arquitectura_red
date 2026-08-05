@@ -6,13 +6,14 @@ import {
   appendConnectionsTablePages,
   estimateConnectionTablePages,
   type ConnectionTableContext,
+  type ConnectionTableSortBy,
 } from './pdf/connectionsTablePdf'
 import {
   appendDiagramPagesAsync,
   countDiagramPdfPages,
   type CapturedDiagram,
 } from './pdf/diagramCapturePdf'
-import { drawFooter, drawHeader, safePdfFilename } from './pdf/pdfChrome'
+import { drawFooter, drawHeader, safePdfFilename, type PdfHeaderBranding } from './pdf/pdfChrome'
 import {
   appendRackElevationPages,
   buildRackElevationModel,
@@ -29,6 +30,8 @@ interface ExportOptions {
   projectName?: string
   authorName?: string
   date?: string
+  /** Branding global (logo + tagline) para el chrome del PDF. */
+  branding?: PdfHeaderBranding
   /** Requerido si hay diagrama a capturar (content diagram/full con nodos fuera de rack o sin racks). */
   canvasElement?: HTMLDivElement
   topology: TopologyData
@@ -49,10 +52,12 @@ interface ExportOptions {
   content?: 'table' | 'diagram' | 'full'
   /** Nodos fuera del alcance referenciados por enlaces any-end. */
   externalNodesById?: Map<string, TopologyNode>
+  /** Orden de filas en la tabla de conexiones (origen o destino). */
+  tableSortBy?: ConnectionTableSortBy
 }
 
 export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
-  const { title, projectName, authorName, topology } = options
+  const { title, projectName, authorName, topology, branding } = options
   const content = options.content ?? 'table'
   const orientation: PrintOrientation = options.orientation ?? 'landscape'
   const dateStr =
@@ -61,6 +66,7 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
   const racks = options.racks ?? []
   const rackFace = options.rackFace ?? 'both'
   const externalNodesById = options.externalNodesById ?? new Map<string, TopologyNode>()
+  const tableSortBy: ConnectionTableSortBy = options.tableSortBy ?? 'source'
 
   const ctx: ConnectionTableContext = {
     nodes: topology.nodes,
@@ -77,6 +83,8 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
       topology,
       orientation,
       ctx,
+      branding,
+      tableSortBy,
     })
     return
   }
@@ -89,6 +97,7 @@ export async function exportTopologyPdf(options: ExportOptions): Promise<void> {
     ctx,
     racks,
     rackFace,
+    tableSortBy,
   )
 }
 
@@ -100,8 +109,11 @@ async function exportConnectionsOnly(opts: {
   topology: TopologyData
   orientation: PrintOrientation
   ctx: ConnectionTableContext
+  branding?: PdfHeaderBranding
+  tableSortBy: ConnectionTableSortBy
 }): Promise<void> {
-  const { title, projectName, authorName, dateStr, topology, orientation, ctx } = opts
+  const { title, projectName, authorName, dateStr, topology, orientation, ctx, branding, tableSortBy } =
+    opts
   const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
   const geom = getA4Geometry(orientation)
 
@@ -114,6 +126,7 @@ async function exportConnectionsOnly(opts: {
       'Sin conexiones documentadas',
       authorName,
       dateStr,
+      branding,
     )
     drawFooter(pdf, geom.pageW, geom.pageH, 1, 1, dateStr, 'Tabla de conexiones')
     const safeName = safePdfFilename(projectName ?? title)
@@ -121,7 +134,7 @@ async function exportConnectionsOnly(opts: {
     return
   }
 
-  const tablePages = estimateConnectionTablePages(pdf, orientation, topology, ctx)
+  const tablePages = estimateConnectionTablePages(pdf, orientation, topology, ctx, tableSortBy)
   appendConnectionsTablePages(pdf, {
     projectName,
     authorName,
@@ -132,6 +145,8 @@ async function exportConnectionsOnly(opts: {
     startingPageNumber: 1,
     totalPages: tablePages,
     addPageBeforeEach: false,
+    branding,
+    tableSortBy,
   })
 
   const safeName = safePdfFilename(projectName ?? title)
@@ -146,8 +161,9 @@ async function exportFullArchitecturePdf(
   ctx: ConnectionTableContext,
   racks: TopologyRackSummary[],
   rackFace: 'front' | 'rear' | 'both',
+  tableSortBy: ConnectionTableSortBy,
 ): Promise<void> {
-  const { title, subtitle, projectName, authorName, topology, captureDiagram } = options
+  const { title, subtitle, projectName, authorName, topology, captureDiagram, branding } = options
 
   const rackModels: RackElevationModel[] = racks.map((rack) =>
     buildRackElevationModel(rack, topology.nodes, rackFace),
@@ -215,7 +231,7 @@ async function exportFullArchitecturePdf(
 
   const includeTable = mode === 'full' && topology.edges.length > 0
   const tablePageCount = includeTable
-    ? estimateConnectionTablePages(probe, orientation, topology, ctx)
+    ? estimateConnectionTablePages(probe, orientation, topology, ctx, tableSortBy)
     : 0
 
   const totalPages = Math.max(1, rackPageCount + diagramPageCount + tablePageCount)
@@ -235,6 +251,7 @@ async function exportFullArchitecturePdf(
       title,
       startingPageNumber: nextPage,
       totalPages,
+      branding,
     })
     nextPage += added
     if (blankFirstPage && pdf.getNumberOfPages() > added) {
@@ -255,6 +272,7 @@ async function exportFullArchitecturePdf(
       startingPageNumber: nextPage,
       totalPages,
       firstPageExists: blankFirstPage,
+      branding,
     })
     nextPage += added
     blankFirstPage = false
@@ -271,6 +289,8 @@ async function exportFullArchitecturePdf(
       startingPageNumber: nextPage,
       totalPages,
       addPageBeforeEach: !blankFirstPage,
+      branding,
+      tableSortBy,
     })
     blankFirstPage = false
   }
@@ -285,6 +305,7 @@ async function exportFullArchitecturePdf(
       subtitle ?? 'Sin contenido en el alcance',
       authorName,
       dateStr,
+      branding,
     )
     drawFooter(pdf, geom.pageW, geom.pageH, 1, 1, dateStr, 'Vacío')
   }

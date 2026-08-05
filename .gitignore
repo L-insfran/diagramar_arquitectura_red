@@ -45,6 +45,8 @@ $RECYCLE.BIN/
 # Local attachment binaries (ADR 0003)
 backend/storage/attachments/**
 !backend/storage/attachments/.gitkeep
+backend/storage/system/**
+!backend/storage/system/.gitkeep
 
 # Vite / frontend
 public/dist/

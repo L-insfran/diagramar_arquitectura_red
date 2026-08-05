@@ -11,6 +11,9 @@ export type TopologyPrintContent = 'table' | 'diagram' | 'full'
 /** Cómo incluir enlaces respecto al alcance de nodos. */
 export type TopologyPrintEdgeScope = 'any-end' | 'both-ends'
 
+/** Criterio de orden de filas en la tabla de conexiones del PDF. */
+export type TopologyPrintTableSortBy = 'source' | 'target'
+
 export type TopologyPrintFilters = {
   /** Vacío = todos los sitios. */
   siteId: string
@@ -27,6 +30,8 @@ export type TopologyPrintFilters = {
    * `both-ends`: solo enlaces cuyos dos extremos están en el alcance.
    */
   edgeScope: TopologyPrintEdgeScope
+  /** Orden de la tabla PDF: por equipo de origen o de destino. */
+  tableSortBy: TopologyPrintTableSortBy
 }
 
 export const DEFAULT_TOPOLOGY_PRINT_FILTERS: TopologyPrintFilters = {
@@ -38,6 +43,7 @@ export const DEFAULT_TOPOLOGY_PRINT_FILTERS: TopologyPrintFilters = {
   content: 'full',
   orientation: 'landscape',
   edgeScope: 'any-end',
+  tableSortBy: 'source',
 }
 
 function normalizeFace(face: string | null | undefined): RackFace {

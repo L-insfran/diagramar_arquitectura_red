@@ -2,7 +2,14 @@ import { toPng } from 'html-to-image'
 import type { jsPDF } from 'jspdf'
 import { getA4Geometry, type PrintOrientation } from './a4Geometry'
 import { TILE_OVERLAP_MM, type DiagramPagePlan } from './diagramScale'
-import { drawFooter, drawGridIndicator, drawHeader, drawLegend, drawSectorHeader } from './pdfChrome'
+import {
+  drawFooter,
+  drawGridIndicator,
+  drawHeader,
+  drawLegend,
+  drawSectorHeader,
+  type PdfHeaderBranding,
+} from './pdfChrome'
 
 export type CapturedDiagram = {
   imgData: string
@@ -27,6 +34,7 @@ export async function appendDiagramPagesAsync(
     startingPageNumber: number
     totalPages: number
     firstPageExists?: boolean
+    branding?: PdfHeaderBranding
   },
 ): Promise<number> {
   const {
@@ -40,6 +48,7 @@ export async function appendDiagramPagesAsync(
     startingPageNumber,
     totalPages,
     firstPageExists,
+    branding,
   } = opts
 
   const { imgData, imgW, imgH, plan } = captured
@@ -61,7 +70,7 @@ export async function appendDiagramPagesAsync(
   const pw = geom.pageW
   const ph = geom.pageH
 
-  drawHeader(pdf, pw, title, projectName, subtitle, authorName, dateStr)
+  drawHeader(pdf, pw, title, projectName, subtitle, authorName, dateStr, branding)
 
   const imgAspect = imgW / Math.max(1, imgH)
   let drawW = geom.cover.w

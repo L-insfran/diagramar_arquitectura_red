@@ -5,7 +5,8 @@ export type PrintOrientation = 'landscape' | 'portrait'
 
 /** Márgenes y cabeceras (mm) alineados con la exportación PDF. */
 export const MARGIN = 12
-export const HEADER_H = 42
+/** Cabecera principal (logo + nombre + título + subtítulo). */
+export const HEADER_H = 44
 export const FOOTER_H = 16
 export const LEGEND_H = 12
 /** Cabecera compacta de páginas de sector. */
