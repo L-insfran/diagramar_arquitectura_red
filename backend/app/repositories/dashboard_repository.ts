@@ -7,6 +7,7 @@ import type { DeviceRackFace } from '#dtos/rack_dto'
 import {
   aggregateUsedUnitsByFace,
   railDeviceFootprints,
+  resolveHangDeviceFace,
   resolveShelfDeviceFace,
   shelfDeviceFootprints,
   shelfDeviceHeightU,
@@ -312,9 +313,13 @@ export default class DashboardRepository {
           ...shelfFootprints({
             accessoryId: shelf.id,
             accessoryName: shelf.name,
+            kind: shelf.kind,
             unitStart: shelf.unitStart,
             heightU: shelf.heightU,
             mountType: shelf.mountType,
+            face: shelf.face,
+            horizontalSlotStart: shelf.horizontalSlotStart,
+            horizontalWidthSlots: shelf.horizontalWidthSlots,
           })
         )
       }
@@ -322,12 +327,20 @@ export default class DashboardRepository {
       for (const d of shelfDevicesByRack.get(rack.id) ?? []) {
         const shelf = d.supportedByAccessory
         if (!shelf || shelf.deletedAt) continue
-        const heightU = shelfDeviceHeightU(d.shelfHeightU, d.deviceTemplate?.rackUnits)
-        const face = resolveShelfDeviceFace(
-          shelf.mountType,
-          d.rackFace as DeviceRackFace | null,
-          !!d.deviceTemplate?.isFullDepth
+        const maxH = shelf.kind === 'hang' ? shelf.heightU : null
+        const heightU = shelfDeviceHeightU(
+          d.shelfHeightU,
+          d.deviceTemplate?.rackUnits,
+          maxH
         )
+        const face =
+          shelf.kind === 'hang'
+            ? resolveHangDeviceFace(shelf.face)
+            : resolveShelfDeviceFace(
+                shelf.mountType,
+                d.rackFace as DeviceRackFace | null,
+                !!d.deviceTemplate?.isFullDepth
+              )
         footprints.push(
           ...shelfDeviceFootprints({
             deviceId: d.id,
@@ -337,6 +350,7 @@ export default class DashboardRepository {
             heightU,
             shelfSlotStart: d.shelfSlotStart ?? 0,
             shelfWidthSlots: d.shelfWidthSlots ?? 1,
+            deviceSlotCount: shelf.deviceSlotCount,
           })
         )
       }

@@ -24,17 +24,21 @@ import {
   WIFI_PANEL_HEADER_HEIGHT,
   WIFI_SECTION_GAP,
   ETHERNET_FACEPLATE_BLOCK_SIZE,
+  INDUSTRIAL_ETHERNET_GROUPS_PER_BANK,
   computePortPanelLayout,
   computeRackMountedPortPanelLayout,
   computePortConnectAnchor,
   computePortSourceAnchor,
   computePortTargetAnchor,
   faceplateColumnOffsetX,
+  filterIndustrialEthernetPorts,
   isCompactPortPanel,
   isStructuredCablingDeviceType,
   partitionDiagramPorts,
   abbreviatePortName,
+  fitIndustrialPortLabel,
   fitRackPortLabel,
+  industrialEthernetPortLabel,
   portCellClasses,
   portCellVisualScale,
   portConnectSourceHandleId,
@@ -49,6 +53,7 @@ import {
   sortTopologyPorts,
   filterPortsForRackViewFace,
   usesEthernetFaceplateLayout,
+  usesIndustrialEthernetLayout,
   usesPhysicalPortLayout,
   wifiChipClasses,
   type PortPanelSection,
@@ -119,6 +124,7 @@ function PortCell({
   compact,
   rackMounted,
   faceplate,
+  industrial,
   selected,
   onSelect,
   connectable,
@@ -130,6 +136,8 @@ function PortCell({
   rackMounted?: boolean
   /** Patch panel Ethernet: etiqueta numérica densa sin chrome de rack. */
   faceplate?: boolean
+  /** Switch industrial: etiqueta P1…Pn con tipografía compacta. */
+  industrial?: boolean
   selected: boolean
   onSelect: (portId: string) => void
   connectable: boolean
@@ -143,36 +151,37 @@ function PortCell({
       : false
   const anyConnected = frontOn || rearOn || port.connected
   const density = rackMounted ? 'rack' : 'default'
-  const denseLabel = rackMounted || !!faceplate
+  const denseLabel = rackMounted || !!faceplate || !!industrial
   const scale = portCellVisualScale(port.portType)
   const visualW = Math.max(6, Math.round(cellW * scale))
   const visualH = Math.max(6, Math.round(cellH * scale))
-  // Faceplate: número grande y legible. Rack/bandeja: encoger fuente hasta que entre el nombre.
-  const fitted = faceplate
-    ? {
-        label: rackPortLabel(port, { preferNumber: true }),
-        fontSize: Math.max(
-          7,
-          Math.min(
-            12,
-            Math.floor(Math.min(visualW * 0.62, visualH * 0.48, visualW >= 18 ? 11 : 9)),
+  const fitted = industrial
+    ? fitIndustrialPortLabel(industrialEthernetPortLabel(port), visualW, visualH)
+    : faceplate
+      ? {
+          label: rackPortLabel(port, { preferNumber: true }),
+          fontSize: Math.max(
+            7,
+            Math.min(
+              12,
+              Math.floor(Math.min(visualW * 0.62, visualH * 0.48, visualW >= 18 ? 11 : 9)),
+            ),
           ),
-        ),
-      }
-    : denseLabel
-      ? fitRackPortLabel(displayName, visualW, visualH)
-      : compact
-        ? { label: abbreviatePortName(displayName, 10), fontSize: 11 }
-        : { label: displayName, fontSize: 8 }
+        }
+      : denseLabel
+        ? fitRackPortLabel(displayName, visualW, visualH)
+        : compact
+          ? { label: abbreviatePortName(displayName, 10), fontSize: 11 }
+          : { label: displayName, fontSize: 8 }
   const { label, fontSize } = fitted
 
   return (
     <button
       type="button"
       className={`nodrag nopan relative box-border flex flex-col items-center justify-center overflow-hidden border leading-none transition ${
-        rackMounted || faceplate ? 'rounded-[2px]' : 'rounded'
+        rackMounted || faceplate || industrial ? 'rounded-[2px]' : 'rounded'
       } ${portCellClasses(port, density)} ${
-        rackMounted || faceplate ? 'px-px' : compact ? 'gap-0.5 px-1 py-1' : 'px-0.5'
+        rackMounted || faceplate || industrial ? 'px-0.5' : compact ? 'gap-0.5 px-1 py-1' : 'px-0.5'
       } ${
         selected
           ? rackMounted
@@ -217,17 +226,19 @@ function PortCell({
       {denseLabel ? (
         <span
           className={`max-w-full text-center font-semibold opacity-95 ${
-            faceplate ? 'font-mono tabular-nums' : 'font-sans'
+            faceplate || industrial ? 'font-mono tabular-nums' : 'font-sans'
           }`}
           style={{
             fontSize,
             lineHeight: 1,
-            letterSpacing: faceplate
-              ? '-0.02em'
-              : label.length >= 5
-                ? '-0.04em'
-                : '-0.01em',
-            ...(faceplate
+            letterSpacing: industrial
+              ? '-0.03em'
+              : faceplate
+                ? '-0.02em'
+                : label.length >= 5
+                  ? '-0.04em'
+                  : '-0.01em',
+            ...(faceplate || industrial
               ? {
                   overflow: 'hidden',
                   whiteSpace: 'nowrap' as const,
@@ -389,7 +400,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       ? filterPortsForRackViewFace(data.ports ?? [], data.rackViewFace)
       : (data.ports ?? []),
   )
-  const { physical: physicalPorts, wireless: wirelessPorts } = partitionDiagramPorts(allPorts)
+  const { physical: physicalPortsAll, wireless: wirelessPorts } = partitionDiagramPorts(allPorts)
   const layoutHints = {
     deviceType: data.deviceType,
     ports: allPorts,
@@ -402,18 +413,16 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
   const totalPhysicalCount =
     data.totalPortCount != null
       ? Math.max(0, data.totalPortCount - wirelessPorts.length)
-      : physicalPorts.length
-  const compact = isCompactPortPanel(physicalPorts.length, totalPhysicalCount)
-  const hasPhysical = physicalPorts.length > 0
+      : physicalPortsAll.length
+  const compact = isCompactPortPanel(physicalPortsAll.length, totalPhysicalCount)
   const hasWireless = wirelessPorts.length > 0
-  const hasPorts = hasPhysical || hasWireless
 
   const slotW = typeof width === 'number' && width > 0 ? width : data.nodeWidth ?? 380
   const slotH = typeof height === 'number' && height > 0 ? height : data.nodeHeight ?? 44
 
   const layout = rackMounted
     ? computeRackMountedPortPanelLayout(
-        physicalPorts.length,
+        physicalPortsAll.length,
         totalPhysicalCount,
         wirelessPorts.length,
         slotW,
@@ -421,7 +430,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
         layoutHints,
       )
     : computePortPanelLayout(
-        physicalPorts.length,
+        physicalPortsAll.length,
         compact,
         totalPhysicalCount,
         freeHeaderHeight,
@@ -431,12 +440,19 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
   const headerHeight = layout.headerHeight
   const physicalGrid = usesPhysicalPortLayout(layout)
   const faceplate = usesEthernetFaceplateLayout(layout)
+  const industrial = usesIndustrialEthernetLayout(layout)
+  /** Industrial: solo Ethernet en la grilla de grupos de 4. */
+  const physicalPorts = industrial
+    ? filterIndustrialEthernetPorts(physicalPortsAll)
+    : physicalPortsAll
+  const hasPhysical = physicalPorts.length > 0
+  const hasPorts = hasPhysical || hasWireless
   const portGap = rackMounted
     ? (layout.portGap ?? 2)
-    : faceplate
+    : faceplate || industrial
       ? (layout.portGap ?? PORT_GAP)
       : PORT_GAP
-  const blockSize = layout.blockSize ?? ETHERNET_FACEPLATE_BLOCK_SIZE
+  const blockSize = layout.blockSize ?? (industrial ? INDUSTRIAL_ETHERNET_GROUPS_PER_BANK : ETHERNET_FACEPLATE_BLOCK_SIZE)
   const blockGap = layout.blockGap ?? portGap
   const panelPad = rackMounted ? (layout.portPanelPad ?? 2) : PORT_PANEL_PADDING
   const panelHeaderH = rackMounted
@@ -446,7 +462,8 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
     ? (layout.wifiPanelHeaderH ?? 0)
     : WIFI_PANEL_HEADER_HEIGHT
   const dotOverflow = rackMounted ? 0 : PORT_DOT_OVERFLOW
-  const showPortCounterInHeader = rackMounted && panelHeaderH === 0 && totalPhysicalCount > 0
+  const showPortCounterInHeader =
+    rackMounted && (panelHeaderH === 0 || industrial) && totalPhysicalCount > 0
 
   const vlanCount = data.vlanCount ?? data.vlans?.length ?? 0
   const primaryNetwork = data.networks?.[0]
@@ -747,7 +764,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
       )}
 
       <div
-        className={`relative z-[2] flex shrink-0 min-w-0 ${
+        className={`relative z-[2] flex shrink-0 min-w-0 overflow-hidden ${
           rackMounted
             ? isShelfMounted
               ? 'items-center gap-1 pl-2.5 pr-1.5 py-0.5 bg-violet-900/90'
@@ -782,13 +799,17 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
             R
           </span>
         ) : null}
-        <div className={`min-w-0 flex-1 overflow-hidden ${rackMounted ? '' : 'space-y-0.5'}`}>
+        <div
+          className={`min-w-0 flex-1 overflow-hidden ${
+            rackMounted ? 'flex flex-col justify-center gap-px' : 'space-y-0.5'
+          }`}
+        >
           {goDevice && nodeId ? (
             <button
               type="button"
               className={`nodrag nopan truncate text-left w-full focus:outline-none rounded ${
                 rackMounted
-                  ? 'text-[10px] font-bold leading-tight text-white hover:text-sky-300'
+                  ? 'text-[10px] font-bold leading-none text-white hover:text-sky-300'
                   : 'text-base font-extrabold leading-tight tracking-tight text-gray-950 dark:text-white hover:text-blue-600 dark:hover:text-blue-300'
               }`}
               title={`Ver dispositivo: ${data.label}`}
@@ -800,7 +821,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
             <p
               className={`truncate font-bold ${
                 rackMounted
-                  ? 'text-[10px] text-white'
+                  ? 'text-[10px] leading-none text-white'
                   : 'text-base font-extrabold leading-tight tracking-tight text-gray-950 dark:text-white'
               }`}
             >
@@ -809,10 +830,18 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
           )}
 
           {rackMounted ? (
-            headerHeight > 16 ? (
-              <p className="truncate text-[8px] leading-none text-slate-400">
+            industrial || headerHeight > 16 ? (
+              <p
+                className={`truncate text-[7px] font-medium leading-none tracking-wide ${
+                  isShelfMounted ? 'text-violet-100/85' : 'text-slate-300'
+                }`}
+                title={
+                  [manufacturerModel || data.deviceType, data.ipAddress].filter(Boolean).join(' · ') ||
+                  undefined
+                }
+              >
                 {manufacturerModel || data.deviceType || `${data.rackUnits ?? 1}U`}
-                {data.ipAddress ? ` · ${data.ipAddress}` : ''}
+                {!industrial && data.ipAddress ? ` · ${data.ipAddress}` : ''}
               </p>
             ) : null
           ) : (
@@ -884,7 +913,7 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
         <div
           className={`relative box-border flex shrink-0 flex-col items-center ${
             rackMounted
-              ? 'justify-center border-t border-slate-600/80'
+              ? `justify-center border-t border-slate-600/80 ${industrial ? 'overflow-hidden' : ''}`
               : 'border-t border-gray-200 dark:border-gray-700'
           }`}
           style={{
@@ -947,7 +976,16 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                 </div>
               )}
 
-              {!rackMounted && layout.rows > 1 && !physicalGrid && !faceplate && layout.cols === PATCH_PANEL_COLS && (
+              {!rackMounted && industrial && layout.cols > 0 && (
+                <div
+                  className="relative z-[1] mb-1 flex w-full shrink-0 items-center justify-center text-[9px] font-semibold text-gray-500 dark:text-gray-400"
+                  style={{ height: PORT_ROW_LABEL_HEIGHT, minHeight: PORT_ROW_LABEL_HEIGHT }}
+                >
+                  <span>Industrial · grupos de 4 ↓ · bancos de 2 →</span>
+                </div>
+              )}
+
+              {!rackMounted && layout.rows > 1 && !physicalGrid && !faceplate && !industrial && layout.cols === PATCH_PANEL_COLS && (
                 <div className="relative z-[1] mb-1 flex w-full shrink-0 justify-between text-[8px] font-semibold text-gray-400 dark:text-gray-500">
                   <span>Fila sup.</span>
                   <span>Fila inf.</span>
@@ -981,6 +1019,52 @@ export function DeviceFlowNode({ data, selected, width, height }: NodeProps<Devi
                           compact={false}
                           rackMounted={rackMounted}
                           faceplate
+                          selected={highlightedPortIds?.has(port.id) ?? false}
+                          onSelect={onPortSelect}
+                          connectable={portIsConnectable(port, readOnly)}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : industrial ? (
+                <div
+                  className="relative z-[1] shrink-0"
+                  style={{
+                    width: layout.gridWidth,
+                    height: layout.gridHeight,
+                    maxHeight: rackMounted ? '100%' : undefined,
+                  }}
+                >
+                  {physicalPorts.map((port, index) => {
+                    const { row, col } = portGridSlot(
+                      port.portNumber,
+                      layout.cols,
+                      index,
+                      false,
+                      'industrialEthernet',
+                    )
+                    const left = faceplateColumnOffsetX(
+                      col,
+                      layout.cellW,
+                      portGap,
+                      blockGap,
+                      blockSize,
+                    )
+                    const top = row * (layout.cellH + portGap)
+                    return (
+                      <div
+                        key={port.id}
+                        className="absolute flex items-center justify-center"
+                        style={{ left, top, width: layout.cellW, height: layout.cellH }}
+                      >
+                        <PortCell
+                          port={port}
+                          cellW={layout.cellW}
+                          cellH={layout.cellH}
+                          compact={layout.compact && !rackMounted}
+                          rackMounted={rackMounted}
+                          industrial
                           selected={highlightedPortIds?.has(port.id) ?? false}
                           onSelect={onPortSelect}
                           connectable={portIsConnectable(port, readOnly)}

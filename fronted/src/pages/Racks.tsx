@@ -19,6 +19,7 @@ import {
   rackAccessoryTemplatesService,
 } from '../services/rackAccessories.service'
 import type {
+  AccessoryKind,
   Device,
   Rack,
   RackAccessoryTemplate,
@@ -27,7 +28,12 @@ import type {
   ShelfMountType,
   Site,
 } from '../types'
-import { canPlaceAt, occupiedRangesForFace, mountTypeLabel } from '../utils/rackPlacement'
+import {
+  canPlaceAt,
+  faceLabel,
+  mountTypeLabel,
+  occupiedRangesForFace,
+} from '../utils/rackPlacement'
 
 /** Alturas habituales de gabinete (pared → full rack). Backend acepta 1–60. */
 const COMMON_RACK_HEIGHTS_U = [
@@ -57,20 +63,47 @@ function formatError(err: unknown): string {
       status?: number
       data?: {
         message?: string
-        errors?: Array<{ message?: string; field?: string }>
+        errors?:
+          | Array<{ message?: string; field?: string; rule?: string }>
+          | Record<string, string[] | Array<{ message?: string }>>
       }
     }
   }
   const data = ax?.response?.data
-  if (data?.message) return data.message
-  const first = data?.errors?.[0]
-  if (first?.message) {
-    return first.field ? `${first.field}: ${first.message}` : first.message
+  const status = ax?.response?.status
+
+  if (typeof data?.message === 'string' && data.message.trim() && data.message !== 'Validation failed') {
+    return data.message
   }
-  if (ax?.response?.status === 404) {
+
+  const errors = data?.errors
+  if (Array.isArray(errors) && errors.length > 0) {
+    const first = errors[0]
+    if (first?.message) {
+      return first.field ? `${first.field}: ${first.message}` : first.message
+    }
+  } else if (errors && typeof errors === 'object') {
+    for (const [field, msgs] of Object.entries(errors)) {
+      const list = Array.isArray(msgs) ? msgs : []
+      const raw = list[0]
+      const msg = typeof raw === 'string' ? raw : raw?.message
+      if (msg) return `${field}: ${msg}`
+    }
+  }
+
+  if (typeof data?.message === 'string' && data.message.trim()) {
+    return data.message
+  }
+  if (status === 404) {
     return 'Endpoint no encontrado. Reiniciá el backend para cargar las rutas de bandejas.'
   }
-  if (ax?.message) return ax.message
+  if (status === 422) {
+    return 'No se pudo crear el accesorio (datos inválidos). Revisá U de inicio, altura y que la migración 0043 esté aplicada.'
+  }
+  if (ax?.message && !/^Request failed with status code \d+$/i.test(ax.message)) {
+    return ax.message
+  }
+  if (status) return `Error del servidor (${status}).`
   return 'Ocurrió un error inesperado.'
 }
 
@@ -260,7 +293,13 @@ function RackElevation({
         </div>
         <div className="max-h-[28rem] overflow-y-auto">
           {slots.map((slot) => {
-            const isShelf = slot.occupantKind === 'shelf' || Boolean(slot.accessoryId)
+            const isShelf =
+              slot.occupantKind === 'shelf' ||
+              slot.occupantKind === 'hang' ||
+              slot.occupantKind === 'chassis' ||
+              Boolean(slot.accessoryId)
+            const isHang = slot.occupantKind === 'hang'
+            const isChassis = slot.occupantKind === 'chassis'
             const isShelfDevice = slot.occupantKind === 'shelf_device'
             const occupied = Boolean(slot.deviceId) || isShelf
             const isBlockStart = occupied && slot.isStart
@@ -292,7 +331,11 @@ function RackElevation({
                 }}
                 className={`w-full flex items-stretch border-b border-gray-300/80 dark:border-gray-800 ${
                   isShelf
-                    ? 'bg-amber-700/85 text-white'
+                    ? isChassis
+                      ? 'bg-slate-700/90 text-white'
+                      : isHang
+                        ? 'bg-orange-800/85 text-white'
+                        : 'bg-amber-700/85 text-white'
                     : isShelfDevice
                       ? 'bg-violet-700/85 text-white'
                       : occupied
@@ -311,22 +354,56 @@ function RackElevation({
                 {isShelf && slot.accessoryId ? (
                   <div className="flex flex-1 flex-col justify-center min-w-0 px-2 py-1 text-xs">
                     <span className="font-medium truncate">
-                      Bandeja · {slot.accessoryName}{' '}
-                      <span className="opacity-80 font-normal">
-                        ({span}U
-                        {slot.mountType === 'four_post' ? ' · integral' : ' · frontal'})
-                      </span>
+                      {(() => {
+                        const acc = (occupancy.accessories ?? []).find(
+                          (a) => a.id === slot.accessoryId
+                        )
+                        const kindLabel =
+                          acc?.kind === 'hang'
+                            ? 'Colgante'
+                            : acc?.kind === 'chassis'
+                              ? 'Ordenador'
+                              : 'Bandeja'
+                        const w = acc?.horizontalWidthSlots ?? 6
+                        const s = acc?.horizontalSlotStart ?? 0
+                        const slotsN = acc?.deviceSlotCount ?? 3
+                        const faceBit =
+                          acc?.kind === 'hang' || acc?.kind === 'chassis'
+                            ? ` · ${faceLabel(acc.face)}`
+                            : slot.mountType === 'four_post'
+                              ? ' · integral'
+                              : ' · frontal'
+                        return (
+                          <>
+                            {kindLabel} · {slot.accessoryName}{' '}
+                            <span className="opacity-80 font-normal">
+                              ({span}U
+                              {w >= 6 ? '' : ` · ${w}/6 · cols ${s + 1}–${s + w}`}
+                              {acc?.kind === 'chassis' ? '' : ` · ${slotsN} slots`}
+                              {faceBit})
+                            </span>
+                          </>
+                        )
+                      })()}
                     </span>
                     {shelfDevices.length > 0 && (
                       <span className="opacity-90 text-[10px] truncate">
-                        Apoyados:{' '}
+                        {(occupancy.accessories ?? []).find((a) => a.id === slot.accessoryId)
+                          ?.kind === 'hang'
+                          ? 'Colgados'
+                          : 'Apoyados'}
+                        :{' '}
                         {shelfDevices
                           .map((d) => {
                             const end = d.unitEnd ?? slot.unit + Math.max(1, d.heightU) - 1
+                            const acc = (occupancy.accessories ?? []).find(
+                              (a) => a.id === slot.accessoryId
+                            )
+                            const n = acc?.deviceSlotCount ?? 3
                             const width =
-                              d.shelfWidthSlots === 3
+                              d.shelfWidthSlots >= n
                                 ? 'ancho'
-                                : `⅓ #${d.shelfSlotStart + 1}`
+                                : `slot ${d.shelfSlotStart + 1}`
                             return `${d.name} (U${slot.unit}–U${end} · ${d.heightU}U · ${width})`
                           })
                           .join(', ')}
@@ -338,11 +415,11 @@ function RackElevation({
                     <span className="font-medium truncate">
                       {slot.deviceName}{' '}
                       <span className="opacity-80 font-normal">
-                        (apoyado · U{slot.unit}–U{slot.unit + span - 1} · {span}U
+                        (montado · U{slot.unit}–U{slot.unit + span - 1} · {span}U
                         {slot.slotStart != null && slot.slotEnd != null
-                          ? slot.slotStart === 0 && slot.slotEnd === 2
+                          ? slot.slotStart === 0 && slot.slotEnd >= 5
                             ? ' · ancho'
-                            : ` · ⅓ #${slot.slotStart + 1}`
+                            : ` · cols ${slot.slotStart + 1}–${slot.slotEnd + 1}`
                           : ''}
                         )
                       </span>
@@ -490,9 +567,14 @@ export default function RacksPage() {
   const [shelfForm, setShelfForm] = useState({
     templateId: '',
     name: '',
+    kind: 'shelf' as AccessoryKind,
     unitStart: '',
-    heightU: '1' as '1' | '2',
+    heightU: '1',
     mountType: 'front_only' as ShelfMountType,
+    face: 'front' as RackFace,
+    deviceSlotCount: '3',
+    horizontalWidthSlots: '6',
+    horizontalSlotStart: '0',
   })
   const [shelfError, setShelfError] = useState<string | null>(null)
   const [shelfBusy, setShelfBusy] = useState(false)
@@ -638,7 +720,7 @@ export default function RacksPage() {
 
   const handleRemoveShelf = async (accessoryId: string, name: string) => {
     const ok = window.confirm(
-      `¿Quitar la bandeja "${name}"? No debe tener equipos apoyados.`
+      `¿Quitar el accesorio "${name}"? No debe tener equipos montados.`
     )
     if (!ok) return
     await rackAccessoriesService.delete(accessoryId)
@@ -650,7 +732,13 @@ export default function RacksPage() {
     if (!viewerRack || !activeProjectId || !occupancy) return
     setShelfError(null)
     const unit = Number.parseInt(shelfForm.unitStart, 10)
-    const heightU = Number.parseInt(shelfForm.heightU, 10) as 1 | 2
+    const heightU = Number.parseInt(shelfForm.heightU, 10)
+    const kind = shelfForm.kind
+    const isChassis = kind === 'chassis'
+    const widthSlots = isChassis ? 6 : Number.parseInt(shelfForm.horizontalWidthSlots, 10)
+    const slotStart = isChassis ? 0 : Number.parseInt(shelfForm.horizontalSlotStart, 10)
+    const deviceSlotCount = isChassis ? 0 : Number.parseInt(shelfForm.deviceSlotCount, 10)
+    const maxHeight = kind === 'hang' ? 5 : kind === 'chassis' ? 4 : 6
     if (!shelfForm.name.trim()) {
       setShelfError('El nombre es obligatorio.')
       return
@@ -659,8 +747,36 @@ export default function RacksPage() {
       setShelfError('Indicá la U de inicio (≥ 1).')
       return
     }
+    if (!Number.isFinite(heightU) || heightU < 1 || heightU > maxHeight) {
+      setShelfError(
+        kind === 'hang'
+          ? 'La altura del colgante debe ser entre 1U y 5U.'
+          : kind === 'chassis'
+            ? 'La altura del ordenador debe ser entre 1U y 4U.'
+            : 'La altura de la bandeja debe ser entre 1U y 6U.'
+      )
+      return
+    }
+    if (!isChassis) {
+      if (!Number.isFinite(deviceSlotCount) || deviceSlotCount < 3 || deviceSlotCount > 5) {
+        setShelfError('La capacidad debe ser entre 3 y 5 equipos por cara.')
+        return
+      }
+      if (!Number.isFinite(widthSlots) || widthSlots < 2 || widthSlots > 6) {
+        setShelfError('El ancho horizontal debe ser entre 2 y 6 columnas.')
+        return
+      }
+      if (!Number.isFinite(slotStart) || slotStart < 0 || slotStart + widthSlots > 6) {
+        setShelfError('La posición horizontal no cabe en las 6 columnas del rack.')
+        return
+      }
+    }
     const faces: RackFace[] =
-      shelfForm.mountType === 'four_post' ? ['front', 'rear'] : ['front']
+      kind === 'hang' || kind === 'chassis'
+        ? [shelfForm.face]
+        : shelfForm.mountType === 'four_post'
+          ? ['front', 'rear']
+          : ['front']
     for (const face of faces) {
       const occupied = occupiedRangesForFace(occupancy, face)
       const check = canPlaceAt({
@@ -668,6 +784,8 @@ export default function RacksPage() {
         heightU,
         rackHeightU: occupancy.heightU,
         occupied,
+        slotStart,
+        widthSlots,
       })
       if (!check.ok) {
         setShelfError(`${face === 'front' ? 'Frontal' : 'Trasera'}: ${check.reason}`)
@@ -680,9 +798,15 @@ export default function RacksPage() {
         projectId: activeProjectId,
         rackId: viewerRack.id,
         name: shelfForm.name.trim(),
+        kind,
         unitStart: unit,
         heightU,
-        mountType: shelfForm.mountType,
+        mountType:
+          kind === 'hang' || kind === 'chassis' ? 'front_only' : shelfForm.mountType,
+        deviceSlotCount,
+        face: kind === 'hang' || kind === 'chassis' ? shelfForm.face : null,
+        horizontalSlotStart: slotStart,
+        horizontalWidthSlots: widthSlots,
       }
       if (shelfForm.templateId) {
         payload.accessoryTemplateId = shelfForm.templateId
@@ -691,9 +815,14 @@ export default function RacksPage() {
       setShelfForm({
         templateId: '',
         name: '',
+        kind: 'shelf',
         unitStart: '',
         heightU: '1',
         mountType: 'front_only',
+        face: 'front',
+        deviceSlotCount: '3',
+        horizontalWidthSlots: '6',
+        horizontalSlotStart: '0',
       })
       await refreshOccupancy()
       refetch()
@@ -963,40 +1092,119 @@ export default function RacksPage() {
             {canMutate && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-3">
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Añadir bandeja fija
+                  Añadir bandeja, colgante u ordenador
                 </p>
                 <p className="text-xs text-gray-500">
-                  Solo frontal: bloquea U en la cara delantera. Integral (4 postes): bloquea
-                  frente y dorso — evita solapes al ver el rack por atrás.
+                  Bandeja: apoyo encima, frontal o integral, capacidad 3–5 por cara. Colgante: una
+                  cara, altura 1–5U, equipos colgados. Ordenador / chasis: una cara, ancho completo,
+                  altura 1–4U, sin hospedar equipos. Solo ancho completo (6/6) admite equipos en
+                  bandeja/colgante.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Select
+                    label="Tipo"
+                    value={shelfForm.kind}
+                    onChange={(e) => {
+                      const kind = e.target.value as AccessoryKind
+                      setShelfForm((prev) => ({
+                        ...prev,
+                        kind,
+                        templateId: '',
+                        heightU:
+                          kind === 'hang'
+                            ? '3'
+                            : kind === 'chassis'
+                              ? '1'
+                              : prev.heightU === '6' || Number(prev.heightU) > 4
+                                ? '1'
+                                : prev.heightU,
+                        mountType:
+                          kind === 'hang' || kind === 'chassis' ? 'front_only' : prev.mountType,
+                        face: prev.face || 'front',
+                        deviceSlotCount:
+                          kind === 'chassis'
+                            ? '0'
+                            : prev.deviceSlotCount === '0'
+                              ? '3'
+                              : prev.deviceSlotCount,
+                        horizontalWidthSlots: '6',
+                        horizontalSlotStart: '0',
+                      }))
+                    }}
+                    options={[
+                      { value: 'shelf', label: 'Bandeja fija' },
+                      { value: 'hang', label: 'Accesorio colgante' },
+                      { value: 'chassis', label: 'Ordenador / chasis' },
+                    ]}
+                  />
                   <Select
                     label="Plantilla"
                     value={shelfForm.templateId}
                     onChange={(e) => {
                       const id = e.target.value
                       const tpl = shelfTemplates?.find((t) => t.id === id)
+                      const width = String(
+                        tpl?.kind === 'chassis' ? 6 : (tpl?.horizontalWidthSlots ?? 6)
+                      )
+                      const maxStart = 6 - Number.parseInt(width, 10)
                       setShelfForm((prev) => ({
                         ...prev,
                         templateId: id,
+                        kind: tpl ? tpl.kind : prev.kind,
                         name: tpl ? tpl.name : prev.name,
-                        heightU: tpl ? (String(tpl.heightU) as '1' | '2') : prev.heightU,
+                        heightU: tpl ? String(tpl.heightU) : prev.heightU,
                         mountType: tpl ? tpl.defaultMountType : prev.mountType,
+                        face:
+                          tpl?.face === 'rear'
+                            ? 'rear'
+                            : tpl?.kind === 'hang' || tpl?.kind === 'chassis'
+                              ? 'front'
+                              : prev.face,
+                        deviceSlotCount: tpl
+                          ? String(tpl.kind === 'chassis' ? 0 : (tpl.deviceSlotCount ?? 3))
+                          : prev.deviceSlotCount,
+                        horizontalWidthSlots: tpl ? width : prev.horizontalWidthSlots,
+                        horizontalSlotStart: tpl
+                          ? String(
+                              Math.min(
+                                maxStart,
+                                Math.max(
+                                  0,
+                                  tpl.kind === 'chassis' ? 0 : (tpl.horizontalSlotStart ?? 0)
+                                )
+                              )
+                            )
+                          : prev.horizontalSlotStart,
                       }))
                     }}
                     options={[
                       { value: '', label: 'Sin plantilla / personalizada' },
-                      ...(shelfTemplates || []).map((t) => ({
-                        value: t.id,
-                        label: `${t.name} (${t.heightU}U · ${mountTypeLabel(t.defaultMountType)})`,
-                      })),
+                      ...(shelfTemplates || [])
+                        .filter((t) => t.kind === shelfForm.kind)
+                        .map((t) => ({
+                          value: t.id,
+                          label:
+                            t.kind === 'chassis'
+                              ? `${t.name} (${t.heightU}U · ${faceLabel(t.face)} · ancho completo)`
+                              : `${t.name} (${t.heightU}U · ${
+                                  t.kind === 'hang'
+                                    ? faceLabel(t.face)
+                                    : mountTypeLabel(t.defaultMountType)
+                                } · ${t.deviceSlotCount ?? 3} slots)`,
+                        })),
                     ]}
                   />
                   <Input
                     label="Nombre"
                     value={shelfForm.name}
                     onChange={(e) => setShelfForm((p) => ({ ...p, name: e.target.value }))}
-                    placeholder="Bandeja UPS"
+                    placeholder={
+                      shelfForm.kind === 'hang'
+                        ? 'Organizador / panel'
+                        : shelfForm.kind === 'chassis'
+                          ? 'HCM2-19-SS-1U-BK-C'
+                          : 'Bandeja UPS'
+                    }
                   />
                   <Select
                     label="Altura"
@@ -1004,33 +1212,120 @@ export default function RacksPage() {
                     onChange={(e) =>
                       setShelfForm((p) => ({
                         ...p,
-                        heightU: e.target.value as '1' | '2',
+                        heightU: e.target.value,
                       }))
                     }
-                    options={[
-                      { value: '1', label: '1U' },
-                      { value: '2', label: '2U' },
-                    ]}
+                    options={(shelfForm.kind === 'hang'
+                      ? [1, 2, 3, 4, 5]
+                      : shelfForm.kind === 'chassis'
+                        ? [1, 2, 3, 4]
+                        : [1, 2, 3, 4, 5, 6]
+                    ).map((u) => ({
+                      value: String(u),
+                      label: `${u}U`,
+                    }))}
                   />
+                  {shelfForm.kind !== 'chassis' && (
+                    <>
                   <Select
-                    label="Fijación"
-                    value={shelfForm.mountType}
+                    label="Capacidad (equipos/cara)"
+                    value={shelfForm.deviceSlotCount}
                     onChange={(e) =>
                       setShelfForm((p) => ({
                         ...p,
-                        mountType: e.target.value as ShelfMountType,
+                        deviceSlotCount: e.target.value,
                       }))
                     }
-                    options={[
-                      { value: 'front_only', label: 'Solo frontal (2 postes)' },
-                      { value: 'four_post', label: 'Integral (delantera + trasera)' },
-                    ]}
+                    options={[3, 4, 5].map((n) => ({
+                      value: String(n),
+                      label: `${n} lugares`,
+                    }))}
                     hint={
-                      shelfForm.mountType === 'four_post'
-                        ? 'Obligatoria en racks de piso profundos y cargas pesadas.'
-                        : 'Típica en racks murales o abiertos poco profundos.'
+                      shelfForm.kind === 'shelf' && shelfForm.mountType === 'four_post'
+                        ? 'Cada cara (frontal y trasera) tiene esta capacidad de forma independiente.'
+                        : undefined
                     }
                   />
+                  <Select
+                    label="Ancho horizontal"
+                    value={shelfForm.horizontalWidthSlots}
+                    onChange={(e) => {
+                      const width = e.target.value
+                      const maxStart = 6 - Number.parseInt(width, 10)
+                      setShelfForm((p) => ({
+                        ...p,
+                        horizontalWidthSlots: width,
+                        horizontalSlotStart: String(
+                          Math.min(maxStart, Number.parseInt(p.horizontalSlotStart, 10) || 0)
+                        ),
+                      }))
+                    }}
+                    options={[2, 3, 4, 5, 6].map((w) => ({
+                      value: String(w),
+                      label: w === 6 ? '6/6 (ancho completo)' : `${w}/6 columnas`,
+                    }))}
+                    hint={
+                      Number.parseInt(shelfForm.horizontalWidthSlots, 10) < 6
+                        ? 'Ancho parcial: no admite equipos montados.'
+                        : undefined
+                    }
+                  />
+                  <Select
+                    label="Posición horizontal"
+                    value={shelfForm.horizontalSlotStart}
+                    onChange={(e) =>
+                      setShelfForm((p) => ({
+                        ...p,
+                        horizontalSlotStart: e.target.value,
+                      }))
+                    }
+                    options={(() => {
+                      const width = Number.parseInt(shelfForm.horizontalWidthSlots, 10) || 6
+                      const maxStart = 6 - width
+                      return Array.from({ length: maxStart + 1 }, (_, start) => ({
+                        value: String(start),
+                        label: `Columnas ${start + 1}–${start + width} de 6`,
+                      }))
+                    })()}
+                  />
+                    </>
+                  )}
+                  {shelfForm.kind === 'hang' || shelfForm.kind === 'chassis' ? (
+                    <Select
+                      label="Cara"
+                      value={shelfForm.face}
+                      onChange={(e) =>
+                        setShelfForm((p) => ({
+                          ...p,
+                          face: e.target.value as RackFace,
+                        }))
+                      }
+                      options={[
+                        { value: 'front', label: 'Frontal' },
+                        { value: 'rear', label: 'Trasera' },
+                      ]}
+                    />
+                  ) : (
+                    <Select
+                      label="Fijación"
+                      value={shelfForm.mountType}
+                      onChange={(e) =>
+                        setShelfForm((p) => ({
+                          ...p,
+                          mountType: e.target.value as ShelfMountType,
+                        }))
+                      }
+                      options={[
+                        { value: 'front_only', label: 'Solo frontal (2 postes)' },
+                        { value: 'four_post', label: 'Integral (delantera + trasera)' },
+                      ]}
+                      hint={
+                        shelfForm.mountType === 'four_post'
+                          ? 'Obligatoria en racks de piso profundos y cargas pesadas.'
+                          : 'Típica en racks murales o abiertos poco profundos.'
+                      }
+                    />
+                  )}
                   <Input
                     label="U de inicio"
                     type="number"
@@ -1053,7 +1348,11 @@ export default function RacksPage() {
                   isLoading={shelfBusy}
                   onClick={() => void handleCreateShelf()}
                 >
-                  Crear bandeja
+                  {shelfForm.kind === 'hang'
+                    ? 'Crear colgante'
+                    : shelfForm.kind === 'chassis'
+                      ? 'Crear ordenador'
+                      : 'Crear bandeja'}
                 </Button>
               </div>
             )}

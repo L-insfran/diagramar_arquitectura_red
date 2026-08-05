@@ -60,9 +60,9 @@ erDiagram
 | `sites` | Inventario físico por proyecto; soft delete |
 | `areas` | Bajo un sitio (planta/sala…); soft delete — **no** es `work_areas` del canvas |
 | `racks` | Bajo un área; `height_u`; soft delete |
-| `rack_accessory_templates` | Catálogo global de SKU de accesorios (bandejas 1U/2U) — ADR 0006 |
-| `rack_accessories` | Instancias de bandeja en rack; `mount_type` front_only/four_post; soft delete |
-| `devices` | Instancia de template; `site_id`/`area_id`/`rack_id` nullable; `rack_unit_start` + `rack_face` (`front`\|`rear`\|`both` full-depth) **o** `supported_by_accessory_id` + slots horizontales + `shelf_height_u`; `location` texto legacy |
+| `rack_accessory_templates` | Catálogo global de SKU: bandejas (`shelf`, 1–6U), colgantes (`hang`, 1–5U) y chasis/ordenadores (`chassis`, 1–4U, sin slots); `device_slot_count` 3–5 en shelf/hang, `0` en chassis; `face` en hang/chassis — ADR 0006 |
+| `rack_accessories` | Instancias en rack; shelf: `mount_type` front_only/four_post; hang/chassis: `face` front/rear; chassis ancho fijo 6/6 sin hospedar devices; soft delete |
+| `devices` | Instancia de template; montaje en rieles (`rack_unit_start` + `rack_face`) **o** en accesorio shelf/hang (`supported_by_accessory_id` + slots 0..N-1 + `shelf_height_u`; hang: alto ≤ accesorio; **no** en chassis); `location` texto legacy |
 | `ports` | Por dispositivo; `port_type` string; `is_passthrough` editable (patch panel = 2 caras); `chassis_face` para jacks normales (ADR 0007) |
 | `port_types` | Catálogo: code, name, description, `default_speed`, color, icon, direction |
 | `cable_types` | Catálogo global de medios (familia, defaults, color, orden) |

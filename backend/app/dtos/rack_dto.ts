@@ -2,7 +2,7 @@ export type RackFace = 'front' | 'rear'
 /** Device mount face; `both` = full-depth occupancy on front + rear. */
 export type DeviceRackFace = RackFace | 'both'
 export type ShelfMountType = 'front_only' | 'four_post'
-export type OccupantKind = 'device' | 'shelf' | 'shelf_device'
+export type OccupantKind = 'device' | 'shelf' | 'hang' | 'chassis' | 'shelf_device'
 
 export type RackFilters = {
   areaId?: string
@@ -50,11 +50,18 @@ export type RackOccupancySlot = {
 export type RackOccupancyAccessory = {
   id: string
   name: string
-  kind: 'shelf'
+  kind: 'shelf' | 'hang' | 'chassis'
   unitStart: number
   heightU: number
   unitEnd: number
   mountType: ShelfMountType
+  deviceSlotCount: number
+  /** Hang face; null for shelf. */
+  face: RackFace | null
+  /** Horizontal start column on the 6-wide rack grid (0-based). */
+  horizontalSlotStart: number
+  /** Horizontal width in columns (2–6). */
+  horizontalWidthSlots: number
   faces: RackFace[]
   devices: Array<{
     id: string

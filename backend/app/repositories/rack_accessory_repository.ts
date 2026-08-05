@@ -67,15 +67,20 @@ export default class RackAccessoryRepository {
   }
 
   async create(data: CreateRackAccessoryInput & { createdBy: string; updatedBy: string }) {
+    const kind = data.kind ?? 'shelf'
     return RackAccessory.create({
       projectId: data.projectId,
       rackId: data.rackId,
       accessoryTemplateId: data.accessoryTemplateId ?? null,
       name: data.name,
-      kind: data.kind ?? 'shelf',
+      kind,
       unitStart: data.unitStart,
       heightU: data.heightU,
       mountType: data.mountType,
+      deviceSlotCount: data.deviceSlotCount ?? (kind === 'chassis' ? 0 : 3),
+      face: kind === 'hang' || kind === 'chassis' ? (data.face ?? 'front') : null,
+      horizontalSlotStart: data.horizontalSlotStart ?? 0,
+      horizontalWidthSlots: data.horizontalWidthSlots ?? 6,
       manufacturer: data.manufacturer ?? null,
       model: data.model ?? null,
       notes: data.notes ?? null,

@@ -590,7 +590,7 @@ export class ProjectSchema extends BaseModel {
 }
 
 export class RackAccessorySchema extends BaseModel {
-  static $columns = ['accessoryTemplateId', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'heightU', 'id', 'kind', 'manufacturer', 'model', 'mountType', 'name', 'notes', 'projectId', 'rackId', 'unitStart', 'updatedAt', 'updatedBy'] as const
+  static $columns = ['accessoryTemplateId', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'deviceSlotCount', 'face', 'heightU', 'horizontalSlotStart', 'horizontalWidthSlots', 'id', 'kind', 'manufacturer', 'model', 'mountType', 'name', 'notes', 'projectId', 'rackId', 'unitStart', 'updatedAt', 'updatedBy'] as const
   $columns = RackAccessorySchema.$columns
   @column()
   declare accessoryTemplateId: string | null
@@ -603,7 +603,15 @@ export class RackAccessorySchema extends BaseModel {
   @column()
   declare deletedBy: string | null
   @column()
+  declare deviceSlotCount: number
+  @column()
+  declare face: string | null
+  @column()
   declare heightU: number
+  @column()
+  declare horizontalSlotStart: number
+  @column()
+  declare horizontalWidthSlots: number
   @column({ isPrimary: true })
   declare id: string
   @column()
@@ -631,7 +639,7 @@ export class RackAccessorySchema extends BaseModel {
 }
 
 export class RackAccessoryTemplateSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdBy', 'defaultMountType', 'deletedAt', 'deletedBy', 'heightU', 'id', 'kind', 'manufacturer', 'model', 'name', 'notes', 'updatedAt', 'updatedBy'] as const
+  static $columns = ['createdAt', 'createdBy', 'defaultMountType', 'deletedAt', 'deletedBy', 'deviceSlotCount', 'face', 'heightU', 'horizontalSlotStart', 'horizontalWidthSlots', 'id', 'kind', 'manufacturer', 'model', 'name', 'notes', 'updatedAt', 'updatedBy'] as const
   $columns = RackAccessoryTemplateSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -644,7 +652,15 @@ export class RackAccessoryTemplateSchema extends BaseModel {
   @column()
   declare deletedBy: string | null
   @column()
+  declare deviceSlotCount: number
+  @column()
+  declare face: string | null
+  @column()
   declare heightU: number
+  @column()
+  declare horizontalSlotStart: number
+  @column()
+  declare horizontalWidthSlots: number
   @column({ isPrimary: true })
   declare id: string
   @column()

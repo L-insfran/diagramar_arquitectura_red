@@ -445,19 +445,22 @@ export default function DeviceDetail() {
             )
             const start = shelf?.unitStart
             const end = start != null ? start + heightU - 1 : null
+            const slotCount = shelf?.deviceSlotCount ?? 3
+            const widthSlots = device.shelfWidthSlots ?? 1
             const width =
-              device.shelfWidthSlots === 3
+              widthSlots >= slotCount
                 ? 'ancho completo'
-                : `⅓ slot ${(device.shelfSlotStart ?? 0) + 1}`
+                : `slot ${(device.shelfSlotStart ?? 0) + 1}`
             const face =
               device.rackFace === 'both'
                 ? 'ambas caras'
                 : device.rackFace === 'rear'
                   ? 'trasera'
                   : 'frontal'
+            const hostKind = shelf?.kind === 'hang' ? 'colgante' : 'bandeja'
             const range =
               start != null && end != null ? ` · U${start}–U${end}` : ` · ${heightU}U`
-            return `${device.rack?.name ?? 'Rack'} · bandeja ${
+            return `${device.rack?.name ?? 'Rack'} · ${hostKind} ${
               shelf?.name ?? '—'
             }${range} · ${width} · ${face}`
           })()

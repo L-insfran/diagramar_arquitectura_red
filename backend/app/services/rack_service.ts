@@ -1,7 +1,7 @@
 import { Exception } from '@adonisjs/core/exceptions'
 import RackRepository from '#repositories/rack_repository'
 import RackAccessoryRepository from '#repositories/rack_accessory_repository'
-import { facesForMountType } from '#dtos/rack_accessory_dto'
+import { facesForAccessory } from '#dtos/rack_accessory_dto'
 import type {
   CreateRackInput,
   DeviceRackFace,
@@ -18,11 +18,14 @@ import {
   aggregateUsedUnitsByFace,
   facesForDeviceRackFace,
   footprintsOverlap,
+  normalizeAccessoryHorizontalSlots,
   railDeviceFootprints,
+  resolveHangDeviceFace,
   resolveShelfDeviceFace,
   shelfDeviceFootprints,
   shelfDeviceHeightU,
   shelfFootprints,
+  RACK_HORIZONTAL_COLUMNS,
   type RackFootprint,
 } from '#services/rack_layout'
 
@@ -180,18 +183,44 @@ export default class RackService {
     const accessories: RackOccupancyAccessory[] = []
     for (const shelf of shelves) {
       const onShelf = await this.accessories.findDevicesOnAccessory(shelf.id)
-      const faces = facesForMountType(shelf.mountType)
+      const faces = facesForAccessory({
+        kind: shelf.kind,
+        mountType: shelf.mountType,
+        face: shelf.face,
+      })
+      const horiz = normalizeAccessoryHorizontalSlots(
+        shelf.horizontalSlotStart,
+        shelf.horizontalWidthSlots
+      )
       accessories.push({
         id: shelf.id,
         name: shelf.name,
-        kind: 'shelf',
+        kind:
+          shelf.kind === 'hang' ? 'hang' : shelf.kind === 'chassis' ? 'chassis' : 'shelf',
         unitStart: shelf.unitStart,
         heightU: shelf.heightU,
         unitEnd: shelf.unitStart + shelf.heightU - 1,
         mountType: shelf.mountType,
+        deviceSlotCount: shelf.deviceSlotCount ?? (shelf.kind === 'chassis' ? 0 : 3),
+        face: shelf.face ?? null,
+        horizontalSlotStart: horiz.slotStart,
+        horizontalWidthSlots: horiz.widthSlots,
         faces,
         devices: onShelf.map((d) => {
-          const heightU = shelfDeviceHeightU(d.shelfHeightU, d.deviceTemplate?.rackUnits)
+          const maxH = shelf.kind === 'hang' ? shelf.heightU : null
+          const heightU = shelfDeviceHeightU(
+            d.shelfHeightU,
+            d.deviceTemplate?.rackUnits,
+            maxH
+          )
+          const rackFace =
+            shelf.kind === 'hang'
+              ? resolveHangDeviceFace(shelf.face)
+              : resolveShelfDeviceFace(
+                  shelf.mountType,
+                  d.rackFace as DeviceRackFace | null,
+                  !!d.deviceTemplate?.isFullDepth
+                )
           return {
             id: d.id,
             name: d.name,
@@ -199,11 +228,7 @@ export default class RackService {
             shelfWidthSlots: d.shelfWidthSlots ?? 1,
             heightU,
             unitEnd: shelf.unitStart + heightU - 1,
-            rackFace: resolveShelfDeviceFace(
-              shelf.mountType,
-              d.rackFace as DeviceRackFace | null,
-              !!d.deviceTemplate?.isFullDepth
-            ),
+            rackFace,
           }
         }),
       })
@@ -221,12 +246,20 @@ export default class RackService {
           rackFace: face,
           mountType: null,
           slotStart: 0,
-          slotEnd: 2,
+          slotEnd: RACK_HORIZONTAL_COLUMNS - 1,
         }))
       ),
-      ...accessories.flatMap((a) =>
-        a.faces.map((face) => ({
-          kind: 'shelf' as const,
+      ...accessories.flatMap((a) => {
+        const horiz = normalizeAccessoryHorizontalSlots(
+          a.horizontalSlotStart,
+          a.horizontalWidthSlots
+        )
+        return a.faces.map((face) => ({
+          kind: (a.kind === 'hang'
+            ? 'hang'
+            : a.kind === 'chassis'
+              ? 'chassis'
+              : 'shelf') as OccupantKind,
           id: a.id,
           name: a.name,
           rackUnitStart: a.unitStart,
@@ -234,10 +267,10 @@ export default class RackService {
           heightU: a.heightU,
           rackFace: face,
           mountType: a.mountType,
-          slotStart: 0,
-          slotEnd: 2,
+          slotStart: horiz.slotStart,
+          slotEnd: horiz.slotEnd,
         }))
-      ),
+      }),
       ...accessories.flatMap((a) =>
         a.devices.flatMap((d) => {
           const fps = shelfDeviceFootprints({
@@ -248,6 +281,7 @@ export default class RackService {
             heightU: d.heightU,
             shelfSlotStart: d.shelfSlotStart,
             shelfWidthSlots: d.shelfWidthSlots,
+            deviceSlotCount: a.deviceSlotCount,
           })
           return fps.map((fp) => ({
             kind: 'shelf_device' as const,
@@ -279,9 +313,13 @@ export default class RackService {
         shelfFootprints({
           accessoryId: a.id,
           accessoryName: a.name,
+          kind: a.kind,
           unitStart: a.unitStart,
           heightU: a.heightU,
           mountType: a.mountType,
+          face: a.face,
+          horizontalSlotStart: a.horizontalSlotStart,
+          horizontalWidthSlots: a.horizontalWidthSlots,
         })
       ),
       ...accessories.flatMap((a) =>
@@ -294,6 +332,7 @@ export default class RackService {
             heightU: d.heightU,
             shelfSlotStart: d.shelfSlotStart,
             shelfWidthSlots: d.shelfWidthSlots,
+            deviceSlotCount: a.deviceSlotCount,
           })
         )
       ),
@@ -327,7 +366,13 @@ export default class RackService {
         (d) => d.rackFace === face && unit >= d.rackUnitStart && unit <= d.rackUnitEnd
       )
       return (
-        faceOccupants.find((d) => d.kind === 'device' || d.kind === 'shelf') ??
+        faceOccupants.find(
+          (d) =>
+            d.kind === 'device' ||
+            d.kind === 'shelf' ||
+            d.kind === 'hang' ||
+            d.kind === 'chassis'
+        ) ??
         faceOccupants[0] ??
         null
       )
@@ -349,6 +394,8 @@ export default class RackService {
       const owner = preferredAt(unit)
       const visibleStart = owner ? visibleStartFor(owner) : 0
       const visibleHeight = owner ? owner.rackUnitEnd - visibleStart + 1 : 0
+      const isAccessory =
+        owner?.kind === 'shelf' || owner?.kind === 'hang' || owner?.kind === 'chassis'
 
       slots.push({
         unit,
@@ -356,8 +403,8 @@ export default class RackService {
           owner?.kind === 'device' || owner?.kind === 'shelf_device' ? owner.id : null,
         deviceName:
           owner?.kind === 'device' || owner?.kind === 'shelf_device' ? owner.name : null,
-        accessoryId: owner?.kind === 'shelf' ? owner.id : null,
-        accessoryName: owner?.kind === 'shelf' ? owner.name : null,
+        accessoryId: isAccessory ? owner.id : null,
+        accessoryName: isAccessory ? owner.name : null,
         occupantKind: owner?.kind ?? null,
         mountType: owner?.mountType ?? null,
         face: owner ? face : null,
@@ -459,15 +506,25 @@ export default class RackService {
       const shelfFps = shelfFootprints({
         accessoryId: shelf.id,
         accessoryName: shelf.name,
+        kind: shelf.kind,
         unitStart: shelf.unitStart,
         heightU: shelf.heightU,
         mountType: shelf.mountType,
+        face: shelf.face,
+        horizontalSlotStart: shelf.horizontalSlotStart,
+        horizontalWidthSlots: shelf.horizontalWidthSlots,
       })
       for (const candidate of candidates) {
         for (const otherFp of shelfFps) {
           if (footprintsOverlap(candidate, otherFp)) {
+            const label =
+              shelf.kind === 'hang'
+                ? 'accesorio'
+                : shelf.kind === 'chassis'
+                  ? 'ordenador'
+                  : 'bandeja'
             throw new Exception(
-              `Solape con bandeja "${shelf.name}" (U${shelf.unitStart}–U${shelf.unitStart + shelf.heightU - 1}, ${shelf.mountType === 'four_post' ? 'integral' : 'frontal'})`,
+              `Solape con ${label} "${shelf.name}" (U${shelf.unitStart}–U${shelf.unitStart + shelf.heightU - 1})`,
               { status: 409 }
             )
           }
@@ -482,12 +539,20 @@ export default class RackService {
     for (const device of shelfDevices) {
       const shelf = device.supportedByAccessory
       if (!shelf) continue
-      const deviceHeight = shelfDeviceHeightU(device.shelfHeightU, device.deviceTemplate?.rackUnits)
-      const deviceFace = resolveShelfDeviceFace(
-        shelf.mountType,
-        device.rackFace as DeviceRackFace | null,
-        !!device.deviceTemplate?.isFullDepth
+      const maxH = shelf.kind === 'hang' ? shelf.heightU : null
+      const deviceHeight = shelfDeviceHeightU(
+        device.shelfHeightU,
+        device.deviceTemplate?.rackUnits,
+        maxH
       )
+      const deviceFace =
+        shelf.kind === 'hang'
+          ? resolveHangDeviceFace(shelf.face)
+          : resolveShelfDeviceFace(
+              shelf.mountType,
+              device.rackFace as DeviceRackFace | null,
+              !!device.deviceTemplate?.isFullDepth
+            )
       const deviceFps = shelfDeviceFootprints({
         deviceId: device.id,
         deviceName: device.name,
@@ -496,12 +561,13 @@ export default class RackService {
         heightU: deviceHeight,
         shelfSlotStart: device.shelfSlotStart ?? 0,
         shelfWidthSlots: device.shelfWidthSlots ?? 1,
+        deviceSlotCount: shelf.deviceSlotCount,
       })
       for (const candidate of candidates) {
         for (const otherFp of deviceFps) {
           if (footprintsOverlap(candidate, otherFp)) {
             throw new Exception(
-              `Solape con equipo apoyado "${device.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd})`,
+              `Solape con equipo montado "${device.name}" (U${otherFp.unitStart}–U${otherFp.unitEnd})`,
               { status: 409 }
             )
           }

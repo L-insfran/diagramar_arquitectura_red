@@ -60,6 +60,7 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
     const bands: Array<{
       key: string
       label: string
+      kind: 'shelf' | 'hang' | 'chassis'
       x: number
       y: number
       width: number
@@ -77,10 +78,29 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
         const column: 0 | 1 =
           data.activeFace === 'both' && face === 'rear' ? 1 : 0
         const col = data.activeFace === 'rear' ? 0 : column
-        const pos = shelfPositionInRack(shelf.unitStart, shelf.heightU, heightU, col)
+        const pos = shelfPositionInRack(
+          shelf.unitStart,
+          shelf.heightU,
+          heightU,
+          col,
+          shelf.horizontalSlotStart ?? 0,
+          shelf.horizontalWidthSlots ?? 6
+        )
+        const widthSlots = shelf.horizontalWidthSlots ?? 6
+        const kind =
+          shelf.kind === 'hang' ? 'hang' : shelf.kind === 'chassis' ? 'chassis' : 'shelf'
+        const faceBit =
+          kind === 'hang' || kind === 'chassis'
+            ? face === 'rear'
+              ? ' · TR'
+              : ' · FR'
+            : shelf.mountType === 'four_post'
+              ? ' · 4P'
+              : ''
         bands.push({
           key: `${shelf.id}-${face}`,
-          label: `${shelf.name}${shelf.mountType === 'four_post' ? ' · 4P' : ''}`,
+          kind,
+          label: `${shelf.name}${widthSlots < 6 ? ` · ${widthSlots}/6` : ''}${faceBit}`,
           x: pos.x,
           y: pos.y,
           width: pos.width,
@@ -228,31 +248,74 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
       {shelfBands.map((band) => (
         <div key={band.key}>
           <div
-            className="pointer-events-none absolute z-0 overflow-hidden rounded-sm border border-amber-500/70 bg-amber-900/50 shadow-[inset_0_1px_0_0_rgba(252,211,77,0.35)]"
+            className={`pointer-events-none absolute z-0 overflow-hidden rounded-sm border shadow-[inset_0_1px_0_0_rgba(252,211,77,0.35)] ${
+              band.kind === 'chassis'
+                ? 'border-slate-400/70 bg-slate-900/70'
+                : band.kind === 'hang'
+                  ? 'border-orange-500/70 bg-orange-950/55'
+                  : 'border-amber-500/70 bg-amber-900/50'
+            }`}
             style={{
               left: band.x,
               top: band.y,
               width: band.width,
               height: band.height,
             }}
-            title={`Bandeja fija · ${band.label}`}
+            title={`${
+              band.kind === 'chassis'
+                ? 'Ordenador / chasis'
+                : band.kind === 'hang'
+                  ? 'Accesorio colgante'
+                  : 'Bandeja fija'
+            } · ${band.label}`}
           >
-            {/* Soportes laterales (brackets) */}
             <div
-              className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-r from-amber-400 to-amber-700/80"
+              className={`absolute inset-y-0 left-0 w-1.5 bg-gradient-to-r ${
+                band.kind === 'chassis'
+                  ? 'from-slate-300 to-slate-600/80'
+                  : band.kind === 'hang'
+                    ? 'from-orange-400 to-orange-700/80'
+                    : 'from-amber-400 to-amber-700/80'
+              }`}
               aria-hidden
             />
             <div
-              className="absolute inset-y-0 right-0 w-1.5 bg-gradient-to-l from-amber-400 to-amber-700/80"
+              className={`absolute inset-y-0 right-0 w-1.5 bg-gradient-to-l ${
+                band.kind === 'chassis'
+                  ? 'from-slate-300 to-slate-600/80'
+                  : band.kind === 'hang'
+                    ? 'from-orange-400 to-orange-700/80'
+                    : 'from-amber-400 to-amber-700/80'
+              }`}
               aria-hidden
             />
-            <div className="flex h-full items-start px-3 pt-0.5 text-[9px] font-extrabold uppercase tracking-wide text-amber-100">
-              <span className="truncate drop-shadow-sm">Bandeja · {band.label}</span>
+            <div
+              className={`flex h-full items-start px-3 pt-0.5 text-[9px] font-extrabold uppercase tracking-wide ${
+                band.kind === 'chassis'
+                  ? 'text-slate-100'
+                  : band.kind === 'hang'
+                    ? 'text-orange-100'
+                    : 'text-amber-100'
+              }`}
+            >
+              <span className="truncate drop-shadow-sm">
+                {band.kind === 'chassis'
+                  ? 'Ordenador'
+                  : band.kind === 'hang'
+                    ? 'Colgante'
+                    : 'Bandeja'}{' '}
+                · {band.label}
+              </span>
             </div>
           </div>
-          {/* Labio debajo de la U: no solapa puertos de equipos apoyados */}
           <div
-            className="pointer-events-none absolute z-0 rounded-b-sm border-t border-amber-200/40 bg-gradient-to-b from-amber-400 to-amber-700"
+            className={`pointer-events-none absolute z-0 rounded-b-sm border-t ${
+              band.kind === 'chassis'
+                ? 'border-slate-200/40 bg-gradient-to-b from-slate-400 to-slate-700'
+                : band.kind === 'hang'
+                  ? 'border-orange-200/40 bg-gradient-to-b from-orange-400 to-orange-700'
+                  : 'border-amber-200/40 bg-gradient-to-b from-amber-400 to-amber-700'
+            }`}
             style={{
               left: band.x,
               top: band.y + band.height,
@@ -260,7 +323,13 @@ export function RackFlowNode({ id, data, selected, width, height }: NodeProps<Ra
               height: 5,
             }}
             aria-hidden
-            title={`Bandeja fija · ${band.label}`}
+            title={`${
+              band.kind === 'chassis'
+                ? 'Ordenador / chasis'
+                : band.kind === 'hang'
+                  ? 'Accesorio colgante'
+                  : 'Bandeja fija'
+            } · ${band.label}`}
           />
         </div>
       ))}

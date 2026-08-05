@@ -4,10 +4,16 @@ export default class Handler extends ExceptionHandler {
   async handle(error: any, ctx: HttpContext) {
     const code = error?.code
     if (code === 'E_VALIDATION_FAILURE' || code === 'E_VALIDATION_ERROR') {
+      const messages = error.messages
+      let detail = 'Validation failed'
+      if (Array.isArray(messages) && messages[0]?.message) {
+        const first = messages[0]
+        detail = first.field ? `${first.field}: ${first.message}` : first.message
+      }
       return ctx.response.unprocessableEntity({
         success: false,
-        message: 'Validation failed',
-        errors: error.messages,
+        message: detail,
+        errors: messages,
       })
     }
 

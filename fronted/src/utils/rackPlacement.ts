@@ -19,8 +19,13 @@ export type OccupiedRange = {
   start: number
   end: number
   heightU: number
-  kind?: 'device' | 'shelf' | 'shelf_device'
+  kind?: 'device' | 'shelf' | 'hang' | 'chassis' | 'shelf_device'
+  /** Horizontal columns 0–5; full width when omitted. */
+  slotStart?: number
+  slotEnd?: number
 }
+
+export const RACK_HORIZONTAL_COLUMNS = 6
 
 /** Occupied blocks on one face (devices + shelves + shelf-resting devices). */
 export function occupiedRangesForFace(
@@ -41,18 +46,36 @@ export function occupiedRangesForFace(
       end: d.rackUnitEnd,
       heightU: d.heightU,
       kind: 'device' as const,
+      slotStart: 0,
+      slotEnd: RACK_HORIZONTAL_COLUMNS - 1,
     }))
 
   const fromShelves = (occupancy.accessories ?? [])
     .filter((a) => a.faces.includes(face))
-    .map((a) => ({
-      deviceId: a.id,
-      deviceName: a.name,
-      start: a.unitStart,
-      end: a.unitEnd,
-      heightU: a.heightU,
-      kind: 'shelf' as const,
-    }))
+    .map((a) => {
+      const width = Math.min(
+        RACK_HORIZONTAL_COLUMNS,
+        Math.max(2, a.horizontalWidthSlots ?? RACK_HORIZONTAL_COLUMNS)
+      )
+      const slotStart = Math.min(
+        RACK_HORIZONTAL_COLUMNS - width,
+        Math.max(0, a.horizontalSlotStart ?? 0)
+      )
+      return {
+        deviceId: a.id,
+        deviceName: a.name,
+        start: a.unitStart,
+        end: a.unitEnd,
+        heightU: a.heightU,
+        kind: (a.kind === 'hang'
+          ? 'hang'
+          : a.kind === 'chassis'
+            ? 'chassis'
+            : 'shelf') as 'shelf' | 'hang' | 'chassis',
+        slotStart,
+        slotEnd: slotStart + width - 1,
+      }
+    })
 
   const fromShelfDevices = (occupancy.accessories ?? []).flatMap((a) =>
     a.devices
@@ -65,6 +88,12 @@ export function occupiedRangesForFace(
       .map((d) => {
         const heightU = Math.max(1, d.heightU)
         const end = d.unitEnd ?? a.unitStart + heightU - 1
+        const n = Math.min(5, Math.max(3, a.deviceSlotCount ?? 3))
+        const startSlot = Math.min(n - 1, Math.max(0, d.shelfSlotStart))
+        const widthSlots = Math.min(n - startSlot, Math.max(1, d.shelfWidthSlots))
+        const slotStart = Math.floor((startSlot * RACK_HORIZONTAL_COLUMNS) / n)
+        const slotEndExclusive = Math.floor(((startSlot + widthSlots) * RACK_HORIZONTAL_COLUMNS) / n)
+        const slotEnd = Math.max(slotStart, slotEndExclusive - 1)
         return {
           deviceId: d.id,
           deviceName: d.name,
@@ -72,6 +101,8 @@ export function occupiedRangesForFace(
           end,
           heightU,
           kind: 'shelf_device' as const,
+          slotStart,
+          slotEnd: Math.min(RACK_HORIZONTAL_COLUMNS - 1, slotEnd),
         }
       })
   )
@@ -84,6 +115,10 @@ export function canPlaceAt(params: {
   heightU: number
   rackHeightU: number
   occupied: OccupiedRange[]
+  /** Horizontal start column (0-based). Default full width. */
+  slotStart?: number
+  /** Horizontal width in columns. Default full width (6). */
+  widthSlots?: number
 }): { ok: true } | { ok: false; reason: string } {
   const heightU = Math.max(1, params.heightU)
   const start = params.start
@@ -97,8 +132,21 @@ export function canPlaceAt(params: {
       reason: `El equipo (${heightU}U desde U${start}) no cabe en el rack de ${params.rackHeightU}U`,
     }
   }
+  const widthSlots = Math.min(
+    RACK_HORIZONTAL_COLUMNS,
+    Math.max(1, params.widthSlots ?? RACK_HORIZONTAL_COLUMNS)
+  )
+  const slotStart = Math.min(
+    RACK_HORIZONTAL_COLUMNS - widthSlots,
+    Math.max(0, params.slotStart ?? 0)
+  )
+  const slotEnd = slotStart + widthSlots - 1
+
   for (const other of params.occupied) {
-    if (rangesOverlap(start, end, other.start, other.end)) {
+    if (!rangesOverlap(start, end, other.start, other.end)) continue
+    const otherSlotStart = other.slotStart ?? 0
+    const otherSlotEnd = other.slotEnd ?? RACK_HORIZONTAL_COLUMNS - 1
+    if (rangesOverlap(slotStart, slotEnd, otherSlotStart, otherSlotEnd)) {
       return {
         ok: false,
         reason: `Solape con "${other.deviceName}" (U${other.start}–U${other.end})`,
@@ -143,10 +191,22 @@ export function isSlotFreeForPlacement(
   if (slot.occupantKind === 'shelf_device') {
     return Boolean(excludeDeviceId && slot.deviceId === excludeDeviceId)
   }
+  if (slot.occupantKind === 'shelf' || slot.occupantKind === 'hang' || slot.occupantKind === 'chassis')
+    return false
   if (!slot.deviceId) return true
   return Boolean(excludeDeviceId && slot.deviceId === excludeDeviceId)
 }
 
 export function mountTypeLabel(mountType: string): string {
   return mountType === 'four_post' ? 'Integral (4 postes)' : 'Solo frontal'
+}
+
+export function accessoryKindLabel(kind: string): string {
+  if (kind === 'hang') return 'Colgante'
+  if (kind === 'chassis') return 'Ordenador'
+  return 'Bandeja'
+}
+
+export function faceLabel(face: string | null | undefined): string {
+  return face === 'rear' ? 'Trasera' : 'Frontal'
 }

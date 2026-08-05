@@ -87,6 +87,7 @@ function aggregateOccupancy(items: DashboardRackSummary[], view: RackOccupancyVi
 const deviceTypeIcons: Record<string, LucideIcon> = {
   Router: Globe,
   Switch: Server,
+  'Switch Industrial': Server,
   Firewall: Shield,
   'Access Point': Radio,
   'Cableado Estructurado': Network,

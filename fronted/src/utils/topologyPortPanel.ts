@@ -43,14 +43,35 @@ export const ETHERNET_FACEPLATE_CELL_H = 28
 export const ETHERNET_FACEPLATE_GAP = 3
 export const ETHERNET_FACEPLATE_BLOCK_GAP = 12
 
+/**
+ * Switch industrial: puertos Ethernet en columnas de 4 (arriba→abajo).
+ * Banco máx. = 2 grupos de 4; el siguiente grupo continúa a la derecha.
+ */
+export const INDUSTRIAL_ETHERNET_GROUP_SIZE = 4
+export const INDUSTRIAL_ETHERNET_GROUPS_PER_BANK = 2
+/** Jacks ~cuadrados (no alargados) en switches industriales. */
+export const INDUSTRIAL_ETHERNET_CELL_W = 40
+export const INDUSTRIAL_ETHERNET_CELL_H = 40
+export const INDUSTRIAL_ETHERNET_GAP = 8
+export const INDUSTRIAL_ETHERNET_BLOCK_GAP = 20
+/** Tope de lado en rack/bandeja/colgante (celda cuadrada). */
+const INDUSTRIAL_RACK_CELL_SIDE_MAX = 26
+const INDUSTRIAL_RACK_CELL_SIDE_MAX_SHELF = 32
+
 /** Modo de disposición de puertos físicos. */
-export type PortPanelLayoutMode = 'default' | 'switchPairs' | 'ethernetFaceplate'
+export type PortPanelLayoutMode =
+  | 'default'
+  | 'switchPairs'
+  | 'ethernetFaceplate'
+  | 'industrialEthernet'
 
 export type PortPanelLayoutHints = {
   deviceType?: string | null
   ports?: Array<Pick<TopologyPortSummary, 'portType' | 'isPassthrough'>>
   /** Fuerza faceplate Ethernet (tests / override). */
   ethernetFaceplate?: boolean
+  /** Fuerza layout industrial (tests / override). */
+  industrialEthernet?: boolean
   /** Equipo apoyado en bandeja: grilla de puertos prioriza legibilidad. */
   shelfMounted?: boolean
 }
@@ -103,10 +124,18 @@ export function isStructuredCablingDeviceType(deviceType: string | null | undefi
   )
 }
 
-function isEthernetPortType(portType: string | null | undefined): boolean {
+export function isEthernetPortType(portType: string | null | undefined): boolean {
   const t = (portType ?? '').trim().toLowerCase()
   if (!t) return false
   return t === 'ethernet' || t === 'rj45' || t.includes('ethernet')
+}
+
+/** Switch industrial (DIN / rugged): nombre de tipo con «industrial» + «switch». */
+export function isIndustrialSwitchDeviceType(deviceType: string | null | undefined): boolean {
+  const t = (deviceType ?? '').trim().toLowerCase()
+  if (!t) return false
+  if (t === 'switch industrial' || t === 'industrial switch') return true
+  return t.includes('industrial') && (t.includes('switch') || t.includes('conmutador'))
 }
 
 /** RJ11 / analógico de telefonía (más pequeño que RJ45 en el diagrama). */
@@ -154,6 +183,9 @@ export function shouldUseEthernetFaceplateLayout(
   deviceType: string | null | undefined,
   ports: Array<Pick<TopologyPortSummary, 'portType' | 'isPassthrough'>> = [],
 ): boolean {
+  // Los switches industriales usan columnas de grupos Ethernet, no faceplate lineal.
+  if (isIndustrialSwitchDeviceType(deviceType)) return false
+
   const physical = ports.filter((p) => !isWirelessPort(p))
   const ethCount = physical.filter((p) => isEthernetPortType(p.portType)).length
   const otherPanelCount = physical.filter((p) => isNonEthernetPanelPortType(p.portType)).length
@@ -175,6 +207,26 @@ export function shouldUseEthernetFaceplateLayout(
   return ethPass >= physical.length * 0.5
 }
 
+/**
+ * Switch industrial + puertos Ethernet: columnas de 4 (arriba→abajo),
+ * bancos de 2 grupos; grupos siguientes a la derecha.
+ */
+export function shouldUseIndustrialEthernetLayout(
+  deviceType: string | null | undefined,
+  ports: Array<Pick<TopologyPortSummary, 'portType' | 'isPassthrough'>> = [],
+): boolean {
+  if (!isIndustrialSwitchDeviceType(deviceType)) return false
+  const physical = ports.filter((p) => !isWirelessPort(p))
+  return physical.some((p) => isEthernetPortType(p.portType))
+}
+
+/** Puertos Ethernet físicos (excluye wireless / SFP / coax) para layout industrial. */
+export function filterIndustrialEthernetPorts<T extends Pick<TopologyPortSummary, 'portType'>>(
+  ports: T[],
+): T[] {
+  return ports.filter((p) => !isWirelessPort(p) && isEthernetPortType(p.portType))
+}
+
 export function resolvePortPanelLayoutMode(
   totalPhysicalPortCount: number,
   hints?: PortPanelLayoutHints,
@@ -185,6 +237,12 @@ export function resolvePortPanelLayoutMode(
       shouldUseEthernetFaceplateLayout(hints.deviceType, hints.ports ?? []))
   ) {
     return 'ethernetFaceplate'
+  }
+  if (
+    hints?.industrialEthernet === true ||
+    (hints && shouldUseIndustrialEthernetLayout(hints.deviceType, hints.ports ?? []))
+  ) {
+    return 'industrialEthernet'
   }
   if (totalPhysicalPortCount >= SWITCH_PHYSICAL_LAYOUT_MIN_PORTS) return 'switchPairs'
   return 'default'
@@ -328,11 +386,13 @@ export function isCompactPortPanel(_portCount: number, totalPortCount: number): 
  * Layout físico tipo switch (pares verticales) en paneles ≥18 puertos.
  * En equipos chicos se usa índice secuencial fila a fila.
  * Patch panels Ethernet usan faceplate lineal (no pares verticales).
+ * Switches industriales usan columnas de grupos de 4.
  */
 export function usesPhysicalPortLayout(
   layout: Pick<PortPanelLayout, 'totalPortCount' | 'layoutMode'>,
 ): boolean {
   if (layout.layoutMode === 'ethernetFaceplate') return false
+  if (layout.layoutMode === 'industrialEthernet') return false
   if (layout.layoutMode === 'switchPairs') return true
   return layout.totalPortCount >= SWITCH_PHYSICAL_LAYOUT_MIN_PORTS
 }
@@ -343,19 +403,30 @@ export function usesEthernetFaceplateLayout(
   return layout.layoutMode === 'ethernetFaceplate'
 }
 
+export function usesIndustrialEthernetLayout(
+  layout: Pick<PortPanelLayout, 'layoutMode'>,
+): boolean {
+  return layout.layoutMode === 'industrialEthernet'
+}
+
 /**
  * Fila/columna según número de puerto (físico) o índice en la lista ordenada.
  * Físico: columnas de a pares — 1 arriba, 2 abajo, 3 a la derecha de 1, etc.
+ * Industrial: cada grupo de 4 es una columna (arriba→abajo); grupos a la derecha.
  */
 export function portGridSlot(
   portNumber: number,
   cols: number,
   sequentialIndex?: number,
   physical = false,
+  layoutMode: PortPanelLayoutMode = 'default',
 ): { row: number; col: number } {
   const idx = physical
     ? Math.max(0, portNumber - 1)
     : Math.max(0, sequentialIndex ?? portNumber - 1)
+  if (layoutMode === 'industrialEthernet') {
+    return industrialEthernetGridSlot(idx)
+  }
   if (physical) {
     return { row: idx % 2, col: Math.floor(idx / 2) }
   }
@@ -363,11 +434,29 @@ export function portGridSlot(
   return { row: Math.floor(idx / safeCols), col: idx % safeCols }
 }
 
+/** Slot industrial: índice 0-based → columna = grupo de 4, fila = pos en el grupo. */
+export function industrialEthernetGridSlot(sequentialIndex: number): { row: number; col: number } {
+  const idx = Math.max(0, sequentialIndex)
+  return {
+    row: idx % INDUSTRIAL_ETHERNET_GROUP_SIZE,
+    col: Math.floor(idx / INDUSTRIAL_ETHERNET_GROUP_SIZE),
+  }
+}
+
 /** Grilla 2 filas × N columnas para switches con numeración en pares verticales. */
 export function computeSwitchPhysicalGrid(portCount: number): { cols: number; rows: number } {
   if (portCount <= 0) return { cols: 0, rows: 0 }
   if (portCount === 1) return { cols: 1, rows: 1 }
   return { cols: Math.ceil(portCount / 2), rows: 2 }
+}
+
+/** Columnas = grupos de 4; filas = hasta 4 (altura de un grupo). */
+export function computeIndustrialEthernetGrid(portCount: number): { cols: number; rows: number } {
+  if (portCount <= 0) return { cols: 0, rows: 0 }
+  return {
+    cols: Math.ceil(portCount / INDUSTRIAL_ETHERNET_GROUP_SIZE),
+    rows: Math.min(INDUSTRIAL_ETHERNET_GROUP_SIZE, portCount),
+  }
 }
 
 export function computePortGrid(
@@ -380,6 +469,10 @@ export function computePortGrid(
 
   if (layoutMode === 'ethernetFaceplate') {
     return { cols: portCount, rows: 1 }
+  }
+
+  if (layoutMode === 'industrialEthernet') {
+    return computeIndustrialEthernetGrid(portCount)
   }
 
   if (layoutMode === 'switchPairs' || totalPortCount >= SWITCH_PHYSICAL_LAYOUT_MIN_PORTS) {
@@ -437,11 +530,11 @@ export type PortPanelLayout = {
   portPanelPad?: number
   /** Alto de la subcabecera WiFi en rack (0 = oculta). */
   wifiPanelHeaderH?: number
-  /** Disposición: switch pares / faceplate Ethernet / secuencial. */
+  /** Disposición: switch pares / faceplate Ethernet / industrial / secuencial. */
   layoutMode?: PortPanelLayoutMode
-  /** Tamaño de bloque en faceplate (default 6). */
+  /** Tamaño de bloque en faceplate (default 6) o grupos por banco industrial (default 2). */
   blockSize?: number
-  /** Gap extra entre bloques faceplate. */
+  /** Gap extra entre bloques faceplate / bancos industriales. */
   blockGap?: number
 }
 
@@ -491,7 +584,7 @@ function emptyWifiMetrics(): Pick<
  * @param physicalCount Puertos no-wireless visibles en la grilla
  * @param totalPhysicalPortCount Total físico del equipo (para layout switch pares verticales)
  * @param wirelessCount Interfaces `portType: wireless` (SSID)
- * @param hints deviceType / ports para elegir faceplate Ethernet vs switch
+ * @param hints deviceType / ports para elegir faceplate / industrial / switch
  */
 export function computePortPanelLayout(
   physicalCount: number,
@@ -501,10 +594,17 @@ export function computePortPanelLayout(
   wirelessCount = 0,
   hints?: PortPanelLayoutHints,
 ): PortPanelLayout {
-  const hasPhysical = physicalCount > 0
   const hasWireless = wirelessCount > 0
   const layoutMode = resolvePortPanelLayoutMode(totalPhysicalPortCount, hints)
   const faceplate = layoutMode === 'ethernetFaceplate'
+  const industrial = layoutMode === 'industrialEthernet'
+
+  // Industrial: solo Ethernet en la grilla de grupos; el resto físico no entra aquí.
+  const industrialEthCount = industrial
+    ? filterIndustrialEthernetPorts(hints?.ports ?? []).length
+    : 0
+  const gridPortCount = industrial ? industrialEthCount : physicalCount
+  const hasPhysical = gridPortCount > 0 || (!industrial && physicalCount > 0)
 
   if (!hasPhysical && !hasWireless) {
     return {
@@ -526,12 +626,25 @@ export function computePortPanelLayout(
   }
 
   const { cols, rows } = hasPhysical
-    ? computePortGrid(physicalCount, compact, totalPhysicalPortCount, layoutMode)
+    ? computePortGrid(gridPortCount, compact, totalPhysicalPortCount, layoutMode)
     : { cols: 0, rows: 0 }
 
-  const portGap = faceplate ? ETHERNET_FACEPLATE_GAP : PORT_GAP
-  const blockSize = faceplate ? ETHERNET_FACEPLATE_BLOCK_SIZE : undefined
-  const blockGap = faceplate ? ETHERNET_FACEPLATE_BLOCK_GAP : undefined
+  const portGap = faceplate
+    ? ETHERNET_FACEPLATE_GAP
+    : industrial
+      ? INDUSTRIAL_ETHERNET_GAP
+      : PORT_GAP
+  const blockSize = faceplate
+    ? ETHERNET_FACEPLATE_BLOCK_SIZE
+    : industrial
+      ? INDUSTRIAL_ETHERNET_GROUPS_PER_BANK
+      : undefined
+  const blockGap = faceplate
+    ? ETHERNET_FACEPLATE_BLOCK_GAP
+    : industrial
+      ? INDUSTRIAL_ETHERNET_BLOCK_GAP
+      : undefined
+  const useBlockGaps = (faceplate || industrial) && blockSize != null && blockGap != null
 
   let cellW = 0
   let cellH = 0
@@ -539,6 +652,13 @@ export function computePortPanelLayout(
     if (faceplate) {
       cellW = ETHERNET_FACEPLATE_CELL_W
       cellH = ETHERNET_FACEPLATE_CELL_H
+    } else if (industrial) {
+      // Celdas cuadradas; achicar un poco cuando hay muchos bancos.
+      const banks = Math.ceil(cols / INDUSTRIAL_ETHERNET_GROUPS_PER_BANK)
+      const scale = banks > 2 ? Math.max(0.72, 2 / banks) : 1
+      const side = Math.max(32, Math.round(INDUSTRIAL_ETHERNET_CELL_W * scale))
+      cellW = side
+      cellH = side
     } else {
       const m = cellMetrics(compact, cols)
       cellW = m.cellW
@@ -547,13 +667,16 @@ export function computePortPanelLayout(
   }
 
   const gridWidth = hasPhysical
-    ? faceplate
+    ? useBlockGaps
       ? cols * cellW + faceplateHorizontalGaps(cols, portGap, blockGap!, blockSize!)
       : cols * cellW + (cols - 1) * portGap
     : 0
   const gridHeight = hasPhysical ? rows * cellH + (rows - 1) * portGap : 0
   const rowLabelsH =
-    hasPhysical && rows > 1 && layoutMode === 'switchPairs' ? PORT_ROW_LABEL_HEIGHT : 0
+    hasPhysical &&
+    ((rows > 1 && layoutMode === 'switchPairs') || layoutMode === 'industrialEthernet')
+      ? PORT_ROW_LABEL_HEIGHT
+      : 0
 
   const { cols: wifiCols, rows: wifiRows } = computeWifiGrid(wirelessCount)
   const wifiCellW = WIFI_CHIP_WIDTH
@@ -592,7 +715,7 @@ export function computePortPanelLayout(
     : 0
 
   return {
-    compact: faceplate ? true : compact,
+    compact: faceplate || industrial ? true : compact,
     cols,
     rows,
     cellW,
@@ -604,7 +727,7 @@ export function computePortPanelLayout(
     gridTop,
     totalPortCount: totalPhysicalPortCount,
     headerHeight,
-    physicalCount,
+    physicalCount: gridPortCount,
     wirelessCount,
     wifiCols,
     wifiRows,
@@ -615,9 +738,9 @@ export function computePortPanelLayout(
     wifiGridTop,
     hasPhysical,
     hasWireless,
-    ...(faceplate
+    ...(useBlockGaps
       ? { portGap, blockSize, blockGap, layoutMode }
-      : { layoutMode }),
+      : { layoutMode, ...(industrial || faceplate ? { portGap } : {}) }),
   }
 }
 
@@ -625,6 +748,8 @@ export function computePortPanelLayout(
 export const RACK_MOUNTED_HEADER_HEIGHT = 20
 /** Cabecera ultra-densa (~1U): nombre + contador en una sola franja. */
 export const RACK_MOUNTED_HEADER_HEIGHT_DENSE = 16
+/** Switch industrial: nombre + modelo (2 líneas) sin robar de más a los jacks. */
+export const INDUSTRIAL_RACK_HEADER_HEIGHT = 22
 const RACK_PORT_GAP = 2
 const RACK_PORT_GAP_ROOMY = 3
 const RACK_PORT_PAD = 2
@@ -718,35 +843,60 @@ export function computeRackMountedPortPanelLayout(
   const height = Math.max(RACK_MOUNTED_HEADER_HEIGHT_DENSE, targetHeight)
   const dense = height <= RACK_DENSE_HEIGHT_PX
   const portGapBase = dense ? RACK_PORT_GAP : RACK_PORT_GAP_ROOMY
-  const hasPhysical = physicalCount > 0
-  const hasWireless = wirelessCount > 0
   const shelfMounted = hints?.shelfMounted === true
   const layoutMode = resolvePortPanelLayoutMode(totalPhysicalPortCount, hints)
   const faceplate = layoutMode === 'ethernetFaceplate'
-  // Faceplate: gaps mínimos para maximizar jack (24 puertos en ~380px).
-  const portGap = faceplate ? 1 : portGapBase
-  const blockSize = faceplate ? ETHERNET_FACEPLATE_BLOCK_SIZE : undefined
-  const blockGap = faceplate ? (dense ? 3 : 5) : undefined
+  const industrial = layoutMode === 'industrialEthernet'
+  // Industrial: chrome denso (sin subcabecera «PUERTOS» que robaba altura).
+  const portGap = faceplate
+    ? 1
+    : industrial
+      ? 1
+      : portGapBase
+  const blockSize = faceplate
+    ? ETHERNET_FACEPLATE_BLOCK_SIZE
+    : industrial
+      ? INDUSTRIAL_ETHERNET_GROUPS_PER_BANK
+      : undefined
+  const blockGap = faceplate
+    ? dense
+      ? 3
+      : 5
+    : industrial
+      ? 3
+      : undefined
+  const useBlockGaps = (faceplate || industrial) && blockSize != null && blockGap != null
   const cellWMax = faceplate
     ? shelfMounted
       ? RACK_PORT_CELL_W_MAX_FACEPLATE_SHELF
       : RACK_PORT_CELL_W_MAX_FACEPLATE
-    : shelfMounted
-      ? RACK_PORT_CELL_W_MAX_SHELF
-      : RACK_PORT_CELL_W_MAX
-  // Cabecera un poco más baja en patch 1U → más alto para los jacks.
-  const headerHeight = faceplate && dense
-    ? Math.min(RACK_MOUNTED_HEADER_HEIGHT_DENSE, 14)
-    : dense
-      ? RACK_MOUNTED_HEADER_HEIGHT_DENSE
-      : RACK_MOUNTED_HEADER_HEIGHT
-  const portPad = faceplate
-    ? dense
-      ? 1
-      : 2
+    : industrial
+      ? shelfMounted
+        ? INDUSTRIAL_RACK_CELL_SIDE_MAX_SHELF
+        : INDUSTRIAL_RACK_CELL_SIDE_MAX
+      : shelfMounted
+        ? RACK_PORT_CELL_W_MAX_SHELF
+        : RACK_PORT_CELL_W_MAX
+  // Cabecera: industrial siempre con espacio para modelo (2 líneas).
+  const headerHeight = industrial
+    ? INDUSTRIAL_RACK_HEADER_HEIGHT
+    : faceplate && dense
+      ? Math.min(RACK_MOUNTED_HEADER_HEIGHT_DENSE, 14)
+      : dense
+        ? RACK_MOUNTED_HEADER_HEIGHT_DENSE
+        : RACK_MOUNTED_HEADER_HEIGHT
+  const portPad = faceplate || industrial
+    ? 1
     : dense
       ? RACK_PORT_PAD
       : RACK_PORT_PAD_ROOMY
+
+  const industrialEthCount = industrial
+    ? filterIndustrialEthernetPorts(hints?.ports ?? []).length
+    : 0
+  const gridPhysicalCount = industrial ? industrialEthCount : physicalCount
+  const hasPhysical = gridPhysicalCount > 0
+  const hasWireless = wirelessCount > 0
 
   if (!hasPhysical && !hasWireless) {
     return {
@@ -774,11 +924,11 @@ export function computeRackMountedPortPanelLayout(
   const innerH = Math.max(0, bodyH - portPad * 2)
   const availableW = Math.max(40, width - portPad * 2)
 
-  // Subcabeceras solo si hay aire vertical (en 1U el contador va en la cabecera principal).
-  const wantPanelHeader = hasPhysical && !dense && innerH >= 40
+  // Subcabeceras solo si hay aire vertical (industrial: nunca — contador en cabecera).
+  const wantPanelHeader = hasPhysical && !dense && !industrial && innerH >= 40
   const panelHeaderH = wantPanelHeader ? RACK_PORT_HEADER_H : 0
   const panelHeaderMargin = panelHeaderH > 0 ? RACK_PANEL_HEADER_MARGIN : 0
-  const wantWifiHeader = hasWireless && !dense && innerH >= 40
+  const wantWifiHeader = hasWireless && !dense && !industrial && innerH >= 40
   const wifiPanelHeaderH = wantWifiHeader ? RACK_PORT_HEADER_H : 0
   const wifiHeaderMargin = wifiPanelHeaderH > 0 ? RACK_PANEL_HEADER_MARGIN : 0
   const betweenSections = hasPhysical && hasWireless ? RACK_SECTION_GAP : 0
@@ -795,13 +945,17 @@ export function computeRackMountedPortPanelLayout(
   let rows = 0
   if (hasPhysical) {
     if (faceplate) {
-      cols = Math.max(1, physicalCount)
+      cols = Math.max(1, gridPhysicalCount)
       rows = 1
+    } else if (industrial) {
+      const grid = computeIndustrialEthernetGrid(gridPhysicalCount)
+      cols = grid.cols
+      rows = grid.rows
     } else if (shelfMounted) {
       // Reserva aproximada si hay WiFi; el presupuesto final se ajusta después.
       const heightForPhys = hasWireless ? Math.floor(gridsBudget * 0.7) : gridsBudget
       const grid = chooseShelfPortGrid(
-        physicalCount,
+        gridPhysicalCount,
         availableW,
         heightForPhys,
         portGap,
@@ -811,7 +965,7 @@ export function computeRackMountedPortPanelLayout(
       cols = grid.cols
       rows = grid.rows
     } else if (layoutMode === 'switchPairs') {
-      const slots = Math.max(totalPhysicalPortCount, physicalCount)
+      const slots = Math.max(totalPhysicalPortCount, gridPhysicalCount)
       const grid = computeSwitchPhysicalGrid(slots)
       cols = grid.cols
       rows = grid.rows
@@ -820,10 +974,10 @@ export function computeRackMountedPortPanelLayout(
         1,
         Math.min(
           24,
-          Math.min(physicalCount, Math.floor((availableW + portGap) / (RACK_PORT_CELL_W_MIN + portGap))),
+          Math.min(gridPhysicalCount, Math.floor((availableW + portGap) / (RACK_PORT_CELL_W_MIN + portGap))),
         ),
       )
-      rows = Math.max(1, Math.ceil(physicalCount / cols))
+      rows = Math.max(1, Math.ceil(gridPhysicalCount / cols))
     }
   }
 
@@ -845,28 +999,33 @@ export function computeRackMountedPortPanelLayout(
   }
 
   // Encajar en el ancho disponible (priorizar no desbordar sobre el mínimo estético).
-  const gapBudget = faceplate
+  const gapBudget = useBlockGaps
     ? faceplateHorizontalGaps(cols, portGap, blockGap!, blockSize!)
     : (cols - 1) * portGap
-  const cellW = hasPhysical
-    ? Math.min(
-        cellWMax,
-        Math.max(1, Math.floor((availableW - gapBudget) / Math.max(1, cols))),
-      )
-    : 0
+  let cellW = 0
   let cellH = 0
   if (hasPhysical && rows > 0) {
-    const raw = Math.floor((physBudget - (rows - 1) * portGap) / rows)
-    // Faceplate: jacks altos que llenan la U (no caparlos a 14px).
-    const maxH = faceplate
-      ? dense
-        ? RACK_PORT_CELL_H_MAX_FACEPLATE_DENSE
-        : RACK_PORT_CELL_H_MAX_FACEPLATE
-      : RACK_PORT_CELL_H_MAX
-    cellH = Math.max(1, Math.min(maxH, raw))
+    const rawH = Math.floor((physBudget - (rows - 1) * portGap) / rows)
+    const rawW = Math.floor((availableW - gapBudget) / Math.max(1, cols))
+    if (industrial) {
+      // Cuadrados que SIEMPRE caben: no forzar un mínimo que desborde (cortaba P4).
+      const side = Math.max(1, Math.min(cellWMax, rawH, rawW))
+      cellW = side
+      cellH = side
+    } else {
+      cellW = Math.min(cellWMax, Math.max(1, rawW))
+      const maxH = faceplate
+        ? dense
+          ? RACK_PORT_CELL_H_MAX_FACEPLATE_DENSE
+          : RACK_PORT_CELL_H_MAX_FACEPLATE
+        : RACK_PORT_CELL_H_MAX
+      cellH = Math.max(1, Math.min(maxH, rawH))
+    }
+  } else if (hasPhysical) {
+    cellW = Math.min(cellWMax, Math.max(1, Math.floor((availableW - gapBudget) / Math.max(1, cols))))
   }
   const gridWidth = hasPhysical
-    ? faceplate
+    ? useBlockGaps
       ? cols * cellW + faceplateHorizontalGaps(cols, portGap, blockGap!, blockSize!)
       : cols * cellW + (cols - 1) * portGap
     : 0
@@ -914,7 +1073,7 @@ export function computeRackMountedPortPanelLayout(
     gridTop,
     totalPortCount: totalPhysicalPortCount,
     headerHeight,
-    physicalCount,
+    physicalCount: gridPhysicalCount,
     wirelessCount,
     wifiCols,
     wifiRows,
@@ -931,7 +1090,7 @@ export function computeRackMountedPortPanelLayout(
     portPanelPad: portPad,
     wifiPanelHeaderH,
     layoutMode,
-    ...(faceplate ? { blockSize, blockGap } : {}),
+    ...(useBlockGaps ? { blockSize, blockGap } : {}),
   }
 }
 
@@ -973,14 +1132,19 @@ function portGridMetrics(
   }
 
   const physical = usesPhysicalPortLayout(layout)
+  const industrial = usesIndustrialEthernetLayout(layout)
   const gap = layout.portGap ?? PORT_GAP
-  const { row, col } = portGridSlot(portNumber, layout.cols, sequentialIndex, physical)
+  const mode = layout.layoutMode ?? 'default'
+  const { row, col } = portGridSlot(portNumber, layout.cols, sequentialIndex, physical, mode)
   const gridStartX = (nodeWidth - layout.gridWidth) / 2
-  const cellLeft =
-    usesEthernetFaceplateLayout(layout) && layout.blockGap != null && layout.blockSize != null
-      ? gridStartX +
-        faceplateColumnOffsetX(col, layout.cellW, gap, layout.blockGap, layout.blockSize)
-      : gridStartX + col * (layout.cellW + gap)
+  const useBlockOffsets =
+    (usesEthernetFaceplateLayout(layout) || industrial) &&
+    layout.blockGap != null &&
+    layout.blockSize != null
+  const cellLeft = useBlockOffsets
+    ? gridStartX +
+      faceplateColumnOffsetX(col, layout.cellW, gap, layout.blockGap!, layout.blockSize!)
+    : gridStartX + col * (layout.cellW + gap)
   const cellTop = layout.gridTop + row * (layout.cellH + gap)
   const centerX = cellLeft + layout.cellW / 2
   return { cellLeft, cellTop, centerX, cellH: layout.cellH, row, col }
@@ -1130,11 +1294,14 @@ export function indexOfPortInDisplay(portId: string, allPorts: TopologyPortSumma
 export function indexOfPortInSection(
   portId: string,
   ports: TopologyPortSummary[],
+  layoutMode?: PortPanelLayoutMode,
 ): { index: number; section: PortPanelSection } {
   const { physical, wireless } = partitionDiagramPorts(ports)
   const wifiIdx = wireless.findIndex((p) => p.id === portId)
   if (wifiIdx >= 0) return { index: wifiIdx, section: 'wireless' }
-  const physIdx = physical.findIndex((p) => p.id === portId)
+  const physicalForLayout =
+    layoutMode === 'industrialEthernet' ? filterIndustrialEthernetPorts(physical) : physical
+  const physIdx = physicalForLayout.findIndex((p) => p.id === portId)
   return { index: physIdx, section: 'physical' }
 }
 
@@ -1202,6 +1369,36 @@ export function wifiChipClasses(port: TopologyPortSummary): string {
       : 'border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-600/80 dark:bg-amber-950/45 dark:text-amber-100'
   }
   return 'border-sky-300/70 bg-sky-50/50 text-sky-600/80 dark:border-sky-700/70 dark:bg-sky-950/25 dark:text-sky-400'
+}
+
+/**
+ * Etiqueta de jack en switch industrial: siempre `P1`, `P2`, …
+ * (no solo el número; conserva prefijo P aunque el nombre venga numérico).
+ */
+export function industrialEthernetPortLabel(
+  port: Pick<TopologyPortSummary, 'name' | 'portNumber'>,
+): string {
+  const raw = (port.name ?? '').trim()
+  const fromName = /^p?\s*(\d+)$/i.exec(raw)
+  if (fromName) return `P${fromName[1]}`
+  return `P${port.portNumber}`
+}
+
+/**
+ * Fuente compacta para jacks industriales (P1…Pn) con aire interno agradable.
+ */
+export function fitIndustrialPortLabel(
+  label: string,
+  cellW: number,
+  cellH: number,
+): { label: string; fontSize: number } {
+  const text = label.trim() || 'P?'
+  const len = Math.max(1, text.length)
+  // ~42% del alto deja padding visual; el ancho limita en P10+.
+  const byH = Math.floor(cellH * 0.42)
+  const byW = Math.floor((cellW - 2) / (len * 0.58))
+  const fontSize = Math.max(5, Math.min(7.5, byH, byW, len <= 2 ? 7 : len <= 3 ? 6 : 5.5))
+  return { label: text, fontSize }
 }
 
 /** Etiqueta corta para celdas densas; conserva el nombre del puerto (campo `port` / `name`). */

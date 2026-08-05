@@ -16,6 +16,7 @@ import { sitesService } from '../services/sites.service'
 import { racksService } from '../services/racks.service'
 import { rackAccessoriesService } from '../services/rackAccessories.service'
 import type {
+  DeviceRackFace,
   DeviceTemplate,
   Rack,
   RackAccessory,
@@ -42,7 +43,7 @@ const faceOptions = [
 const mountModeOptions = [
   { value: 'none', label: 'Sin montaje en rack' },
   { value: 'rail', label: 'Montaje en rieles (U)' },
-  { value: 'shelf', label: 'Apoyado en bandeja' },
+  { value: 'shelf', label: 'En bandeja o accesorio' },
 ]
 
 type MountMode = 'none' | 'rail' | 'shelf'
@@ -63,7 +64,7 @@ interface DeviceFormState {
   rackUnitStart: string
   rackFace: 'front' | 'rear' | 'both' | ''
   supportedByAccessoryId: string
-  shelfWidthSlots: '1' | '3'
+  shelfWidthSlots: string
   shelfSlotStart: string
   shelfHeightU: string
   notes: string
@@ -239,7 +240,9 @@ export default function DeviceCreate() {
       rackFace: existingDevice.rackFace ?? 'front',
       supportedByAccessoryId: existingDevice.supportedByAccessoryId ?? '',
       shelfWidthSlots:
-        existingDevice.shelfWidthSlots === 3 ? '3' : '1',
+        existingDevice.shelfWidthSlots != null
+          ? String(existingDevice.shelfWidthSlots)
+          : '1',
       shelfSlotStart:
         existingDevice.shelfSlotStart != null ? String(existingDevice.shelfSlotStart) : '0',
       shelfHeightU:
@@ -288,7 +291,7 @@ export default function DeviceCreate() {
   const { data: shelves } = useApi<RackAccessory[]>(
     () =>
       shelfRackId
-        ? rackAccessoriesService.getAll({ rackId: shelfRackId, kind: 'shelf' })
+        ? rackAccessoriesService.getAll({ rackId: shelfRackId })
         : Promise.resolve([]),
     [shelfRackId, activeProjectId]
   )
@@ -398,25 +401,38 @@ export default function DeviceCreate() {
 
     if (form.mountMode === 'shelf') {
       if (!form.rackId) {
-        setFormError('Seleccioná el rack donde está la bandeja.')
+        setFormError('Seleccioná el rack donde está el accesorio.')
         return
       }
       if (!form.supportedByAccessoryId) {
-        setFormError('Seleccioná la bandeja.')
-        return
-      }
-      if (form.shelfWidthSlots === '1') {
-        const slot = Number.parseInt(form.shelfSlotStart, 10)
-        if (Number.isNaN(slot) || slot < 0 || slot > 2) {
-          setFormError('Elegí el tercio (izquierda, centro o derecha).')
-          return
-        }
-      }
-      if (shelfHeightUValue < 1 || shelfHeightUValue > 20) {
-        setFormError('El alto ocupado debe estar entre 1 y 20 U.')
+        setFormError('Seleccioná la bandeja o el accesorio colgante.')
         return
       }
       const selectedShelf = (shelves || []).find((s) => s.id === form.supportedByAccessoryId)
+      const slotCount = selectedShelf?.deviceSlotCount ?? 3
+      const widthSlots = Number.parseInt(form.shelfWidthSlots, 10)
+      const slotStart = Number.parseInt(form.shelfSlotStart, 10)
+      if (
+        Number.isNaN(widthSlots) ||
+        widthSlots < 1 ||
+        widthSlots > slotCount ||
+        Number.isNaN(slotStart) ||
+        slotStart < 0 ||
+        slotStart + widthSlots > slotCount
+      ) {
+        setFormError(`Elegí una posición válida dentro de los ${slotCount} lugares del accesorio.`)
+        return
+      }
+      const maxHeight =
+        selectedShelf?.kind === 'hang' ? selectedShelf.heightU : 20
+      if (shelfHeightUValue < 1 || shelfHeightUValue > maxHeight) {
+        setFormError(
+          selectedShelf?.kind === 'hang'
+            ? `El alto del equipo no puede superar el accesorio (${selectedShelf.heightU}U).`
+            : 'El alto ocupado debe estar entre 1 y 20 U.'
+        )
+        return
+      }
       if (selectedShelf && occupancy) {
         const unitEnd = selectedShelf.unitStart + shelfHeightUValue - 1
         if (unitEnd > occupancy.heightU) {
@@ -431,9 +447,16 @@ export default function DeviceCreate() {
             ?.devices.map((d) => d.id) ?? []
         )
         const filterShelfSelf = (r: { kind?: string; deviceId: string }) => {
-          if (r.kind === 'shelf' && r.deviceId === selectedShelf.id) return false
+          if ((r.kind === 'shelf' || r.kind === 'hang') && r.deviceId === selectedShelf.id)
+            return false
           if (r.kind === 'shelf_device' && sameShelfDeviceIds.has(r.deviceId)) return false
           return true
+        }
+        if (selectedShelf.kind === 'hang' && isFullDepth) {
+          setFormError(
+            'Los equipos full-depth no se pueden colgar en un accesorio de una sola cara.'
+          )
+          return
         }
         if (isFullDepth) {
           for (const face of ['front', 'rear'] as const) {
@@ -450,9 +473,13 @@ export default function DeviceCreate() {
           }
         } else {
           const shelfFace: RackFace =
-            selectedShelf.mountType === 'four_post' && form.rackFace === 'rear'
-              ? 'rear'
-              : 'front'
+            selectedShelf.kind === 'hang'
+              ? selectedShelf.face === 'rear'
+                ? 'rear'
+                : 'front'
+              : selectedShelf.mountType === 'four_post' && form.rackFace === 'rear'
+                ? 'rear'
+                : 'front'
           const check = canPlaceAt({
             start: selectedShelf.unitStart,
             heightU: shelfHeightUValue,
@@ -484,18 +511,21 @@ export default function DeviceCreate() {
               siteId: form.siteId || null,
               areaId: form.areaId || null,
               supportedByAccessoryId: form.supportedByAccessoryId,
-              shelfWidthSlots: Number.parseInt(form.shelfWidthSlots, 10) as 1 | 3,
-              shelfSlotStart:
-                form.shelfWidthSlots === '3' ? 0 : Number.parseInt(form.shelfSlotStart, 10),
+              shelfWidthSlots: Number.parseInt(form.shelfWidthSlots, 10),
+              shelfSlotStart: Number.parseInt(form.shelfSlotStart, 10),
               shelfHeightU: shelfHeightUValue,
-              // rackId lo resuelve el backend desde la bandeja; no enviar null (limpia el montaje).
+              // rackId lo resuelve el backend desde el accesorio; no enviar null (limpia el montaje).
               rackUnitStart: null,
-              rackFace: isFullDepth
-                ? 'both'
-                : (shelves || []).find((s) => s.id === form.supportedByAccessoryId)
-                      ?.mountType === 'four_post' && form.rackFace === 'rear'
+              rackFace: ((): DeviceRackFace => {
+                const host = (shelves || []).find((s) => s.id === form.supportedByAccessoryId)
+                if (isFullDepth) return 'both'
+                if (host?.kind === 'hang') {
+                  return host.face === 'rear' ? 'rear' : 'front'
+                }
+                return host?.mountType === 'four_post' && form.rackFace === 'rear'
                   ? 'rear'
-                  : 'front',
+                  : 'front'
+              })(),
               status: form.status,
               notes: form.notes.trim() || undefined,
             }
@@ -724,7 +754,7 @@ export default function DeviceCreate() {
 
           <FormSection
             title="Ubicación"
-            description="Sitio, área y montaje: rieles del rack o apoyado en bandeja."
+            description="Sitio, área y montaje: rieles del rack, bandeja o accesorio colgante."
           >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Select
@@ -843,51 +873,93 @@ export default function DeviceCreate() {
               {form.mountMode === 'shelf' && form.rackId && (
                 <>
                   <Select
-                    label="Bandeja"
+                    label="Bandeja / accesorio"
                     value={form.supportedByAccessoryId}
                     onChange={(event) => {
                       const shelfId = event.target.value
                       const shelf = (shelves || []).find((s) => s.id === shelfId)
+                      const slots = shelf?.deviceSlotCount ?? 3
                       setForm((prev) => ({
                         ...prev,
                         supportedByAccessoryId: shelfId,
+                        shelfWidthSlots: '1',
+                        shelfSlotStart: '0',
                         rackFace: isFullDepth
                           ? 'both'
-                          : shelf?.mountType === 'four_post'
-                            ? prev.rackFace === 'rear'
+                          : shelf?.kind === 'hang'
+                            ? shelf.face === 'rear'
                               ? 'rear'
                               : 'front'
-                            : 'front',
+                            : shelf?.mountType === 'four_post'
+                              ? prev.rackFace === 'rear'
+                                ? 'rear'
+                                : 'front'
+                              : 'front',
+                        shelfHeightU:
+                          shelf?.kind === 'hang'
+                            ? String(
+                                Math.min(
+                                  Number.parseInt(prev.shelfHeightU, 10) || templateHeightU,
+                                  shelf.heightU
+                                )
+                              )
+                            : prev.shelfHeightU,
                       }))
+                      void slots
                     }}
                     options={[
-                      { value: '', label: 'Seleccionar bandeja' },
-                      ...(shelves || []).map((s) => ({
-                        value: s.id,
-                        label: `${s.name} · U${s.unitStart}–U${s.unitStart + s.heightU - 1} (${s.mountType === 'four_post' ? 'integral' : 'frontal'})`,
-                      })),
+                      { value: '', label: 'Seleccionar accesorio' },
+                      ...(shelves || [])
+                        .filter(
+                          (s) =>
+                            s.kind !== 'chassis' && (s.horizontalWidthSlots ?? 6) >= 6
+                        )
+                        .map((s) => ({
+                          value: s.id,
+                          label: `${s.name} · ${s.kind === 'hang' ? 'colgante' : 'bandeja'} · U${s.unitStart}–U${s.unitStart + s.heightU - 1} (${
+                            s.kind === 'hang'
+                              ? s.face === 'rear'
+                                ? 'trasera'
+                                : 'frontal'
+                              : s.mountType === 'four_post'
+                                ? 'integral'
+                                : 'frontal'
+                          } · ${s.deviceSlotCount ?? 3} slots)`,
+                        })),
                     ]}
                     hint={
-                      (shelves || []).length === 0
-                        ? 'No hay bandejas en este rack. Crealas desde el visor de racks.'
+                      (shelves || []).filter(
+                        (s) => s.kind !== 'chassis' && (s.horizontalWidthSlots ?? 6) >= 6
+                      ).length === 0
+                        ? 'No hay accesorios de ancho completo en este rack. Los parciales (menos de 6/6) no admiten equipos.'
                         : undefined
                     }
                   />
                   {isFullDepth ? (
                     <p className="text-xs text-violet-600 dark:text-violet-400 col-span-full">
-                      Profundidad completa: el equipo reserva frente y dorso sobre la bandeja.
+                      Profundidad completa: el equipo reserva frente y dorso (solo en bandejas).
                     </p>
                   ) : (
                     (() => {
                       const selectedShelf = (shelves || []).find(
                         (s) => s.id === form.supportedByAccessoryId
                       )
-                      if (!selectedShelf || selectedShelf.mountType !== 'four_post') {
-                        return selectedShelf ? (
+                      if (!selectedShelf) return null
+                      if (selectedShelf.kind === 'hang') {
+                        return (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 col-span-full">
+                            Accesorio colgante en cara{' '}
+                            {selectedShelf.face === 'rear' ? 'trasera' : 'frontal'}. El equipo no
+                            puede superar {selectedShelf.heightU}U de alto.
+                          </p>
+                        )
+                      }
+                      if (selectedShelf.mountType !== 'four_post') {
+                        return (
                           <p className="text-xs text-gray-500 dark:text-gray-400 col-span-full">
                             Bandeja solo frontal: el equipo queda del lado delantero.
                           </p>
-                        ) : null
+                        )
                       }
                       return (
                         <Select
@@ -905,52 +977,79 @@ export default function DeviceCreate() {
                       )
                     })()
                   )}
-                  <Select
-                    label="Ancho en bandeja"
-                    value={form.shelfWidthSlots}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        shelfWidthSlots: event.target.value as '1' | '3',
-                        shelfSlotStart: event.target.value === '3' ? '0' : prev.shelfSlotStart,
-                      }))
-                    }
-                    options={[
-                      { value: '1', label: '1/3 del ancho (1 tercio)' },
-                      { value: '3', label: 'Ancho completo' },
-                    ]}
-                  />
-                  {form.shelfWidthSlots === '1' && (
-                    <Select
-                      label="Posición horizontal"
-                      value={form.shelfSlotStart}
-                      onChange={(event) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          shelfSlotStart: event.target.value,
-                        }))
-                      }
-                      options={[
-                        { value: '0', label: 'Izquierda' },
-                        { value: '1', label: 'Centro' },
-                        { value: '2', label: 'Derecha' },
-                      ]}
-                    />
-                  )}
-                  <Input
-                    label="Alto ocupado (U)"
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={form.shelfHeightU || String(templateHeightU)}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        shelfHeightU: event.target.value,
-                      }))
-                    }
-                    hint={`Crece hacia arriba desde la bandeja. Por defecto ${templateHeightU}U del template.`}
-                  />
+                  {(() => {
+                    const selectedShelf = (shelves || []).find(
+                      (s) => s.id === form.supportedByAccessoryId
+                    )
+                    const slotCount = selectedShelf?.deviceSlotCount ?? 3
+                    const widthNum = Number.parseInt(form.shelfWidthSlots, 10) || 1
+                    return (
+                      <>
+                        <Select
+                          label="Ancho ocupado"
+                          value={form.shelfWidthSlots}
+                          onChange={(event) => {
+                            const w = event.target.value
+                            setForm((prev) => ({
+                              ...prev,
+                              shelfWidthSlots: w,
+                              shelfSlotStart:
+                                Number.parseInt(w, 10) >= slotCount ? '0' : prev.shelfSlotStart,
+                            }))
+                          }}
+                          options={Array.from({ length: slotCount }, (_, i) => {
+                            const w = i + 1
+                            return {
+                              value: String(w),
+                              label:
+                                w === slotCount
+                                  ? `Ancho completo (${slotCount} slots)`
+                                  : `${w} de ${slotCount} slots`,
+                            }
+                          })}
+                        />
+                        {widthNum < slotCount && (
+                          <Select
+                            label="Posición horizontal"
+                            value={form.shelfSlotStart}
+                            onChange={(event) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                shelfSlotStart: event.target.value,
+                              }))
+                            }
+                            options={Array.from(
+                              { length: slotCount - widthNum + 1 },
+                              (_, start) => ({
+                                value: String(start),
+                                label: `Slots ${start + 1}–${start + widthNum} de ${slotCount}`,
+                              })
+                            )}
+                          />
+                        )}
+                        <Input
+                          label="Alto ocupado (U)"
+                          type="number"
+                          min={1}
+                          max={
+                            selectedShelf?.kind === 'hang' ? selectedShelf.heightU : 20
+                          }
+                          value={form.shelfHeightU || String(templateHeightU)}
+                          onChange={(event) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              shelfHeightU: event.target.value,
+                            }))
+                          }
+                          hint={
+                            selectedShelf?.kind === 'hang'
+                              ? `Colgado: máximo ${selectedShelf.heightU}U (altura del accesorio).`
+                              : `Crece hacia arriba desde la bandeja. Por defecto ${templateHeightU}U del template.`
+                          }
+                        />
+                      </>
+                    )
+                  })()}
                   {form.supportedByAccessoryId &&
                     (() => {
                       const selectedShelf = (shelves || []).find(

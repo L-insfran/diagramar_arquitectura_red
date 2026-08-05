@@ -107,6 +107,8 @@ export function devicePositionOnShelf(params: {
   slotStart: number
   widthSlots: number
   visualHeightU: number
+  /** Host capacity (3–5). Defaults to 3 (legacy thirds). */
+  deviceSlotCount?: number
   column?: 0 | 1
 }): { x: number; y: number; width: number; height: number } {
   const column = params.column ?? 0
@@ -116,9 +118,10 @@ export function devicePositionOnShelf(params: {
     params.rackHeightU,
     column
   )
-  const widthSlots = Math.min(3, Math.max(1, params.widthSlots))
-  const slotStart = Math.min(2, Math.max(0, params.slotStart))
-  const slotW = RACK_CONTENT_WIDTH / 3
+  const n = Math.min(5, Math.max(3, Math.round(params.deviceSlotCount ?? 3)))
+  const widthSlots = Math.min(n, Math.max(1, params.widthSlots))
+  const slotStart = Math.min(n - widthSlots, Math.max(0, params.slotStart))
+  const slotW = RACK_CONTENT_WIDTH / n
   const requestedU = Math.max(1, params.visualHeightU)
   // Cap only by rack ceiling so y stays within the rack content area
   const maxUFromBase = Math.max(1, params.rackHeightU - params.unitStart + 1)
@@ -132,14 +135,25 @@ export function devicePositionOnShelf(params: {
   }
 }
 
-/** Posición de la bandeja (bloque de riel) en una columna. */
+/** Posición de la bandeja en una columna, con ancho parcial opcional (rejilla de 6). */
 export function shelfPositionInRack(
   unitStart: number,
   heightU: number,
   rackHeightU: number,
-  column: 0 | 1 = 0
+  column: 0 | 1 = 0,
+  horizontalSlotStart = 0,
+  horizontalWidthSlots = 6
 ): { x: number; y: number; width: number; height: number } {
-  return devicePositionInRack(unitStart, heightU, rackHeightU, column)
+  const base = devicePositionInRack(unitStart, heightU, rackHeightU, column)
+  const widthSlots = Math.min(6, Math.max(2, horizontalWidthSlots))
+  const slotStart = Math.min(6 - widthSlots, Math.max(0, horizontalSlotStart))
+  const slotW = RACK_CONTENT_WIDTH / 6
+  return {
+    x: base.x + slotStart * slotW,
+    y: base.y,
+    width: slotW * widthSlots,
+    height: base.height,
+  }
 }
 
 /** Layout en grilla para racks sin posición guardada. */

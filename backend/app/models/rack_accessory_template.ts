@@ -3,8 +3,9 @@ import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 import RackAccessory from './rack_accessory.js'
 
-export type AccessoryKind = 'shelf'
+export type AccessoryKind = 'shelf' | 'hang' | 'chassis'
 export type ShelfMountType = 'front_only' | 'four_post'
+export type AccessoryFace = 'front' | 'rear'
 
 export default class RackAccessoryTemplate extends BaseModel {
   static table = 'rack_accessory_templates'
@@ -23,6 +24,22 @@ export default class RackAccessoryTemplate extends BaseModel {
 
   @column()
   declare defaultMountType: ShelfMountType
+
+  /** Device host slots per face (3–5). */
+  @column()
+  declare deviceSlotCount: number
+
+  /** Required for hang templates; null for shelf. */
+  @column()
+  declare face: AccessoryFace | null
+
+  /** Default horizontal start column on the 6-wide rack grid (0-based). */
+  @column()
+  declare horizontalSlotStart: number
+
+  /** Default horizontal width in columns (2–6). */
+  @column()
+  declare horizontalWidthSlots: number
 
   @column()
   declare manufacturer: string | null

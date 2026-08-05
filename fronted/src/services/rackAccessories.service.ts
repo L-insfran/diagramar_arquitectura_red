@@ -1,8 +1,10 @@
 import api from './api'
 import type {
+  AccessoryKind,
   ApiResponse,
   RackAccessory,
   RackAccessoryTemplate,
+  RackFace,
   ShelfMountType,
 } from '../types'
 
@@ -11,10 +13,14 @@ export type RackAccessoryPayload = {
   rackId: string
   accessoryTemplateId?: string | null
   name: string
-  kind?: 'shelf'
+  kind?: AccessoryKind
   unitStart: number
-  heightU: 1 | 2
+  heightU: number
   mountType: ShelfMountType
+  deviceSlotCount?: number
+  face?: RackFace | null
+  horizontalSlotStart?: number
+  horizontalWidthSlots?: number
   manufacturer?: string | null
   model?: string | null
   notes?: string | null
@@ -30,9 +36,11 @@ export const rackAccessoryTemplatesService = {
 }
 
 export const rackAccessoriesService = {
-  async getAll(filters?: { rackId?: string; kind?: 'shelf'; search?: string }): Promise<
-    RackAccessory[]
-  > {
+  async getAll(filters?: {
+    rackId?: string
+    kind?: AccessoryKind
+    search?: string
+  }): Promise<RackAccessory[]> {
     const params = new URLSearchParams()
     if (filters?.rackId) params.set('rackId', filters.rackId)
     if (filters?.kind) params.set('kind', filters.kind)

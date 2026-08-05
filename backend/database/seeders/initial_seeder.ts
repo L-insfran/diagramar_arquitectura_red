@@ -72,6 +72,11 @@ export default class extends BaseSeeder {
     const deviceTypes = [
       { name: 'Router', icon: 'globe', description: 'Network router for traffic routing' },
       { name: 'Switch', icon: 'server', description: 'Network switch for LAN connectivity' },
+      {
+        name: 'Switch Industrial',
+        icon: 'server',
+        description: 'Industrial / DIN-rail Ethernet switch (ruggedized LAN switching)',
+      },
       { name: 'Firewall', icon: 'shield', description: 'Security firewall appliance' },
       { name: 'Access Point', icon: 'radio', description: 'Wireless access point' },
       { name: 'CCTV', icon: 'camera', description: 'Closed-circuit television cameras and recording equipment' },

@@ -14,7 +14,7 @@ import Rack from '#models/rack'
 import RackAccessory from '#models/rack_accessory'
 import type Port from '#models/port'
 import ConnectionRepository from '#repositories/connection_repository'
-import { facesForMountType } from '#dtos/rack_accessory_dto'
+import { facesForAccessory } from '#dtos/rack_accessory_dto'
 import type {
   CreateConnectionInput,
   UpdateConnectionInput,
@@ -112,10 +112,14 @@ type FlowTopologyNode = {
 type TopologyRackAccessory = {
   id: string
   name: string
-  kind: 'shelf'
+  kind: 'shelf' | 'hang' | 'chassis'
   unitStart: number
   heightU: number
   mountType: 'front_only' | 'four_post'
+  deviceSlotCount: number
+  face: 'front' | 'rear' | null
+  horizontalSlotStart: number
+  horizontalWidthSlots: number
   faces: Array<'front' | 'rear'>
 }
 
@@ -438,11 +442,20 @@ export default class TopologyService {
       list.push({
         id: acc.id,
         name: acc.name,
-        kind: 'shelf',
+        kind:
+          acc.kind === 'hang' ? 'hang' : acc.kind === 'chassis' ? 'chassis' : 'shelf',
         unitStart: acc.unitStart,
         heightU: acc.heightU,
         mountType: acc.mountType,
-        faces: facesForMountType(acc.mountType),
+        deviceSlotCount: acc.deviceSlotCount ?? 3,
+        face: acc.face ?? null,
+        horizontalSlotStart: acc.horizontalSlotStart ?? 0,
+        horizontalWidthSlots: acc.horizontalWidthSlots ?? 6,
+        faces: facesForAccessory({
+          kind: acc.kind,
+          mountType: acc.mountType,
+          face: acc.face,
+        }),
       })
       accessoriesByRack.set(acc.rackId, list)
     }

@@ -1,6 +1,15 @@
-import { facesForMountType } from '#dtos/rack_accessory_dto'
-import type { RackFace, ShelfMountType } from '#dtos/rack_accessory_dto'
+import {
+  facesForAccessory,
+  facesForMountType,
+  normalizeDeviceSlotCount,
+  type AccessoryKind,
+  type RackFace,
+  type ShelfMountType,
+} from '#dtos/rack_accessory_dto'
 import type { DeviceRackFace, OccupantKind } from '#dtos/rack_dto'
+
+/** Fixed horizontal columns across a 19" rack face. */
+export const RACK_HORIZONTAL_COLUMNS = 6
 
 export type RackFootprintKind = OccupantKind | 'shelf_device'
 
@@ -11,7 +20,7 @@ export type RackFootprint = {
   face: RackFace
   unitStart: number
   unitEnd: number
-  /** Horizontal thirds: rails/shelves use 0–2 (full width). */
+  /** Horizontal columns 0–5 (sixths of 19"). */
   slotStart: number
   slotEnd: number
 }
@@ -26,6 +35,51 @@ export function footprintsOverlap(a: RackFootprint, b: RackFootprint): boolean {
   return rangesOverlap(a.slotStart, a.slotEnd, b.slotStart, b.slotEnd)
 }
 
+/** Normalize accessory horizontal footprint onto the 6-column grid. */
+export function normalizeAccessoryHorizontalSlots(
+  slotStart: number | null | undefined,
+  widthSlots: number | null | undefined
+): { slotStart: number; slotEnd: number; widthSlots: number } {
+  const width = Math.min(
+    RACK_HORIZONTAL_COLUMNS,
+    Math.max(2, Math.round(widthSlots ?? RACK_HORIZONTAL_COLUMNS))
+  )
+  const start = Math.min(
+    RACK_HORIZONTAL_COLUMNS - width,
+    Math.max(0, Math.round(slotStart ?? 0))
+  )
+  return { slotStart: start, slotEnd: start + width - 1, widthSlots: width }
+}
+
+/**
+ * Map device host slots (N = 3–5) onto the 6-column rack grid.
+ * Uses floor(i * 6 / N) boundaries so N=3 keeps legacy thirds→sixths.
+ */
+export function slotsToSixths(
+  shelfSlotStart: number,
+  shelfWidthSlots: number,
+  deviceSlotCount: number = 3
+): { slotStart: number; slotEnd: number } {
+  const n = normalizeDeviceSlotCount(deviceSlotCount)
+  const start = Math.min(n - 1, Math.max(0, Math.round(shelfSlotStart)))
+  const width = Math.min(n - start, Math.max(1, Math.round(shelfWidthSlots)))
+  const slotStart = Math.floor((start * RACK_HORIZONTAL_COLUMNS) / n)
+  const slotEndExclusive = Math.floor(((start + width) * RACK_HORIZONTAL_COLUMNS) / n)
+  const slotEnd = Math.max(slotStart, slotEndExclusive - 1)
+  return {
+    slotStart,
+    slotEnd: Math.min(RACK_HORIZONTAL_COLUMNS - 1, slotEnd),
+  }
+}
+
+/** @deprecated Prefer slotsToSixths — kept for N=3 callers. */
+export function thirdsToSixths(
+  shelfSlotStart: number,
+  shelfWidthSlots: number
+): { slotStart: number; slotEnd: number } {
+  return slotsToSixths(shelfSlotStart, shelfWidthSlots, 3)
+}
+
 /** Normalize device mount face to physical footprint face(s). */
 export function facesForDeviceRackFace(face: DeviceRackFace | null | undefined): RackFace[] {
   if (face === 'both') return ['front', 'rear']
@@ -37,21 +91,27 @@ export function isFullDepthFace(face: DeviceRackFace | null | undefined): boolea
   return face === 'both'
 }
 
-/** Effective vertical U for a shelf-resting device. */
+/** Effective vertical U for a shelf-resting / hang device. */
 export function shelfDeviceHeightU(
   shelfHeightU: number | null | undefined,
-  templateRackUnits: number | null | undefined
+  templateRackUnits: number | null | undefined,
+  maxHeightU?: number | null
 ): number {
+  let height: number
   if (shelfHeightU != null && shelfHeightU >= 1) {
-    return Math.min(20, Math.max(1, Math.round(shelfHeightU)))
+    height = Math.min(20, Math.max(1, Math.round(shelfHeightU)))
+  } else {
+    height = Math.max(1, templateRackUnits ?? 1)
   }
-  return Math.max(1, templateRackUnits ?? 1)
+  if (maxHeightU != null && maxHeightU >= 1) {
+    height = Math.min(height, Math.round(maxHeightU))
+  }
+  return height
 }
 
 /**
- * Footprint(s) of a shelf-resting device.
- * Anchored at shelf.unitStart; grows upward for `heightU` units.
- * Full-depth devices reserve front + rear regardless of shelf mount type.
+ * Footprint(s) of a device hosted on a shelf or hang accessory.
+ * Anchored at accessory.unitStart; grows upward for `heightU` units.
  */
 export function shelfDeviceFootprints(params: {
   deviceId: string
@@ -61,13 +121,16 @@ export function shelfDeviceFootprints(params: {
   heightU: number
   shelfSlotStart: number
   shelfWidthSlots: number
+  deviceSlotCount?: number
 }): RackFootprint[] {
   const heightU = Math.max(1, params.heightU)
   const unitStart = params.shelfUnitStart
   const unitEnd = unitStart + heightU - 1
-  const slotStart = Math.min(2, Math.max(0, params.shelfSlotStart))
-  const width = params.shelfWidthSlots === 3 ? 3 : 1
-  const slotEnd = Math.min(2, slotStart + width - 1)
+  const { slotStart, slotEnd } = slotsToSixths(
+    params.shelfSlotStart,
+    params.shelfWidthSlots,
+    params.deviceSlotCount
+  )
 
   return facesForDeviceRackFace(params.face).map((face) => ({
     kind: 'shelf_device' as const,
@@ -82,7 +145,7 @@ export function shelfDeviceFootprints(params: {
 }
 
 /**
- * Resolve mount face for a device resting on a shelf.
+ * Resolve mount face for a device on a shelf (not hang).
  * Full-depth templates always get `both`.
  */
 export function resolveShelfDeviceFace(
@@ -97,6 +160,11 @@ export function resolveShelfDeviceFace(
     return 'front'
   }
   return face
+}
+
+/** Resolve face for a device on a hang accessory (always the accessory face). */
+export function resolveHangDeviceFace(accessoryFace: RackFace | null | undefined): DeviceRackFace {
+  return accessoryFace === 'rear' ? 'rear' : 'front'
 }
 
 /** Full-width footprint(s) for a rail-mounted device (`both` → front + rear). */
@@ -117,7 +185,7 @@ export function railDeviceFootprints(params: {
     unitStart: params.unitStart,
     unitEnd,
     slotStart: 0,
-    slotEnd: 2,
+    slotEnd: RACK_HORIZONTAL_COLUMNS - 1,
   }))
 }
 
@@ -132,25 +200,41 @@ export function railDeviceFootprint(params: {
   return railDeviceFootprints({ ...params, face: params.face })[0]
 }
 
-/** Full-width footprint(s) for a shelf accessory. */
+/** Footprint(s) for a shelf or hang accessory. */
 export function shelfFootprints(params: {
   accessoryId: string
   accessoryName: string
+  kind?: AccessoryKind
   unitStart: number
   heightU: number
   mountType: ShelfMountType
+  face?: RackFace | null
+  horizontalSlotStart?: number | null
+  horizontalWidthSlots?: number | null
 }): RackFootprint[] {
   const heightU = Math.max(1, params.heightU)
   const unitEnd = params.unitStart + heightU - 1
-  return facesForMountType(params.mountType).map((face) => ({
-    kind: 'shelf' as const,
+  const horiz = normalizeAccessoryHorizontalSlots(
+    params.horizontalSlotStart,
+    params.horizontalWidthSlots
+  )
+  const kind = params.kind ?? 'shelf'
+  const faces = facesForAccessory({
+    kind,
+    mountType: params.mountType,
+    face: params.face,
+  })
+  const footprintKind: OccupantKind =
+    kind === 'hang' ? 'hang' : kind === 'chassis' ? 'chassis' : 'shelf'
+  return faces.map((face) => ({
+    kind: footprintKind,
     id: params.accessoryId,
     name: params.accessoryName,
     face,
     unitStart: params.unitStart,
     unitEnd,
-    slotStart: 0,
-    slotEnd: 2,
+    slotStart: horiz.slotStart,
+    slotEnd: horiz.slotEnd,
   }))
 }
 
@@ -165,7 +249,7 @@ export type UsedUnitsByFace = {
 
 /**
  * Aggregate full-U occupancy per face from footprints.
- * Horizontal thirds do not fractionate: any footprint on a (face, U) marks that U used.
+ * Horizontal columns do not fractionate capacity: any footprint on a (face, U) marks that U used.
  */
 export function aggregateUsedUnitsByFace(footprints: RackFootprint[]): UsedUnitsByFace {
   const usedFront = new Set<number>()

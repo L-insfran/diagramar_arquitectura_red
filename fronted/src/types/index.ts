@@ -304,7 +304,8 @@ export type RackFace = 'front' | 'rear'
 export type DeviceRackFace = RackFace | 'both'
 export type ChassisFace = 'front' | 'rear'
 export type ShelfMountType = 'front_only' | 'four_post'
-export type OccupantKind = 'device' | 'shelf' | 'shelf_device'
+export type AccessoryKind = 'shelf' | 'hang' | 'chassis'
+export type OccupantKind = 'device' | 'shelf' | 'hang' | 'chassis' | 'shelf_device'
 
 export interface RackOccupancySlot {
   unit: number
@@ -325,11 +326,17 @@ export interface RackOccupancySlot {
 export interface RackOccupancyAccessory {
   id: string
   name: string
-  kind: 'shelf'
+  kind: AccessoryKind
   unitStart: number
   heightU: number
   unitEnd: number
   mountType: ShelfMountType
+  deviceSlotCount?: number
+  face?: RackFace | null
+  /** Horizontal start column on the 6-wide rack grid (0-based). */
+  horizontalSlotStart?: number
+  /** Horizontal width in columns (2–6). */
+  horizontalWidthSlots?: number
   faces: RackFace[]
   devices: Array<{
     id: string
@@ -366,9 +373,13 @@ export interface RackOccupancy {
 export interface RackAccessoryTemplate {
   id: string
   name: string
-  kind: 'shelf'
+  kind: AccessoryKind
   heightU: number
   defaultMountType: ShelfMountType
+  deviceSlotCount?: number
+  face?: RackFace | null
+  horizontalSlotStart?: number
+  horizontalWidthSlots?: number
   manufacturer: string | null
   model: string | null
   notes: string | null
@@ -382,10 +393,14 @@ export interface RackAccessory {
   rackId: string
   accessoryTemplateId: string | null
   name: string
-  kind: 'shelf'
+  kind: AccessoryKind
   unitStart: number
   heightU: number
   mountType: ShelfMountType
+  deviceSlotCount?: number
+  face?: RackFace | null
+  horizontalSlotStart?: number
+  horizontalWidthSlots?: number
   manufacturer: string | null
   model: string | null
   notes: string | null
@@ -576,10 +591,14 @@ export interface TopologyPortSummary {
 export interface TopologyRackAccessory {
   id: string
   name: string
-  kind: 'shelf'
+  kind: AccessoryKind
   unitStart: number
   heightU: number
   mountType: ShelfMountType
+  deviceSlotCount?: number
+  face?: RackFace | null
+  horizontalSlotStart?: number
+  horizontalWidthSlots?: number
   faces: RackFace[]
 }
 

@@ -15,8 +15,8 @@ import {
   type PdfTableColumn,
 } from './pdfTable'
 
-/** Slots horizontales por bandeja (alineado con topologyRackLayout). */
-const SHELF_SLOT_COUNT = 3
+/** Slots horizontales por defecto (legacy thirds); override por accesorio. */
+const DEFAULT_DEVICE_SLOT_COUNT = 3
 
 export type RackElevationDevice = {
   id: string
@@ -31,10 +31,12 @@ export type RackElevationDevice = {
   face: DeviceRackFace
   isFullDepth: boolean
   onShelf: boolean
-  /** Slot horizontal 0–2 cuando está en bandeja. */
+  /** Slot horizontal 0..N-1 cuando está en accesorio. */
   shelfSlotStart: number
-  /** Ancho en slots (1 = ⅓, 3 = todo el ancho). */
+  /** Ancho en slots del host. */
   shelfWidthSlots: number
+  /** Capacidad del host (3–5). */
+  deviceSlotCount: number
   portCount: number
 }
 
@@ -101,15 +103,19 @@ export function buildRackElevationModel(
 
     if (face !== 'both' && !isFullDepth && deviceFace !== face) continue
 
+    const slotCount = Math.min(
+      5,
+      Math.max(3, shelf?.deviceSlotCount ?? DEFAULT_DEVICE_SLOT_COUNT)
+    )
     const shelfSlotStart = shelf
-      ? Math.min(SHELF_SLOT_COUNT - 1, Math.max(0, Math.round(node.data.shelfSlotStart ?? 0)))
+      ? Math.min(slotCount - 1, Math.max(0, Math.round(node.data.shelfSlotStart ?? 0)))
       : 0
     const shelfWidthSlots = shelf
       ? Math.min(
-          SHELF_SLOT_COUNT - shelfSlotStart,
+          slotCount - shelfSlotStart,
           Math.max(1, Math.round(node.data.shelfWidthSlots ?? 1)),
         )
-      : SHELF_SLOT_COUNT
+      : slotCount
 
     devices.push({
       id: node.id,
@@ -126,6 +132,7 @@ export function buildRackElevationModel(
       onShelf: !!shelf,
       shelfSlotStart,
       shelfWidthSlots,
+      deviceSlotCount: slotCount,
       portCount: node.data.ports?.length ?? 0,
     })
   }
@@ -262,32 +269,56 @@ function drawElevationGraphic(
         }
       }
 
-      // Bandejas (accessories)
+      // Accesorios (bandejas / colgantes)
       const isRearCol = col.label === 'Dorso'
       for (const acc of model.accessories) {
         if (acc.unitStart < group.uLow || acc.unitStart > group.uHigh) continue
         const faces = acc.faces ?? ['front']
         if (model.face === 'both') {
           if (isRearCol && !faces.includes('rear')) continue
-          if (!isRearCol && !faces.includes('front') && !faces.includes('rear')) continue
-          // four_post aparece en ambas; front_only solo frente
-          if (isRearCol && acc.mountType === 'front_only') continue
+          if (!isRearCol && !faces.includes('front')) continue
+        } else if (model.face === 'rear' && !faces.includes('rear')) {
+          continue
+        } else if (model.face === 'front' && !faces.includes('front')) {
+          continue
         }
         const topU = acc.unitStart + acc.heightU - 1
         const clippedHigh = Math.min(topU, group.uHigh)
         const clippedLow = Math.max(acc.unitStart, group.uLow)
         const yTop = area.y + (group.uHigh - clippedHigh) * mmPerU
         const h = (clippedHigh - clippedLow + 1) * mmPerU
-        pdf.setFillColor(88, 28, 135)
-        pdf.setDrawColor(167, 139, 250)
+        const contentW = col.w - col.railW
+        const widthSlots = Math.min(6, Math.max(2, acc.horizontalWidthSlots ?? 6))
+        const slotStart = Math.min(6 - widthSlots, Math.max(0, acc.horizontalSlotStart ?? 0))
+        const slotW = contentW / 6
+        const x = col.x + col.railW + slotStart * slotW
+        const w = slotW * widthSlots
+        const isHang = acc.kind === 'hang'
+        const isChassis = acc.kind === 'chassis'
+        if (isChassis) {
+          pdf.setFillColor(51, 65, 85)
+          pdf.setDrawColor(148, 163, 184)
+        } else if (isHang) {
+          pdf.setFillColor(154, 52, 18)
+          pdf.setDrawColor(251, 146, 60)
+        } else {
+          pdf.setFillColor(88, 28, 135)
+          pdf.setDrawColor(167, 139, 250)
+        }
         pdf.setLineWidth(0.3)
         pdf.setLineDashPattern([1, 1], 0)
-        pdf.rect(col.x + col.railW, yTop, col.w - col.railW, h, 'FD')
+        pdf.rect(x, yTop, w, h, 'FD')
         pdf.setLineDashPattern([], 0)
         if (h >= 3.5) {
           pdf.setFontSize(5)
           pdf.setTextColor(221, 214, 254)
-          pdf.text(`Bandeja: ${acc.name}`, col.x + col.railW + 1.5, yTop + Math.min(3.2, h - 0.5))
+          const widthLabel = widthSlots < 6 ? ` (${widthSlots}/6)` : ''
+          const kindLabel = isChassis ? 'Ordenador' : isHang ? 'Colgante' : 'Bandeja'
+          pdf.text(
+            `${kindLabel}: ${acc.name}${widthLabel}`,
+            x + 1.5,
+            yTop + Math.min(3.2, h - 0.5)
+          )
         }
       }
 
@@ -308,18 +339,14 @@ function drawElevationGraphic(
         const contentX = col.x + col.railW + 0.6
         const contentW = col.w - col.railW - 1.2
 
-        // Equipos en bandeja: mismos slots horizontales que el canvas (⅓ / full).
-        // Sin esto, cada uno se dibujaba a ancho completo y el último tapaba al resto.
         const slotGap = 0.4
         let drawX = contentX
         let drawW = contentW
         if (dev.onShelf) {
-          const slotW = contentW / SHELF_SLOT_COUNT
-          const slotStart = Math.min(SHELF_SLOT_COUNT - 1, Math.max(0, dev.shelfSlotStart))
-          const widthSlots = Math.min(
-            SHELF_SLOT_COUNT - slotStart,
-            Math.max(1, dev.shelfWidthSlots),
-          )
+          const n = Math.min(5, Math.max(3, dev.deviceSlotCount || DEFAULT_DEVICE_SLOT_COUNT))
+          const slotW = contentW / n
+          const slotStart = Math.min(n - 1, Math.max(0, dev.shelfSlotStart))
+          const widthSlots = Math.min(n - slotStart, Math.max(1, dev.shelfWidthSlots))
           drawX = contentX + slotStart * slotW + slotGap / 2
           drawW = Math.max(2, slotW * widthSlots - slotGap)
         }
@@ -357,7 +384,7 @@ function drawElevationGraphic(
         // Badges
         const badges: string[] = []
         if (dev.isFullDepth) badges.push('Full')
-        if (dev.onShelf) badges.push('Bandeja')
+        if (dev.onShelf) badges.push('Montado')
         if (badges.length && h >= 5 && drawW >= 14) {
           pdf.setFontSize(4)
           pdf.setFont('helvetica', 'bold')

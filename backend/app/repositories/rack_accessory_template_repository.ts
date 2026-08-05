@@ -22,11 +22,16 @@ export default class RackAccessoryTemplateRepository {
   }
 
   async create(data: CreateRackAccessoryTemplateInput & { createdBy: string; updatedBy: string }) {
+    const kind = data.kind ?? 'shelf'
     return RackAccessoryTemplate.create({
       name: data.name,
-      kind: data.kind ?? 'shelf',
+      kind,
       heightU: data.heightU,
       defaultMountType: data.defaultMountType ?? 'front_only',
+      deviceSlotCount: data.deviceSlotCount ?? (kind === 'chassis' ? 0 : 3),
+      face: kind === 'hang' || kind === 'chassis' ? (data.face ?? 'front') : null,
+      horizontalSlotStart: data.horizontalSlotStart ?? 0,
+      horizontalWidthSlots: data.horizontalWidthSlots ?? 6,
       manufacturer: data.manufacturer ?? null,
       model: data.model ?? null,
       notes: data.notes ?? null,

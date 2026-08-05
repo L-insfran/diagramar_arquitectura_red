@@ -5,7 +5,11 @@ import Project from './project.js'
 import Rack from './rack.js'
 import RackAccessoryTemplate from './rack_accessory_template.js'
 import Device from './device.js'
-import type { AccessoryKind, ShelfMountType } from './rack_accessory_template.js'
+import type {
+  AccessoryFace,
+  AccessoryKind,
+  ShelfMountType,
+} from './rack_accessory_template.js'
 
 export default class RackAccessory extends BaseModel {
   static table = 'rack_accessories'
@@ -36,6 +40,22 @@ export default class RackAccessory extends BaseModel {
 
   @column()
   declare mountType: ShelfMountType
+
+  /** Device host slots per face (3–5). */
+  @column()
+  declare deviceSlotCount: number
+
+  /** Required for hang; null for shelf. */
+  @column()
+  declare face: AccessoryFace | null
+
+  /** Horizontal start column on the 6-wide rack grid (0-based). */
+  @column()
+  declare horizontalSlotStart: number
+
+  /** Horizontal width in columns (2–6). */
+  @column()
+  declare horizontalWidthSlots: number
 
   @column()
   declare manufacturer: string | null

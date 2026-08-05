@@ -333,6 +333,7 @@ export function applyRackHierarchy(
         rackHeightU: rack.heightU,
         slotStart: device.data.shelfSlotStart ?? 0,
         widthSlots: device.data.shelfWidthSlots ?? 1,
+        deviceSlotCount: shelf.deviceSlotCount ?? 3,
         visualHeightU,
         column,
       })
