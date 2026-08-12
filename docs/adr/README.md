@@ -21,3 +21,6 @@ Los ADR documentan decisiones de arquitectura significativas: contexto, opciones
 | [0005](0005-port-passthrough-faces.md) | Port passthrough con caras front/rear | Aceptado |
 | [0006](0006-rack-shelves-accessories.md) | Bandejas rackeables como accesorios | Aceptado |
 | [0007](0007-full-depth-chassis-face.md) | Full-depth templates y cara de chasis por puerto | Aceptado |
+| [0008](0008-boards-como-contenedor-fisico.md) | Boards (tableros) como contenedor físico | Aceptado |
+| [0009](0009-diagramas-multiples-y-ruteo-ortogonal.md) | Diagramas múltiples y ruteo ortogonal | Aceptado (punto 4 superseded por 0010) |
+| [0010](0010-diagram-links-simplificados.md) | Enlaces simplificados de diagrama | Aceptado |

@@ -1,6 +1,12 @@
 import { toPng } from 'html-to-image'
 import type { jsPDF } from 'jspdf'
-import { getA4Geometry, type PrintOrientation } from './a4Geometry'
+import {
+  FOOTER_H,
+  HEADER_H,
+  getPaperGeometry,
+  type PaperFormat,
+  type PrintOrientation,
+} from './a4Geometry'
 import { TILE_OVERLAP_MM, type DiagramPagePlan } from './diagramScale'
 import {
   drawFooter,
@@ -26,6 +32,8 @@ export async function appendDiagramPagesAsync(
   opts: {
     captured: CapturedDiagram
     orientation: PrintOrientation
+    /** Default `a4` para compatibilidad con topología. */
+    format?: PaperFormat
     title: string
     subtitle?: string
     projectName?: string
@@ -35,6 +43,8 @@ export async function appendDiagramPagesAsync(
     totalPages: number
     firstPageExists?: boolean
     branding?: PdfHeaderBranding
+    /** Si es false, no dibuja la leyenda y usa el espacio extra para el diagrama. Default true. */
+    includeLegend?: boolean
   },
 ): Promise<number> {
   const {
@@ -50,11 +60,19 @@ export async function appendDiagramPagesAsync(
     firstPageExists,
     branding,
   } = opts
+  const format: PaperFormat = opts.format ?? 'a4'
+  const includeLegend = opts.includeLegend !== false
 
   const { imgData, imgW, imgH, plan } = captured
   const { cols, rows } = plan
   const totalDiagramPages = cols * rows
-  const geom = getA4Geometry(orientation)
+  const geom = getPaperGeometry(format, orientation)
+  const cover = includeLegend
+    ? geom.cover
+    : {
+        ...geom.cover,
+        h: geom.pageH - HEADER_H - FOOTER_H - 4,
+      }
 
   const img = new Image()
   img.src = imgData
@@ -64,7 +82,7 @@ export async function appendDiagramPagesAsync(
   })
 
   if (!firstPageExists) {
-    pdf.addPage('a4', orientation)
+    pdf.addPage(format, orientation)
   }
 
   const pw = geom.pageW
@@ -73,17 +91,19 @@ export async function appendDiagramPagesAsync(
   drawHeader(pdf, pw, title, projectName, subtitle, authorName, dateStr, branding)
 
   const imgAspect = imgW / Math.max(1, imgH)
-  let drawW = geom.cover.w
+  let drawW = cover.w
   let drawH = drawW / imgAspect
-  if (drawH > geom.cover.h) {
-    drawH = geom.cover.h
+  if (drawH > cover.h) {
+    drawH = cover.h
     drawW = drawH * imgAspect
   }
-  const drawX = geom.cover.x + (geom.cover.w - drawW) / 2
-  const drawY = geom.cover.y + (geom.cover.h - drawH) / 2
+  const drawX = cover.x + (cover.w - drawW) / 2
+  const drawY = cover.y + (cover.h - drawH) / 2
   pdf.addImage(imgData, 'PNG', drawX, drawY, drawW, drawH)
 
-  drawLegend(pdf, pw, ph)
+  if (includeLegend) {
+    drawLegend(pdf, pw, ph)
+  }
   drawFooter(pdf, pw, ph, startingPageNumber, totalPages, dateStr, 'Vista general')
 
   if (totalDiagramPages > 1) {
@@ -92,9 +112,9 @@ export async function appendDiagramPagesAsync(
     pdf.setTextColor(120, 120, 120)
     pdf.text(
       `El diagrama se divide en ${totalDiagramPages} sectores (${cols}×${rows}) a tamaño legible. Cada página siguiente muestra un sector ampliado a ancho útil.`,
-      geom.cover.x,
+      cover.x,
       ph - 16 - 12 - 8,
-      { maxWidth: geom.cover.w },
+      { maxWidth: cover.w },
     )
   }
 
@@ -109,7 +129,7 @@ export async function appendDiagramPagesAsync(
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      pdf.addPage('a4', orientation)
+      pdf.addPage(format, orientation)
       pagesAdded++
       const pageNum = startingPageNumber + pagesAdded - 1
       const sectorNum = row * cols + col + 1
@@ -149,6 +169,14 @@ export async function appendDiagramPagesAsync(
  * Filtra nodos UI de React Flow al capturar.
  */
 export function reactFlowCaptureFilter(node: Element): boolean {
+  // Overlay de márgenes/sectores de impresión — nunca debe salir en el PDF.
+  if (
+    node instanceof Element &&
+    (node.getAttribute('data-print-bounds-overlay') === 'true' ||
+      node.closest?.('[data-print-bounds-overlay="true"]'))
+  ) {
+    return false
+  }
   if (node instanceof HTMLElement) {
     const cl = node.classList
     if (

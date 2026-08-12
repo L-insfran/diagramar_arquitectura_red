@@ -1,5 +1,5 @@
-import type { PrintOrientation } from './a4Geometry'
-import { getA4Geometry } from './a4Geometry'
+import type { PaperFormat, PrintOrientation } from './a4Geometry'
+import { getPaperGeometry } from './a4Geometry'
 
 /** mm por píxel de flujo objetivo (1U = 44 px → 4.4 mm). */
 export const TARGET_MM_PER_FLOW_PX = 0.10
@@ -44,14 +44,15 @@ function mmToCssPx(mm: number, dpi: number): number {
 }
 
 /**
- * Planifica la grilla de sectores A4 y las dimensiones de captura
+ * Planifica la grilla de sectores (A4/A3) y las dimensiones de captura
  * a partir de los bounds reales del diagrama (coords de flujo).
  */
 export function planDiagramPages(
   bounds: FlowBounds,
   orientation: PrintOrientation,
+  format: PaperFormat = 'a4',
 ): DiagramPagePlan {
-  const geom = getA4Geometry(orientation)
+  const geom = getPaperGeometry(format, orientation)
   const bw = Math.max(1, bounds.width)
   const bh = Math.max(1, bounds.height)
 
@@ -141,8 +142,9 @@ export function captureRectFromPlan(
   bounds: FlowBounds,
   plan: DiagramPagePlan,
   orientation: PrintOrientation,
+  format: PaperFormat = 'a4',
 ): { x: number; y: number; width: number; height: number } {
-  const geom = getA4Geometry(orientation)
+  const geom = getPaperGeometry(format, orientation)
   const totalMmW = plan.cols * geom.sector.w
   const totalMmH = plan.rows * geom.sector.h
   const width = totalMmW / plan.mmPerPx

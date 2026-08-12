@@ -1988,8 +1988,12 @@ function TopologyFlowInner({
               />
             )}
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} className="!bg-transparent" />
-            <Controls className="!shadow-md !border-gray-200 dark:!border-gray-700 !bg-white dark:!bg-gray-900" />
-            <MiniMap className="!bg-white/90 dark:!bg-gray-900/90 !border-gray-200 dark:!border-gray-700" maskColor="rgba(0,0,0,0.08)" />
+            <Controls className="!overflow-hidden !rounded-lg !border !border-slate-200 !bg-white !shadow-md dark:!border-slate-600 dark:!bg-slate-900" />
+            <MiniMap
+              className="!overflow-hidden !rounded-lg !border !border-slate-200 !bg-white/90 !shadow-md dark:!border-slate-600 dark:!bg-slate-900/95"
+              maskColor={theme === 'dark' ? 'rgba(15, 23, 42, 0.7)' : 'rgba(15, 23, 42, 0.08)'}
+              nodeStrokeWidth={2}
+            />
           </ReactFlow>
         </TopologyCanvasInteractionContext.Provider>
       </div>

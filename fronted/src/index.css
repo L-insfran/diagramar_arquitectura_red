@@ -32,6 +32,35 @@ body {
   pointer-events: all;
 }
 
+/* Controles y minimapa: chrome coherente con tema oscuro profesional */
+.react-flow__controls {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  border: none !important;
+  border-bottom: 1px solid var(--xy-controls-button-border-color, var(--xy-controls-button-border-color-default)) !important;
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+.react-flow__controls-button svg {
+  max-width: 14px;
+  max-height: 14px;
+}
+.react-flow__minimap {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.dark .react-flow__minimap,
+.react-flow.dark .react-flow__minimap {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.dark .react-flow__controls,
+.react-flow.dark .react-flow__controls {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
 @layer base {
   * {
     @apply border-gray-200 dark:border-gray-800;

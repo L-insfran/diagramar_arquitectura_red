@@ -96,6 +96,11 @@ type FlowTopologyNode = {
     rackFace: 'front' | 'rear' | 'both' | null
     rackUnits: number
     isFullDepth: boolean
+    boardId: string | null
+    boardRow: number | null
+    boardCol: number | null
+    boardRowSpan: number | null
+    boardColSpan: number | null
     supportedByAccessoryId: string | null
     shelfSlotStart: number | null
     shelfWidthSlots: number | null
@@ -251,6 +256,11 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
       rackFace,
       rackUnits,
       isFullDepth,
+      boardId: device.boardId ?? null,
+      boardRow: device.boardRow ?? null,
+      boardCol: device.boardCol ?? null,
+      boardRowSpan: device.boardId ? Math.max(1, device.boardRowSpan ?? 1) : null,
+      boardColSpan: device.boardId ? Math.max(1, device.boardColSpan ?? 1) : null,
       supportedByAccessoryId: device.supportedByAccessoryId ?? null,
       shelfSlotStart: device.shelfSlotStart ?? null,
       shelfWidthSlots: device.shelfWidthSlots ?? null,

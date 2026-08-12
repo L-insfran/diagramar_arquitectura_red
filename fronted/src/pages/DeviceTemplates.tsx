@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Plus, Pencil, Trash2, Box, Cable } from 'lucide-react'
+import { Plus, Pencil, Trash2, Box, Cable, Search } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { Button } from '../components/Button'
@@ -52,12 +52,22 @@ function formatError(err: unknown): string {
 }
 
 export default function DeviceTemplates() {
+  const [search, setSearch] = useState('')
+  const [deviceTypeFilter, setDeviceTypeFilter] = useState('')
+
   const {
     data: templates,
     isLoading,
     error,
     refetch,
-  } = useApi(() => deviceTemplatesService.getAll(), [])
+  } = useApi(
+    () =>
+      deviceTemplatesService.getAll({
+        search: search.trim() || undefined,
+        deviceTypeId: deviceTypeFilter || undefined,
+      }),
+    [search, deviceTypeFilter]
+  )
   const { data: deviceTypes } = useApi(() => deviceTypesService.getAll(), [])
   const { data: portTypes } = useApi(() => portTypesService.getAll(), [])
 
@@ -392,6 +402,27 @@ export default function DeviceTemplates() {
         }
       />
 
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="search"
+            placeholder="Buscar por nombre, fabricante o modelo…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+            aria-label="Buscar templates por nombre"
+          />
+        </div>
+        <Select
+          options={(deviceTypes || []).map((t) => ({ value: t.id, label: t.name }))}
+          placeholder="Todos los tipos"
+          value={deviceTypeFilter}
+          onChange={(e) => setDeviceTypeFilter(e.target.value)}
+          className="w-full sm:w-52"
+        />
+      </div>
+
       {error && (
         <p className="text-sm text-red-500">No se pudieron cargar los templates.</p>
       )}
@@ -400,7 +431,11 @@ export default function DeviceTemplates() {
         columns={columns}
         data={templates || []}
         isLoading={isLoading}
-        emptyMessage="No hay templates. Crea uno para poder instanciar dispositivos en cualquier proyecto."
+        emptyMessage={
+          search.trim() || deviceTypeFilter
+            ? 'No hay templates que coincidan con los filtros.'
+            : 'No hay templates. Crea uno para poder instanciar dispositivos en cualquier proyecto.'
+        }
       />
 
       <Modal

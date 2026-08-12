@@ -45,7 +45,7 @@ HTTP → routes.ts → Controller → Service → Model Lucid (PostgreSQL)
 | `backend/app/services/` | Services de dominio + `snmp/`, authz, project context, crypto |
 | `backend/app/validators/` | VineJS |
 | `backend/app/middleware/` | auth, role (role no siempre cableado en routes) |
-| `backend/database/migrations/` | `0001` … `0026` (siguiente: `0027_`) |
+| `backend/database/migrations/` | `0001` … `0049` (siguiente: `0050_`) |
 | `backend/start/routes.ts` | Definición de rutas API |
 | `backend/database/seeders/initial_seeder.ts` | Datos demo |
 
@@ -125,7 +125,7 @@ Login, SelectClient, Dashboard, Devices (+ create/edit/detail), VLANs, Networks,
 
 ## Módulo de topología
 
-Pieza más madura del producto.
+Pieza madura del producto (`/topology`).
 
 | Pieza | Rol |
 |-------|-----|
@@ -140,13 +140,25 @@ Pieza más madura del producto.
 
 Las **conexiones** ya son entidades de primera clase en DB (`connections` con puertos, medio, categoría de cable, fibra, wifi, longitud, estado, metadata).
 
+## Módulo diagrama de conexión
+
+Módulo hermano (`/connection-diagram`) — ADR 0008 / 0009 / 0010. Coexiste con topología.
+
+| Pieza | Rol |
+|-------|-----|
+| `pages/ConnectionDiagram.tsx` | Selector de diagramas, árbol inventario, toolbar |
+| `ConnectionDiagramCanvas.tsx` | Canvas con áreas → racks/tableros → equipos (o sueltos en área) |
+| `AreaContainerNode` / `BoardContainerNode` / `RackContainerNode` / `RoutedLinkEdge` | Nodos y cables enrutados |
+| `boards.service.ts` / `connection-diagrams.service.ts` / `diagram-links.service.ts` | API FE |
+| `boards` + `connection_diagrams` + `diagram_links` | Inventario tableros + layouts + enlaces simplificados |
+| `utils/diagram/orthogonalRouter.ts` | Ruteo ortogonal con evitación de solapes |
+
 ---
 
 ## Auditoría y borrado
 
-- Solo `created_at` / `updated_at` en tablas principales.
-- **No** hay `created_by`, `updated_by`, `deleted_by`, `deleted_at`.
-- Borrados actuales: **hard delete**.
+- Soft delete + auditoría by-user en piloto (devices, connections, templates, sites, areas, racks, boards, connection_diagrams, diagram_links, attachments, secrets).
+- Capas Repository + DTO (ADR 0002) en módulos nuevos/tocados.
 
 ---
 

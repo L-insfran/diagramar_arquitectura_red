@@ -12,6 +12,7 @@ export type DeviceFilters = {
   siteId?: string
   areaId?: string
   rackId?: string
+  boardId?: string
   search?: string
 }
 
@@ -31,6 +32,11 @@ export type CreateDeviceInput = {
   rackId?: string | null
   rackUnitStart?: number | null
   rackFace?: DeviceRackFace | null
+  boardId?: string | null
+  boardRow?: number | null
+  boardCol?: number | null
+  boardRowSpan?: number | null
+  boardColSpan?: number | null
   supportedByAccessoryId?: string | null
   shelfSlotStart?: number | null
   shelfWidthSlots?: number | null
@@ -55,6 +61,11 @@ export type UpdateDeviceInput = {
   rackId?: string | null
   rackUnitStart?: number | null
   rackFace?: DeviceRackFace | null
+  boardId?: string | null
+  boardRow?: number | null
+  boardCol?: number | null
+  boardRowSpan?: number | null
+  boardColSpan?: number | null
   supportedByAccessoryId?: string | null
   shelfSlotStart?: number | null
   shelfWidthSlots?: number | null

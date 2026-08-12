@@ -299,6 +299,53 @@ export interface Rack {
   updatedAt: string
 }
 
+export type BoardKind = 'electrical' | 'communications' | 'generic'
+
+export interface Board {
+  id: string
+  projectId: string
+  areaId: string
+  name: string
+  code: string | null
+  kind: BoardKind
+  gridRows: number
+  gridCols: number
+  manufacturer: string | null
+  model: string | null
+  notes: string | null
+  area?: Area
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BoardOccupancyDevice {
+  id: string
+  name: string
+  boardRow: number
+  boardCol: number
+  boardRowSpan: number
+  boardColSpan: number
+}
+
+export interface BoardOccupancyCell {
+  row: number
+  col: number
+  deviceId: string | null
+  deviceName: string | null
+  isStart: boolean
+}
+
+export interface BoardOccupancy {
+  boardId: string
+  gridRows: number
+  gridCols: number
+  usedCells: number
+  freeCells: number
+  percentUsed: number
+  devices: BoardOccupancyDevice[]
+  cells: BoardOccupancyCell[]
+}
+
 export type RackFace = 'front' | 'rear'
 /** Device mount face; `both` = full-depth (same U on front + rear). */
 export type DeviceRackFace = RackFace | 'both'
@@ -421,6 +468,11 @@ export interface Device {
   rackId: string | null
   rackUnitStart: number | null
   rackFace: DeviceRackFace | null
+  boardId?: string | null
+  boardRow?: number | null
+  boardCol?: number | null
+  boardRowSpan?: number | null
+  boardColSpan?: number | null
   supportedByAccessoryId?: string | null
   shelfSlotStart?: number | null
   shelfWidthSlots?: number | null
@@ -445,6 +497,7 @@ export interface Device {
   site?: Site
   area?: Area
   rack?: Rack
+  board?: Board
   supportedByAccessory?: RackAccessory
   ports?: Port[]
   employees?: Employee[]
@@ -614,6 +667,112 @@ export interface TopologyRackSummary {
   accessories?: TopologyRackAccessory[]
 }
 
+export interface TopologyBoardSummary {
+  id: string
+  name: string
+  code: string | null
+  kind: BoardKind
+  gridRows: number
+  gridCols: number
+  areaId: string
+  siteId: string | null
+  areaName: string | null
+  siteName: string | null
+}
+
+export type DiagramPoint = { x: number; y: number }
+
+export type DiagramEdgeRoute = {
+  points: DiagramPoint[]
+  /** User-edited orthogonal path; auto-router must not overwrite it. */
+  manual?: boolean
+}
+
+export type DiagramContainerState = {
+  x: number
+  y: number
+  view?: 'front' | 'rear' | 'both'
+  collapsed?: boolean
+  /** Device ids shown inside this container on the connection diagram (simple view). */
+  deviceIds?: string[]
+  /** Parent container id (e.g. `area:uuid` for nested rack/board). */
+  parentId?: string | null
+  /** Manual size for area containers (subcontainers keep their own size). */
+  width?: number
+  height?: number
+}
+
+export interface TopologyAreaSummary {
+  id: string
+  name: string
+  siteId: string
+  siteName: string | null
+}
+
+export type DiagramSettings = {
+  laneSpacing?: number
+  snapToGrid?: boolean
+  printOrientation?: 'portrait' | 'landscape'
+  paperSize?: 'a4' | 'a3'
+}
+
+export interface ConnectionDiagram {
+  id: string
+  projectId: string
+  name: string
+  description: string | null
+  scopeSiteIds: string[]
+  scopeAreaIds: string[]
+  nodePositions: Record<string, DiagramPoint>
+  labelOffsets: Record<string, DiagramPoint>
+  edgeRoutes: Record<string, DiagramEdgeRoute>
+  containers: Record<string, DiagramContainerState>
+  settings: DiagramSettings
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConnectionDiagramGraphPayload {
+  diagram: ConnectionDiagram
+  graph: { nodes: TopologyNode[]; edges: DiagramLinkEdge[] }
+  inventory: TopologyNode[]
+  racks: TopologyRackSummary[]
+  boards: TopologyBoardSummary[]
+  areas: TopologyAreaSummary[]
+  summary: TopologySummary
+}
+
+/** Enlace simplificado del diagrama (ADR 0010) — independiente de connections físicas. */
+export interface DiagramLink {
+  id: string
+  projectId: string
+  code: number
+  sourceDeviceId: string
+  targetDeviceId: string
+  sourcePortId: string | null
+  targetPortId: string | null
+  sourcePortLabel: string
+  targetPortLabel: string
+  description: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface DiagramLinkEdge {
+  id: string
+  code: number
+  source: string
+  target: string
+  sourcePort: string
+  targetPort: string
+  sourcePortId: string | null
+  targetPortId: string | null
+  sourceLabel: string
+  targetLabel: string
+  description: string | null
+}
+
 export interface TopologyNode {
   id: string
   label: string
@@ -636,6 +795,11 @@ export interface TopologyNode {
     rackFace?: DeviceRackFace | null
     rackUnits?: number
     isFullDepth?: boolean
+    boardId?: string | null
+    boardRow?: number | null
+    boardCol?: number | null
+    boardRowSpan?: number | null
+    boardColSpan?: number | null
     supportedByAccessoryId?: string | null
     shelfSlotStart?: number | null
     shelfWidthSlots?: number | null

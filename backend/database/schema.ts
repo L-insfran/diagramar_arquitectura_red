@@ -98,6 +98,45 @@ export class AttachmentSchema extends BaseModel {
   declare url: string | null
 }
 
+export class BoardSchema extends BaseModel {
+  static $columns = ['areaId', 'code', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'gridCols', 'gridRows', 'id', 'kind', 'manufacturer', 'model', 'name', 'notes', 'projectId', 'updatedAt', 'updatedBy'] as const
+  $columns = BoardSchema.$columns
+  @column()
+  declare areaId: string
+  @column()
+  declare code: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare gridCols: number
+  @column()
+  declare gridRows: number
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare kind: string
+  @column()
+  declare manufacturer: string | null
+  @column()
+  declare model: string | null
+  @column()
+  declare name: string
+  @column()
+  declare notes: string | null
+  @column()
+  declare projectId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
 export class CableTypeSchema extends BaseModel {
   static $columns = ['code', 'color', 'createdAt', 'defaultCategory', 'defaultFiberType', 'description', 'id', 'mediumFamily', 'name', 'sortOrder', 'updatedAt'] as const
   $columns = CableTypeSchema.$columns
@@ -123,6 +162,47 @@ export class CableTypeSchema extends BaseModel {
   declare sortOrder: number
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+}
+
+export class ConnectionDiagramSchema extends BaseModel {
+  static $columns = ['containers', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'edgeRoutes', 'id', 'labelOffsets', 'name', 'nodePositions', 'projectId', 'scopeAreaIds', 'scopeSiteIds', 'settings', 'sortOrder', 'updatedAt', 'updatedBy'] as const
+  $columns = ConnectionDiagramSchema.$columns
+  @column()
+  declare containers: any
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare description: string | null
+  @column()
+  declare edgeRoutes: any
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare labelOffsets: any
+  @column()
+  declare name: string
+  @column()
+  declare nodePositions: any
+  @column()
+  declare projectId: string
+  @column()
+  declare scopeAreaIds: any
+  @column()
+  declare scopeSiteIds: any
+  @column()
+  declare settings: any
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
 }
 
 export class ConnectionSchema extends BaseModel {
@@ -316,10 +396,20 @@ export class DeviceTypeSchema extends BaseModel {
 }
 
 export class DeviceSchema extends BaseModel {
-  static $columns = ['areaId', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'deviceTemplateId', 'deviceTypeId', 'firmwareVersion', 'hostname', 'id', 'ipAddress', 'location', 'macAddress', 'manufacturer', 'model', 'name', 'notes', 'projectId', 'rackFace', 'rackId', 'rackUnitStart', 'serialNumber', 'shelfHeightU', 'shelfSlotStart', 'shelfWidthSlots', 'siteId', 'status', 'supportedByAccessoryId', 'updatedAt', 'updatedBy'] as const
+  static $columns = ['areaId', 'boardCol', 'boardColSpan', 'boardId', 'boardRow', 'boardRowSpan', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'deviceTemplateId', 'deviceTypeId', 'firmwareVersion', 'hostname', 'id', 'ipAddress', 'location', 'macAddress', 'manufacturer', 'model', 'name', 'notes', 'projectId', 'rackFace', 'rackId', 'rackUnitStart', 'serialNumber', 'shelfHeightU', 'shelfSlotStart', 'shelfWidthSlots', 'siteId', 'status', 'supportedByAccessoryId', 'updatedAt', 'updatedBy'] as const
   $columns = DeviceSchema.$columns
   @column()
   declare areaId: string | null
+  @column()
+  declare boardCol: number | null
+  @column()
+  declare boardColSpan: number | null
+  @column()
+  declare boardId: string | null
+  @column()
+  declare boardRow: number | null
+  @column()
+  declare boardRowSpan: number | null
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
@@ -374,6 +464,43 @@ export class DeviceSchema extends BaseModel {
   declare status: any
   @column()
   declare supportedByAccessoryId: string | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
+export class DiagramLinkSchema extends BaseModel {
+  static $columns = ['code', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'id', 'projectId', 'sourceDeviceId', 'sourcePortId', 'sourcePortLabel', 'targetDeviceId', 'targetPortId', 'targetPortLabel', 'updatedAt', 'updatedBy'] as const
+  $columns = DiagramLinkSchema.$columns
+  @column()
+  declare code: number
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare description: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare projectId: string
+  @column()
+  declare sourceDeviceId: string
+  @column()
+  declare sourcePortId: string | null
+  @column()
+  declare sourcePortLabel: string
+  @column()
+  declare targetDeviceId: string
+  @column()
+  declare targetPortId: string | null
+  @column()
+  declare targetPortLabel: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
   @column()

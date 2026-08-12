@@ -88,6 +88,24 @@ export type ScannedRoutes = {
     'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.index': { paramsTuple?: []; params?: {} }
+    'boards.store': { paramsTuple?: []; params?: {} }
+    'boards.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.index': { paramsTuple?: []; params?: {} }
+    'connection_diagrams.store': { paramsTuple?: []; params?: {} }
+    'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.duplicate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.index': { paramsTuple?: []; params?: {} }
+    'diagram_links.store': { paramsTuple?: []; params?: {} }
+    'diagram_links.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
     'rack_accessory_templates.store': { paramsTuple?: []; params?: {} }
     'rack_accessory_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -171,6 +189,14 @@ export type ScannedRoutes = {
     'racks.index': { paramsTuple?: []; params?: {} }
     'racks.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.index': { paramsTuple?: []; params?: {} }
+    'boards.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.index': { paramsTuple?: []; params?: {} }
+    'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.index': { paramsTuple?: []; params?: {} }
+    'diagram_links.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
     'rack_accessory_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessories.index': { paramsTuple?: []; params?: {} }
@@ -226,6 +252,14 @@ export type ScannedRoutes = {
     'racks.index': { paramsTuple?: []; params?: {} }
     'racks.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.index': { paramsTuple?: []; params?: {} }
+    'boards.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.index': { paramsTuple?: []; params?: {} }
+    'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.index': { paramsTuple?: []; params?: {} }
+    'diagram_links.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
     'rack_accessory_templates.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessories.index': { paramsTuple?: []; params?: {} }
@@ -266,6 +300,10 @@ export type ScannedRoutes = {
     'sites.store': { paramsTuple?: []; params?: {} }
     'sites.areas_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.store': { paramsTuple?: []; params?: {} }
+    'boards.store': { paramsTuple?: []; params?: {} }
+    'connection_diagrams.store': { paramsTuple?: []; params?: {} }
+    'connection_diagrams.duplicate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.store': { paramsTuple?: []; params?: {} }
     'rack_accessory_templates.store': { paramsTuple?: []; params?: {} }
     'rack_accessories.store': { paramsTuple?: []; params?: {} }
     'port_types.store': { paramsTuple?: []; params?: {} }
@@ -296,6 +334,9 @@ export type ScannedRoutes = {
     'sites.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'sites.areas_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
     'racks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessories.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'port_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -324,6 +365,9 @@ export type ScannedRoutes = {
     'sites.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'sites.areas_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
     'racks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'boards.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'connection_diagrams.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_links.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessories.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'port_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }

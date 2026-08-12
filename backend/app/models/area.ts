@@ -3,6 +3,8 @@ import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Site from './site.js'
 import Device from './device.js'
+import Board from './board.js'
+import Rack from './rack.js'
 
 export default class Area extends BaseModel {
   @column({ isPrimary: true })
@@ -40,4 +42,10 @@ export default class Area extends BaseModel {
 
   @hasMany(() => Device)
   declare devices: HasMany<typeof Device>
+
+  @hasMany(() => Rack)
+  declare racks: HasMany<typeof Rack>
+
+  @hasMany(() => Board)
+  declare boards: HasMany<typeof Board>
 }

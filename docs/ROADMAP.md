@@ -125,8 +125,13 @@ Entregables:
 
 ### Topología física por rack
 
-- **Fase 1:** racks como contenedores en el diagrama físico; equipos apilados por U con puertos visibles; conexiones puerto↔puerto; highlight al clic en puerto.
+- **Fase 1:** racks como contenedores en el diagrama físico; equipos apilados por U con puertos visibles; conexiones puerto↔puerto; highlight al clic en puerto. *(parcialmente cubierto por `/topology` y por `/connection-diagram`)*
 - **Fase 2:** asistente **Imprimir reporte** con filtros Sitio → Área → Rack(s) → Cara → equipos sin rack; contenido diagrama / tabla / ambos; PDF client-side (`exportPdf` `table` | `diagram` | `full`).
+
+### Diagrama de conexión (entregado base)
+
+- Tableros (`boards`) como inventario; diagramas múltiples (`connection_diagrams`); ruteo ortogonal anti-solape; enlaces simplificados (`diagram_links`, ADR 0010).
+- Pendiente: página inventario `/boards`, DnD de equipos a celda desde el árbol, PDF del diagrama de conexión, picker de alcance sitios/áreas en UI.
 
 ### Futuro
 

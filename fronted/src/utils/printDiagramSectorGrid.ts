@@ -7,6 +7,7 @@ import {
   FOOTER_H,
   LEGEND_H,
   SECTOR_HEADER_H,
+  type PaperFormat,
   type PrintOrientation,
 } from './pdf/a4Geometry'
 import {
@@ -18,7 +19,7 @@ import {
   type DiagramPagePlan,
 } from './pdf/diagramScale'
 
-export type { PrintOrientation }
+export type { PrintOrientation, PaperFormat }
 export {
   MARGIN,
   HEADER_H,
@@ -61,12 +62,13 @@ export function getTopLevelVisibleNodes(nodes: Node[]): Node[] {
 export function planFromNodes(
   nodes: Node[],
   orientation: PrintOrientation,
+  format: PaperFormat = 'a4',
 ): { plan: DiagramPagePlan; bounds: { x: number; y: number; width: number; height: number } } | null {
   const top = getTopLevelVisibleNodes(nodes)
   if (top.length === 0) return null
   const bounds = getNodesBounds(top)
   if (!(bounds.width > 0) || !(bounds.height > 0)) return null
-  const plan = planDiagramPages(bounds, orientation)
+  const plan = planDiagramPages(bounds, orientation, format)
   return { plan, bounds }
 }
 
@@ -172,10 +174,11 @@ export function computeTileGrid(
 export function computeExportCaptureRect(
   nodes: Node[],
   orientation: PrintOrientation = 'landscape',
+  format: PaperFormat = 'a4',
 ): { x: number; y: number; width: number; height: number; cols: number; rows: number } | null {
-  const planned = planFromNodes(nodes, orientation)
+  const planned = planFromNodes(nodes, orientation, format)
   if (!planned) return null
-  const rect = captureRectFromPlan(planned.bounds, planned.plan, orientation)
+  const rect = captureRectFromPlan(planned.bounds, planned.plan, orientation, format)
   return { ...rect, cols: planned.plan.cols, rows: planned.plan.rows }
 }
 

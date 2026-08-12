@@ -14,6 +14,7 @@ export default class DeviceRepository {
       .preload('site')
       .preload('area')
       .preload('rack')
+      .preload('board')
       .preload('supportedByAccessory')
       .preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
       .orderBy('name', 'asc')
@@ -36,6 +37,9 @@ export default class DeviceRepository {
     if (filters?.rackId) {
       query.where('rack_id', filters.rackId)
     }
+    if (filters?.boardId) {
+      query.where('board_id', filters.boardId)
+    }
     if (filters?.search) {
       query.where((q) => {
         q.whereILike('name', `%${filters.search}%`)
@@ -56,6 +60,7 @@ export default class DeviceRepository {
       .preload('site')
       .preload('area')
       .preload('rack')
+      .preload('board')
       .preload('supportedByAccessory')
       .preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
       .preload('credentials')
@@ -73,6 +78,7 @@ export default class DeviceRepository {
       .preload('site')
       .preload('area')
       .preload('rack')
+      .preload('board')
       .preload('supportedByAccessory')
       .firstOrFail()
   }
@@ -95,6 +101,11 @@ export default class DeviceRepository {
       rackId: data.rackId ?? null,
       rackUnitStart: data.rackUnitStart ?? null,
       rackFace: data.rackFace ?? null,
+      boardId: data.boardId ?? null,
+      boardRow: data.boardRow ?? null,
+      boardCol: data.boardCol ?? null,
+      boardRowSpan: data.boardRowSpan ?? null,
+      boardColSpan: data.boardColSpan ?? null,
       supportedByAccessoryId: data.supportedByAccessoryId ?? null,
       shelfSlotStart: data.shelfSlotStart ?? null,
       shelfWidthSlots: data.shelfWidthSlots ?? null,

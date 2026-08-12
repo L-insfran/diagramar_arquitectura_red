@@ -2,12 +2,15 @@ import { useMemo, type ReactElement } from 'react'
 import { useStore, ViewportPortal } from '@xyflow/react'
 import {
   computeExportCaptureRect,
+  type PaperFormat,
   type PrintOrientation,
 } from '../../utils/printDiagramSectorGrid'
 
 type PrintSectorBoundsOverlayProps = {
   enabled: boolean
   orientation: PrintOrientation
+  /** Formato de hoja del plan de captura (default A4). */
+  format?: PaperFormat
 }
 
 const STROKE_PAGE1 = 'rgba(234, 88, 12, 0.95)'
@@ -15,14 +18,18 @@ const FILL_PAGE1 = 'rgba(234, 88, 12, 0.06)'
 const STROKE_EXTRA = 'rgba(234, 88, 12, 0.35)'
 const STROKE_FRAME = 'rgba(234, 88, 12, 0.45)'
 
-export function PrintSectorBoundsOverlay({ enabled, orientation }: PrintSectorBoundsOverlayProps) {
+export function PrintSectorBoundsOverlay({
+  enabled,
+  orientation,
+  format = 'a4',
+}: PrintSectorBoundsOverlayProps) {
   const nodes = useStore((s) => s.nodes)
 
   const data = useMemo(() => {
-    const rect = computeExportCaptureRect(nodes, orientation)
+    const rect = computeExportCaptureRect(nodes, orientation, format)
     if (!rect) return null
     return { rect, cols: rect.cols, rows: rect.rows }
-  }, [nodes, orientation])
+  }, [nodes, orientation, format])
 
   if (!enabled || !data) return null
 
@@ -90,7 +97,12 @@ export function PrintSectorBoundsOverlay({ enabled, orientation }: PrintSectorBo
 
   return (
     <ViewportPortal>
-      <svg className="pointer-events-none" style={{ overflow: 'visible' }} aria-hidden>
+      <svg
+        className="pointer-events-none"
+        style={{ overflow: 'visible' }}
+        aria-hidden
+        data-print-bounds-overlay="true"
+      >
         <rect
           x={x}
           y={y}
@@ -122,7 +134,7 @@ export function PrintSectorBoundsOverlay({ enabled, orientation }: PrintSectorBo
           fontFamily="system-ui, sans-serif"
           style={{ pointerEvents: 'none' }}
         >
-          Página 1 (A4)
+          {`Página 1 (${format.toUpperCase()})`}
         </text>
         {extraLabels}
       </svg>

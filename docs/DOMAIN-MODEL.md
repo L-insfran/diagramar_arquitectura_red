@@ -27,8 +27,13 @@ erDiagram
     sites ||--o{ devices : hosts
     areas ||--o{ devices : hosts
     areas ||--o{ racks : contains
+    areas ||--o{ boards : contains
     racks ||--o{ devices : mounts
+    boards ||--o{ devices : mounts
     racks ||--o{ rack_accessories : hosts
+    projects ||--o{ connection_diagrams : has
+    projects ||--o{ diagram_links : has
+    projects ||--o{ boards : has
     rack_accessory_templates ||--o{ rack_accessories : defines
     rack_accessories ||--o{ devices : supports
     devices ||--o{ ports : has
@@ -60,9 +65,10 @@ erDiagram
 | `sites` | Inventario físico por proyecto; soft delete |
 | `areas` | Bajo un sitio (planta/sala…); soft delete — **no** es `work_areas` del canvas |
 | `racks` | Bajo un área; `height_u`; soft delete |
+| `boards` | Tableros bajo un área; grilla `grid_rows`×`grid_cols`; `kind` electrical/communications/generic; soft delete — ADR 0008 |
 | `rack_accessory_templates` | Catálogo global de SKU: bandejas (`shelf`, 1–6U), colgantes (`hang`, 1–5U) y chasis/ordenadores (`chassis`, 1–4U, sin slots); `device_slot_count` 3–5 en shelf/hang, `0` en chassis; `face` en hang/chassis — ADR 0006 |
 | `rack_accessories` | Instancias en rack; shelf: `mount_type` front_only/four_post; hang/chassis: `face` front/rear; chassis ancho fijo 6/6 sin hospedar devices; soft delete |
-| `devices` | Instancia de template; montaje en rieles (`rack_unit_start` + `rack_face`) **o** en accesorio shelf/hang (`supported_by_accessory_id` + slots 0..N-1 + `shelf_height_u`; hang: alto ≤ accesorio; **no** en chassis); `location` texto legacy |
+| `devices` | Instancia de template; montaje en rieles (`rack_unit_start` + `rack_face`) **o** en accesorio shelf/hang (`supported_by_accessory_id` + slots) **o** en tablero (`board_id` + fila/col/spans); exclusión mutua board↔rack; `location` texto legacy |
 | `ports` | Por dispositivo; `port_type` string; `is_passthrough` editable (patch panel = 2 caras); `chassis_face` para jacks normales (ADR 0007) |
 | `port_types` | Catálogo: code, name, description, `default_speed`, color, icon, direction |
 | `cable_types` | Catálogo global de medios (familia, defaults, color, orden) |
@@ -70,10 +76,14 @@ erDiagram
 | `secrets` | Secretos cifrados polimórficos (reveal con mutate) |
 | `vlans`, `networks`, `port_vlans` | Capa L2/L3 |
 | `connections` | Entidad de primera clase; `source_face`/`target_face`; 1 física activa / (puerto, cara) |
-| `topology_canvas_layouts` | Layout visual + work_areas JSON; posiciones de racks (`rack:{id}`) |
+| `topology_canvas_layouts` | Layout visual de `/topology` + work_areas JSON; posiciones de racks (`rack:{id}`) |
+| `connection_diagrams` | Diagramas nombrados múltiples (scope sitios/áreas, containers, edge_routes) — ADR 0009 |
+| `diagram_links` | Enlaces simplificados equipo↔equipo (puerto opcional + etiqueta; `code` correlativo por proyecto, visible como E1…) para diagrama/informe — ADR 0010 |
 | `device_credentials`, `employee_credentials` | Secretos legacy de device/employee |
 
-**Topología física (canvas):** `GET /topology` expone en cada device `siteId`/`areaId`/`rackId`/`rackUnitStart`/`rackFace`/`rackUnits` y una lista `racks[]`. El canvas proyecta racks como contenedores con elevación por U; los equipos montados son hijos posicionados por U (no se persisten coords relativas U). Cada rack tiene selector de vista **Front / Rear / Ambas** (en "Ambas" se muestran dos columnas frente+dorso, con equipos de ambas caras conectables). `work_areas` del canvas ≠ `areas` de inventario. Impresión: filtros de inventario (sitio/área/rack/cara) en cliente → PDF tabla y/o diagrama.
+**Topología física (canvas `/topology`):** `GET /topology` expone en cada device ubicación física (incl. `boardId`/celda) y una lista `racks[]`. El canvas proyecta racks como contenedores con elevación por U. `work_areas` del canvas ≠ `areas` de inventario.
+
+**Diagrama de conexión (`/connection-diagram`):** múltiples vistas por proyecto; contenedores **área → rack|tablero** (equipos también sueltos en el área); ruteo ortogonal con evitación de solapes; layout en `connection_diagrams`; edges = `diagram_links` (ADR 0010), no `connections` físicas. Sobre el cable se muestra el código (`E1`); la descripción completa vive en la lista de referencia.
 
 ### Ausentes respecto a la visión
 

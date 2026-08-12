@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Jerarquía objetivo
 
-Proyecto → Sitios → Áreas → Racks → Equipos (desde Template) → Puertos → Conexiones. También: VLANs, Redes, Documentación. Todo bajo el scope raíz.
+Proyecto → Sitios → Áreas → Racks | Tableros → Equipos (desde Template) → Puertos → Conexiones. También: VLANs, Redes, Documentación, diagramas de conexión. Todo bajo el scope raíz.
 
 ## Qué EXISTE hoy (no inventar lo contrario)
 
@@ -15,13 +15,16 @@ Proyecto → Sitios → Áreas → Racks → Equipos (desde Template) → Puerto
 - `device_types` (catálogo icono/nombre — **no** es Device Template)
 - `device_templates`, `device_template_ports` (catálogo global de SKU; `is_full_depth`; `is_passthrough` + `chassis_face` en puertos de template; soft delete en templates — ADR 0004 / 0007)
 - `sites`, `areas`, `racks` (inventario físico; soft delete) — **distinto** de `work_areas` del canvas
+- `boards` (tableros bajo área; grilla filas×columnas; soft delete — ADR 0008)
 - `rack_accessory_templates`, `rack_accessories` (bandejas 1–6U / colgantes 1–5U / chassis 1–4U sin slots; hang/chassis `face`; huella horizontal 2–6/6; soft delete — ADR 0006)
-- `devices` (template + `site_id`/`area_id`/`rack_id` + `rack_unit_start`/`rack_face` `front|rear|both` o `supported_by_accessory_id` + slots + `shelf_height_u` en shelf/hang — no en chassis; `location` legacy), `ports` (`is_passthrough`, `chassis_face`), `port_types` (speed/color/icon/direction)
+- `devices` (template + site/area + montaje rack **o** shelf/hang **o** board; exclusión mutua board↔rack; `location` legacy), `ports` (`is_passthrough`, `chassis_face`), `port_types` (speed/color/icon/direction)
 - `cable_types` (catálogo; FK opcional en connections)
 - `vlans`, `networks`, `port_vlans`
 - `connections` (entidad real: puertos + caras front/rear, medio, cable_type, longitud, estado, metadata; 1 física activa por `(puerto, cara)` — ADR 0005)
 - `attachments`, `secrets` (docs/secretos polimórficos; archivos en `storage/attachments`)
-- `topology_canvas_layouts` (posiciones, work_areas JSON visual)
+- `topology_canvas_layouts` (posiciones, work_areas JSON visual — módulo `/topology`)
+- `connection_diagrams` (diagramas nombrados múltiples; edge_routes; containers área→rack|tablero — ADR 0009)
+- `diagram_links` (enlaces simplificados equipo↔equipo; puerto opcional + etiqueta; `code` correlativo por proyecto visible como E1; soft delete — ADR 0010)
 - Credenciales: `device_credentials`, `employee_credentials`
 
 ## Qué NO existe aún
@@ -30,6 +33,6 @@ Object storage cloud (S3/Drive/Blobs — hoy disco local).
 
 ## Reglas de modelado
 
-- Conexiones = entidades. Nunca texto libre. Un extremo = `(port, face)`; passthrough = 2 caras.
-- Templates definen marca/modelo/puertos/U/imagen/`is_full_depth` (`is_passthrough` y `chassis_face` se clonan); la instancia solo edita identidad operativa (nombre, serie, IP, MAC, hostname, estado, site/area/rack, notas) y puede ajustar `chassis_face`/`is_passthrough` por puerto.
+- Conexiones físicas = entidades `connections`. Un extremo = `(port, face)`; passthrough = 2 caras. Los `diagram_links` son bosquejo de diagrama/informe (etiqueta de puerto; FK de puerto opcional).
+- Templates definen marca/modelo/puertos/U/imagen/`is_full_depth` (`is_passthrough` y `chassis_face` se clonan); la instancia solo edita identidad operativa (nombre, serie, IP, MAC, hostname, estado, site/area/rack/board, notas) y puede ajustar `chassis_face`/`is_passthrough` por puerto.
 - Scope: `project_id` / `X-Project-Id`. Detalle: `docs/DOMAIN-MODEL.md`.
