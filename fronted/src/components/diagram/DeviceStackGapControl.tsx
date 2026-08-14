@@ -24,6 +24,8 @@ type DeviceStackGapControlProps = {
   onChange: (value: number) => void
   onChangeEnd?: (value: number) => void
   disabled?: boolean
+  /** `menu` omite borde/sombra para usar dentro del menú de opciones del canvas. */
+  variant?: 'panel' | 'menu'
 }
 
 function clampGap(n: number): number {
@@ -36,6 +38,7 @@ export function DeviceStackGapControl({
   onChange,
   onChangeEnd,
   disabled = false,
+  variant = 'panel',
 }: DeviceStackGapControlProps) {
   const draggingRef = useRef(false)
   const valueRef = useRef(value)
@@ -50,9 +53,14 @@ export function DeviceStackGapControl({
     [onChange, onChangeEnd],
   )
 
+  const shellClass =
+    variant === 'menu'
+      ? 'px-2.5 py-2'
+      : 'w-[min(100%,22rem)] rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur-sm dark:border-slate-600/90 dark:bg-slate-900/95'
+
   return (
     <div
-      className="w-[min(100%,22rem)] rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur-sm dark:border-slate-600/90 dark:bg-slate-900/95"
+      className={shellClass}
       role="group"
       aria-label="Espacio entre equipos apilados"
     >

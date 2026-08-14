@@ -5,7 +5,6 @@ import {
   Pencil,
   Plus,
   Printer,
-  RotateCcw,
   Save,
   Search,
   Trash2,
@@ -19,7 +18,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SimpleLinkModal } from '../components/diagram/SimpleLinkModal'
 import { DiagramLinkReferenceList } from '../components/diagram/DiagramLinkReferenceList'
 import { PrintModePanel } from '../components/diagram/PrintModePanel'
-import { DeviceStackGapControl } from '../components/diagram/DeviceStackGapControl'
+import { DiagramCanvasOptionsMenu } from '../components/diagram/DiagramCanvasOptionsMenu'
 import { SIMPLE_DEVICE_GAP } from '../components/diagram/SimpleDeviceNode'
 import {
   ConnectionDiagramCanvas,
@@ -1549,24 +1548,7 @@ export default function ConnectionDiagramPage() {
         <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {canMutate && selectedId && scopeSiteId && graphPayload && (
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<Plus className="h-4 w-4" />}
-                onClick={handleOpenCreateLink}
-                disabled={destinationDeviceOptions.length < 2}
-                title={
-                  destinationDeviceOptions.length < 2
-                    ? 'Agregá al menos dos equipos al diagrama'
-                    : 'Crear un enlace entre dos equipos'
-                }
-              >
-                Nuevo enlace
-              </Button>
-            )}
+          <div className="absolute right-3 top-3 z-20 flex flex-wrap items-center justify-end gap-2">
             {canMutate && selectedId && (
               <Button
                 size="sm"
@@ -1577,37 +1559,25 @@ export default function ConnectionDiagramPage() {
                 Guardar layout
               </Button>
             )}
-            {canMutate && staleLinkIds.length > 0 && (
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<RotateCcw className="h-4 w-4" />}
-                onClick={() => handleAutorouteLinks(staleLinkIds)}
-                title="Recalcular automáticamente las rutas que cruzan equipos"
-              >
-                Re-rutear desactualizados
-              </Button>
-            )}
-            {selectedId && (
+            {selectedId ? (
               <Button
                 size="sm"
                 variant={printModeOpen ? 'primary' : 'secondary'}
                 icon={<Printer className="h-4 w-4" />}
-                onClick={() => (printModeOpen ? closePrintMode() : openPrintMode())}
                 aria-pressed={printModeOpen}
+                onClick={() => (printModeOpen ? closePrintMode() : openPrintMode())}
               >
                 {printModeOpen ? 'Cerrar impresión' : 'Impresión'}
               </Button>
-            )}
-          </div>
-
-          {selectedId && scopeSiteId && diagramForCanvas && graphPayload ? (
-            <DeviceStackGapControl
-              value={deviceGap}
-              onChange={handleDeviceGapChange}
-              disabled={!canMutate}
-            />
-          ) : null}
+            ) : null}
+            {selectedId ? (
+              <DiagramCanvasOptionsMenu
+                showDeviceGap={Boolean(scopeSiteId && diagramForCanvas && graphPayload)}
+                deviceGap={deviceGap}
+                onDeviceGapChange={handleDeviceGapChange}
+                deviceGapDisabled={!canMutate}
+              />
+            ) : null}
           </div>
 
           {!selectedId && !loadingList && (
