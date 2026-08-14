@@ -31,6 +31,7 @@ export {
 }
 export {
   planDiagramPages,
+  planPagesForGrid,
   captureRectFromPlan,
   CAPTURE_FIT_PADDING,
   CAPTURE_FIT_MIN_ZOOM,
@@ -39,6 +40,7 @@ export {
   MIN_MM_PER_FLOW_PX,
   TILE_OVERLAP_MM,
   type DiagramPagePlan,
+  type DiagramPageGrid,
   type FlowBounds,
 } from './pdf/diagramScale'
 

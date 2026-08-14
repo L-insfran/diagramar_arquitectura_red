@@ -680,7 +680,7 @@ export interface TopologyBoardSummary {
   siteName: string | null
 }
 
-export type DiagramPoint = { x: number; y: number }
+export type DiagramPoint = { x: number; y: number; t?: number }
 
 export type DiagramEdgeRoute = {
   points: DiagramPoint[]
@@ -700,6 +700,9 @@ export type DiagramContainerState = {
   /** Manual size for area containers (subcontainers keep their own size). */
   width?: number
   height?: number
+  /** Content-fit size last persisted; used to preserve user padding when content shrinks. */
+  contentMinWidth?: number
+  contentMinHeight?: number
 }
 
 export interface TopologyAreaSummary {
@@ -709,11 +712,24 @@ export interface TopologyAreaSummary {
   siteName: string | null
 }
 
+export type DiagramPrintFrame = {
+  x: number
+  y: number
+  cols: number
+  rows: number
+  mmPerPx: number
+}
+
 export type DiagramSettings = {
+  /** Vertical gap between stacked devices inside containers (px). */
+  deviceGap?: number
   laneSpacing?: number
   snapToGrid?: boolean
   printOrientation?: 'portrait' | 'landscape'
   paperSize?: 'a4' | 'a3'
+  printFrame?: DiagramPrintFrame
+  printIncludeLegend?: boolean
+  printIncludeLinkTable?: boolean
 }
 
 export interface ConnectionDiagram {

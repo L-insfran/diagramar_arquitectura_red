@@ -6,6 +6,7 @@ import SiteService from '#services/site_service'
 import RackService from '#services/rack_service'
 import BoardService from '#services/board_service'
 import RackAccessoryService from '#services/rack_accessory_service'
+import DiagramLinkService from '#services/diagram_link_service'
 import type { CreateDeviceInput, DeviceFilters, UpdateDeviceInput } from '#dtos/device_dto'
 
 function isInternetCloudDeviceTypeName(name: string | null | undefined): boolean {
@@ -28,6 +29,7 @@ export default class DeviceService {
   private racks = new RackService()
   private boards = new BoardService()
   private accessories = new RackAccessoryService()
+  private diagramLinks = new DiagramLinkService()
 
   async getAllByProject(projectId: string, filters?: DeviceFilters) {
     return this.devices.findAllByProject(projectId, filters)
@@ -420,6 +422,7 @@ export default class DeviceService {
 
   async delete(id: string, actorId: string) {
     const device = await this.devices.findActiveSummaryOrFail(id)
+    await this.diagramLinks.softDeleteByDeviceId(id, actorId)
     await this.devices.softDelete(device, actorId)
   }
 }

@@ -14,7 +14,26 @@ export const SIMPLE_DEVICE_PORT_ROW_H = 18
 export const SIMPLE_DEVICE_NAME_LINE_H = 18
 export const SIMPLE_DEVICE_NAME_ROW_H = 24
 export const SIMPLE_DEVICE_META_H = 14
-export const SIMPLE_DEVICE_GAP = 8
+/** Default vertical channel between stacked devices. */
+export const SIMPLE_DEVICE_GAP = 28
+export const DEVICE_GAP_MIN = 8
+export const DEVICE_GAP_MAX = 72
+export const DEVICE_GAP_STEP = 4
+/** Extra air above the first and below the last stacked device. */
+export const SIMPLE_DEVICE_STACK_PAD = 18
+
+export type DeviceStackLayoutOpts = {
+  hidePicker?: boolean
+  deviceGap?: number
+}
+
+export function resolveDeviceGap(opts?: DeviceStackLayoutOpts): number {
+  const raw = opts?.deviceGap
+  if (raw != null && Number.isFinite(raw)) {
+    return Math.min(DEVICE_GAP_MAX, Math.max(DEVICE_GAP_MIN, raw))
+  }
+  return SIMPLE_DEVICE_GAP
+}
 export const CONTAINER_PAD = 12
 /** Title + ubicación (hasta 2 líneas). */
 export const CONTAINER_HEADER_H = 60

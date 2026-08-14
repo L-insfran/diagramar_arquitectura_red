@@ -108,3 +108,85 @@ export function pathLongestSegment(points: DiagramPoint[]): PathSegmentInfo {
 export function pathLabelAnchor(points: DiagramPoint[]): DiagramPoint {
   return pathLongestSegment(points).mid
 }
+
+export function polylineLength(points: DiagramPoint[]): number {
+  const pts = dedupePoints(points)
+  let total = 0
+  for (let i = 1; i < pts.length; i++) {
+    total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+  }
+  return total
+}
+
+/** Point at normalized distance t ∈ [0, 1] along the polyline. */
+export function pointAtPathT(points: DiagramPoint[], t: number): DiagramPoint {
+  const pts = dedupePoints(points)
+  if (pts.length === 0) return { x: 0, y: 0 }
+  if (pts.length === 1) return pts[0]
+  const total = polylineLength(pts)
+  if (total <= 0) return pts[0]
+  let remaining = Math.min(1, Math.max(0, t)) * total
+  for (let i = 1; i < pts.length; i++) {
+    const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+    if (remaining <= len || i === pts.length - 1) {
+      const r = len === 0 ? 0 : remaining / len
+      return {
+        x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * r,
+        y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * r,
+      }
+    }
+    remaining -= len
+  }
+  return pts[pts.length - 1]
+}
+
+/** Closest point on the polyline and its normalized path parameter. */
+export function closestPointOnPath(
+  points: DiagramPoint[],
+  p: DiagramPoint,
+): { point: DiagramPoint; t: number } {
+  const pts = dedupePoints(points)
+  if (pts.length === 0) return { point: { x: 0, y: 0 }, t: 0 }
+  if (pts.length === 1) return { point: pts[0], t: 0 }
+
+  let bestDist = Infinity
+  let bestPoint = pts[0]
+  let bestAlong = 0
+  let along = 0
+  const total = polylineLength(pts)
+
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]
+    const b = pts[i]
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const lenSq = dx * dx + dy * dy
+    const len = Math.sqrt(lenSq)
+    const u =
+      lenSq === 0
+        ? 0
+        : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq))
+    const proj = { x: a.x + dx * u, y: a.y + dy * u }
+    const d = Math.hypot(p.x - proj.x, p.y - proj.y)
+    if (d < bestDist) {
+      bestDist = d
+      bestPoint = proj
+      bestAlong = along + u * len
+    }
+    along += len
+  }
+
+  return { point: bestPoint, t: total > 0 ? bestAlong / total : 0 }
+}
+
+/** Default label t: midpoint of the longest visible segment. */
+export function defaultLabelPathT(points: DiagramPoint[]): number {
+  return closestPointOnPath(points, pathLabelAnchor(points)).t
+}
+
+/** Keep the chip off the device handles at both ends. */
+export function clampLabelPathT(t: number, totalLen: number, insetPx = 20): number {
+  if (totalLen <= insetPx * 2) return 0.5
+  const a = insetPx / totalLen
+  return Math.min(1 - a, Math.max(a, t))
+}

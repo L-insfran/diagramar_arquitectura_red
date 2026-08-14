@@ -1,6 +1,9 @@
 import {
+  closestPointOnPath,
+  defaultLabelPathT,
   pathLabelAnchor,
-  pathLongestSegment,
+  pointAtPathT,
+  polylineLength,
   type DiagramPoint,
 } from './orthogonalPath'
 
@@ -11,14 +14,12 @@ export type LabelObstacle = {
   height: number
 }
 
-export type LabelOffset = { x: number; y: number }
+export type LabelOffset = { x: number; y: number; t?: number }
 
 /** Approx. label footprint for collision (compact code chip — E12). */
 const LABEL_W = 52
 const LABEL_H = 22
 const PAD = 3
-/** Max distance from cable anchor before accepting overlap. */
-const MAX_ANCHOR_DIST = 28
 
 function rectsOverlap(
   a: { x: number; y: number; w: number; h: number },
@@ -34,7 +35,6 @@ function rectsOverlap(
 }
 
 function labelBox(cx: number, cy: number): { x: number; y: number; w: number; h: number } {
-  // Coincide con transform translate(-50%, -50%) del EdgeLabelRenderer
   return {
     x: cx - LABEL_W / 2,
     y: cy - LABEL_H / 2,
@@ -48,87 +48,79 @@ function collides(cx: number, cy: number, obstacles: LabelObstacle[]): boolean {
   return obstacles.some((o) => rectsOverlap(box, o, PAD))
 }
 
-function offsetFromAnchor(anchor: DiagramPoint, cx: number, cy: number): LabelOffset {
-  return { x: cx - anchor.x, y: cy - anchor.y }
+function offsetFromAnchor(
+  anchor: DiagramPoint,
+  cx: number,
+  cy: number,
+  t: number,
+): LabelOffset {
+  return { x: cx - anchor.x, y: cy - anchor.y, t }
 }
 
-function dist(a: DiagramPoint, b: DiagramPoint): number {
-  return Math.hypot(a.x - b.x, a.y - b.y)
+function samplePathTs(routePoints: DiagramPoint[]): number[] {
+  const preferred = defaultLabelPathT(routePoints)
+  const ts = [preferred]
+  const total = polylineLength(routePoints)
+  if (total < 8) return ts
+  const steps = Math.min(20, Math.max(8, Math.round(total / 28)))
+  for (let i = 1; i < steps; i++) {
+    ts.push(i / steps)
+  }
+  return ts
 }
 
 /**
- * Candidatos pegados al tramo más largo del cable: primero sobre la línea,
- * luego desplazamientos mínimos perpendiculares o a lo largo del tramo.
- */
-function buildCandidateAnchors(
-  routePoints: DiagramPoint[] | undefined,
-): DiagramPoint[] {
-  const seg = pathLongestSegment(routePoints ?? [])
-  const { mid, dir } = seg
-  const anchors: DiagramPoint[] = [{ x: mid.x, y: mid.y }]
-
-  const perpX = -dir.y
-  const perpY = dir.x
-
-  for (const d of [6, -6, 10, -10]) {
-    anchors.push({ x: mid.x + perpX * d, y: mid.y + perpY * d })
-  }
-
-  for (const d of [-20, -10, 10, 20, -32, 32]) {
-    anchors.push({ x: mid.x + dir.x * d, y: mid.y + dir.y * d })
-  }
-
-  return anchors
-}
-
-function labelAnchor(routePoints: DiagramPoint[] | undefined): DiagramPoint {
-  return pathLabelAnchor(routePoints ?? [])
-}
-
-/**
- * Elige un offset pegado al cable. Prefiere claridad, pero no aleja la
- * etiqueta más de lo necesario.
+ * Elige un punto sobre el cable. Si ya hay un t guardado, lo respeta.
+ * Si no, busca un t libre a lo largo de la polilínea (sin salir de la línea).
  */
 export function findClearLabelOffset(
   routePoints: DiagramPoint[] | undefined,
   obstacles: LabelObstacle[],
   existing?: LabelOffset | null,
 ): LabelOffset {
-  const anchor = labelAnchor(routePoints)
+  const pts = routePoints ?? []
+  const anchor = pathLabelAnchor(pts)
 
-  if (existing) {
-    const ex = { x: anchor.x + existing.x, y: anchor.y + existing.y }
-    if (!collides(ex.x, ex.y, obstacles) && dist(ex, anchor) <= MAX_ANCHOR_DIST) {
-      return existing
+  if (existing?.t != null && Number.isFinite(existing.t)) {
+    const t = Math.min(1, Math.max(0, existing.t))
+    const pos = pointAtPathT(pts, t)
+    return offsetFromAnchor(anchor, pos.x, pos.y, t)
+  }
+
+  if (existing && (existing.x !== 0 || existing.y !== 0)) {
+    const desired = { x: anchor.x + existing.x, y: anchor.y + existing.y }
+    const snapped = closestPointOnPath(pts, desired)
+    return offsetFromAnchor(anchor, snapped.point.x, snapped.point.y, snapped.t)
+  }
+
+  let bestClear: { pos: DiagramPoint; t: number } | null = null
+  let bestAny: { pos: DiagramPoint; t: number } | null = null
+  const preferredT = defaultLabelPathT(pts)
+
+  for (const t of samplePathTs(pts)) {
+    const pos = pointAtPathT(pts, t)
+    const dPreferred = Math.abs(t - preferredT)
+    if (!bestAny || dPreferred < Math.abs(bestAny.t - preferredT)) {
+      bestAny = { pos, t }
+    }
+    if (!collides(pos.x, pos.y, obstacles)) {
+      if (!bestClear || dPreferred < Math.abs(bestClear.t - preferredT)) {
+        bestClear = { pos, t }
+      }
+      if (dPreferred <= 0.04) {
+        return offsetFromAnchor(anchor, pos.x, pos.y, t)
+      }
     }
   }
 
-  let bestClear: { anchor: DiagramPoint; d: number } | null = null
-  let bestAny: { anchor: DiagramPoint; d: number } | null = null
-
-  for (const candidate of buildCandidateAnchors(routePoints)) {
-    const d = dist(candidate, anchor)
-    if (!bestAny || d < bestAny.d) bestAny = { anchor: candidate, d }
-    if (!collides(candidate.x, candidate.y, obstacles)) {
-      if (!bestClear || d < bestClear.d) bestClear = { anchor: candidate, d }
-      if (d <= 12) return offsetFromAnchor(anchor, candidate.x, candidate.y)
-    }
-  }
-
-  if (bestClear && bestClear.d <= MAX_ANCHOR_DIST) {
-    return offsetFromAnchor(anchor, bestClear.anchor.x, bestClear.anchor.y)
-  }
-
-  if (bestAny) {
-    return offsetFromAnchor(anchor, bestAny.anchor.x, bestAny.anchor.y)
-  }
-
-  return { x: 0, y: 0 }
+  const pick = bestClear ?? bestAny
+  if (pick) return offsetFromAnchor(anchor, pick.pos.x, pick.pos.y, pick.t)
+  return { x: 0, y: 0, t: preferredT }
 }
 
 /**
  * Calcula offsets por edge id. Coloca en orden y trata etiquetas ya ubicadas
- * como obstáculos para evitar solapes entre sí.
+ * como obstáculos para evitar solapes entre sí. Siempre sobre la línea.
  */
 export function computeClearLabelOffsets(
   edges: Array<{
@@ -136,6 +128,7 @@ export function computeClearLabelOffsets(
     routePoints?: DiagramPoint[]
     labelOffsetX?: number
     labelOffsetY?: number
+    labelPathT?: number
   }>,
   obstacles: LabelObstacle[],
 ): Record<string, LabelOffset> {
@@ -147,16 +140,18 @@ export function computeClearLabelOffsets(
     const off = findClearLabelOffset(
       e.routePoints,
       dynamic,
-      e.labelOffsetX != null || e.labelOffsetY != null
-        ? { x: e.labelOffsetX ?? 0, y: e.labelOffsetY ?? 0 }
+      e.labelPathT != null || e.labelOffsetX != null || e.labelOffsetY != null
+        ? {
+            x: e.labelOffsetX ?? 0,
+            y: e.labelOffsetY ?? 0,
+            t: e.labelPathT,
+          }
         : null,
     )
     out[e.id] = off
 
-    const anchor = labelAnchor(e.routePoints)
-    const cx = anchor.x + off.x
-    const cy = anchor.y + off.y
-    const box = labelBox(cx, cy)
+    const pos = pointAtPathT(e.routePoints ?? [], off.t ?? defaultLabelPathT(e.routePoints ?? []))
+    const box = labelBox(pos.x, pos.y)
     dynamic.push({
       x: box.x,
       y: box.y,

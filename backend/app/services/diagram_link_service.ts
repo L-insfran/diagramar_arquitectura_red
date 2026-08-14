@@ -33,6 +33,27 @@ export default class DiagramLinkService {
     return this.links.findAllByProject(projectId)
   }
 
+  async softDeleteOrphansWithDeletedDevices(actorId: string) {
+    await this.links.softDeleteOrphansWithDeletedDevices(actorId)
+  }
+
+  toApi(link: DiagramLink) {
+    return {
+      id: link.id,
+      projectId: link.projectId,
+      code: link.code,
+      sourceDeviceId: link.sourceDeviceId,
+      targetDeviceId: link.targetDeviceId,
+      sourcePortId: link.sourcePortId,
+      targetPortId: link.targetPortId,
+      sourcePortLabel: link.sourcePortLabel,
+      targetPortLabel: link.targetPortLabel,
+      description: link.description,
+      createdAt: link.createdAt?.toISO?.() ?? null,
+      updatedAt: link.updatedAt?.toISO?.() ?? null,
+    }
+  }
+
   async getById(id: string) {
     return this.links.findByIdOrFail(id)
   }
@@ -179,6 +200,8 @@ export default class DiagramLinkService {
       }
     }
 
+    await this.softDeleteOrphansWithDeletedDevices(actorId)
+
     await this.assertBothEndpointsAvailable(
       data.sourceDeviceId,
       data.targetDeviceId,
@@ -240,6 +263,8 @@ export default class DiagramLinkService {
       targetPortId
     )
 
+    await this.softDeleteOrphansWithDeletedDevices(actorId)
+
     await this.assertBothEndpointsAvailable(
       sourceDeviceId,
       targetDeviceId,
@@ -257,6 +282,10 @@ export default class DiagramLinkService {
   async delete(id: string, actorId: string) {
     const link = await this.links.findSummaryOrFail(id)
     await this.links.softDelete(link, actorId)
+  }
+
+  async softDeleteByDeviceId(deviceId: string, actorId: string) {
+    await this.links.softDeleteByDeviceId(deviceId, actorId)
   }
 
   toEdge(link: DiagramLink): DiagramLinkEdge {

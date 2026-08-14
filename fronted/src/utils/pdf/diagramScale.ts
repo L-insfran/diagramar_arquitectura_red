@@ -1,4 +1,4 @@
-import type { PaperFormat, PrintOrientation } from './a4Geometry'
+import type { PaperFormat, PrintOrientation, PaperGeometry } from './a4Geometry'
 import { getPaperGeometry } from './a4Geometry'
 
 /** mm por píxel de flujo objetivo (1U = 44 px → 4.4 mm). */
@@ -22,6 +22,12 @@ export const CAPTURE_FIT_MAX_ZOOM = 4
 
 export type FlowBounds = { x: number; y: number; width: number; height: number }
 
+export type DiagramPageGrid = {
+  cols: number
+  rows: number
+  mmPerPx: number
+}
+
 export type DiagramPagePlan = {
   cols: number
   rows: number
@@ -44,6 +50,54 @@ function mmToCssPx(mm: number, dpi: number): number {
 }
 
 /**
+ * Plan de captura (DPI / pixelRatio) a partir de una grilla ya decidida.
+ */
+export function planPagesForGrid(
+  grid: DiagramPageGrid,
+  geom: PaperGeometry,
+): DiagramPagePlan {
+  const cols = Math.max(1, Math.round(grid.cols))
+  const rows = Math.max(1, Math.round(grid.rows))
+  const mmPerPx = Math.max(0.02, grid.mmPerPx)
+
+  const totalMmW = cols * geom.sector.w
+  const totalMmH = rows * geom.sector.h
+
+  let dpi = EXPORT_DPI
+  let cssW = Math.round(mmToCssPx(totalMmW, dpi))
+  let cssH = Math.round(mmToCssPx(totalMmH, dpi))
+  let pixelRatio = 1
+
+  const tryPixels = (w: number, h: number, pr: number) => w * h * pr * pr
+  while (tryPixels(cssW, cssH, pixelRatio) > MAX_EXPORT_PIXELS && pixelRatio > 1) {
+    pixelRatio = 1
+  }
+  while (tryPixels(cssW, cssH, 1) > MAX_EXPORT_PIXELS && dpi > MIN_EXPORT_DPI) {
+    dpi = Math.max(MIN_EXPORT_DPI, dpi - 10)
+    cssW = Math.round(mmToCssPx(totalMmW, dpi))
+    cssH = Math.round(mmToCssPx(totalMmH, dpi))
+  }
+  if (tryPixels(cssW, cssH, 2) <= MAX_EXPORT_PIXELS) pixelRatio = 2
+  if (tryPixels(cssW, cssH, 3) <= MAX_EXPORT_PIXELS && dpi >= 140) pixelRatio = 3
+
+  const imgW = Math.round(cssW * pixelRatio)
+  const imgH = Math.round(cssH * pixelRatio)
+  const mmPerImgPx = totalMmW / imgW
+
+  return {
+    cols,
+    rows,
+    mmPerPx,
+    cssW,
+    cssH,
+    pixelRatio,
+    imgW,
+    imgH,
+    mmPerImgPx,
+  }
+}
+
+/**
  * Planifica la grilla de sectores (A4/A3) y las dimensiones de captura
  * a partir de los bounds reales del diagrama (coords de flujo).
  */
@@ -60,14 +114,12 @@ export function planDiagramPages(
   let cols = Math.max(1, Math.ceil((bw * mmPerPx) / geom.sector.w))
   let rows = Math.max(1, Math.ceil((bh * mmPerPx) / geom.sector.h))
 
-  // Bajar escala hasta caber en MAX_DIAGRAM_PAGES (o hasta el piso).
   while (cols * rows > MAX_DIAGRAM_PAGES && mmPerPx > MIN_MM_PER_FLOW_PX + 1e-6) {
     mmPerPx = Math.max(MIN_MM_PER_FLOW_PX, mmPerPx * 0.85)
     cols = Math.max(1, Math.ceil((bw * mmPerPx) / geom.sector.w))
     rows = Math.max(1, Math.ceil((bh * mmPerPx) / geom.sector.h))
   }
 
-  // Si aún supera el tope al piso, forzar grilla acotada.
   if (cols * rows > MAX_DIAGRAM_PAGES) {
     const aspect = bw / bh
     const pageAspect = geom.sector.w / geom.sector.h
@@ -94,44 +146,7 @@ export function planDiagramPages(
     mmPerPx = Math.max(MIN_MM_PER_FLOW_PX * 0.5, mmPerPx)
   }
 
-  // El PNG cubre exactamente la grilla de sectores (mismo aspect → sin bandas).
-  const totalMmW = cols * geom.sector.w
-  const totalMmH = rows * geom.sector.h
-
-  let dpi = EXPORT_DPI
-  let cssW = Math.round(mmToCssPx(totalMmW, dpi))
-  let cssH = Math.round(mmToCssPx(totalMmH, dpi))
-  let pixelRatio = 1
-
-  // Ajustar pixelRatio / DPI para no superar el límite de memoria.
-  const tryPixels = (w: number, h: number, pr: number) => w * h * pr * pr
-  while (tryPixels(cssW, cssH, pixelRatio) > MAX_EXPORT_PIXELS && pixelRatio > 1) {
-    pixelRatio = 1
-  }
-  while (tryPixels(cssW, cssH, 1) > MAX_EXPORT_PIXELS && dpi > MIN_EXPORT_DPI) {
-    dpi = Math.max(MIN_EXPORT_DPI, dpi - 10)
-    cssW = Math.round(mmToCssPx(totalMmW, dpi))
-    cssH = Math.round(mmToCssPx(totalMmH, dpi))
-  }
-  // Subir pixelRatio si cabe.
-  if (tryPixels(cssW, cssH, 2) <= MAX_EXPORT_PIXELS) pixelRatio = 2
-  if (tryPixels(cssW, cssH, 3) <= MAX_EXPORT_PIXELS && dpi >= 140) pixelRatio = 3
-
-  const imgW = Math.round(cssW * pixelRatio)
-  const imgH = Math.round(cssH * pixelRatio)
-  const mmPerImgPx = totalMmW / imgW
-
-  return {
-    cols,
-    rows,
-    mmPerPx,
-    cssW,
-    cssH,
-    pixelRatio,
-    imgW,
-    imgH,
-    mmPerImgPx,
-  }
+  return planPagesForGrid({ cols, rows, mmPerPx }, geom)
 }
 
 /**

@@ -18,8 +18,13 @@ export default class DiagramLinksController {
     const context = await requireProjectContext(ctx)
     if (!context) return
 
+    const user = ctx.auth.getUserOrFail() as SystemUser
+    await this.diagramLinks.softDeleteOrphansWithDeletedDevices(user.id)
     const links = await this.diagramLinks.getAllByProject(context.projectId)
-    return ctx.response.ok({ success: true, data: links })
+    return ctx.response.ok({
+      success: true,
+      data: links.map((link) => this.diagramLinks.toApi(link)),
+    })
   }
 
   async store(ctx: HttpContext) {
@@ -40,10 +45,10 @@ export default class DiagramLinksController {
 
     try {
       const link = await this.diagramLinks.create(data, user.id)
-      return ctx.response.created({ success: true, data: link })
+      return ctx.response.created({ success: true, data: this.diagramLinks.toApi(link) })
     } catch (error: any) {
-      if (error?.status === 422) {
-        return ctx.response.unprocessableEntity({ success: false, message: error.message })
+      if (error?.status === 422 || error?.status === 409) {
+        return ctx.response.status(error.status).send({ success: false, message: error.message })
       }
       throw error
     }
@@ -55,7 +60,7 @@ export default class DiagramLinksController {
     if (!(await canAccessProject(user, link.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    return response.ok({ success: true, data: link })
+    return response.ok({ success: true, data: this.diagramLinks.toApi(link) })
   }
 
   async update({ auth, params, request, response }: HttpContext) {
@@ -67,7 +72,7 @@ export default class DiagramLinksController {
     const data = await request.validateUsing(updateDiagramLinkValidator)
     try {
       const updated = await this.diagramLinks.update(params.id, data, user.id)
-      return response.ok({ success: true, data: updated })
+      return response.ok({ success: true, data: this.diagramLinks.toApi(updated) })
     } catch (error: any) {
       if (error?.status === 422 || error?.status === 409) {
         return response.status(error.status).send({ success: false, message: error.message })

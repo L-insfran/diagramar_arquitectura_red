@@ -8,7 +8,12 @@ import {
 } from '@xyflow/react'
 import { MEDIUM_EDGE_STYLES, type MediumInfo, type MediumType } from '../../types'
 import {
+  clampLabelPathT,
+  closestPointOnPath,
+  defaultLabelPathT,
   pathLabelAnchor,
+  pointAtPathT,
+  polylineLength,
   roundedOrthogonalPath,
   type DiagramPoint,
 } from '../../utils/diagram/orthogonalPath'
@@ -21,6 +26,7 @@ import {
   listSegmentHandles,
   reattachOrthogonalEnds,
 } from '../../utils/diagram/orthogonalRouteEdit'
+import { repairManualRoute } from '../../utils/diagram/routeTransform'
 
 export type RoutedLinkEdgeData = {
   code?: number
@@ -35,9 +41,13 @@ export type RoutedLinkEdgeData = {
   routePoints?: DiagramPoint[]
   /** When true, auto-router must not overwrite the user's path. */
   routeManual?: boolean
+  /** Manual route that now crosses another node after a move. */
+  routeStale?: boolean
   readOnly?: boolean
   labelOffsetX?: number
   labelOffsetY?: number
+  /** Normalized position of the code chip along the polyline (0–1). */
+  labelPathT?: number
   vlanLabel?: string
   networkLabel?: string
   [key: string]: unknown
@@ -48,6 +58,7 @@ export type RoutedLinkEdgeType = Edge<RoutedLinkEdgeData, 'routedLink'>
 type DragKind =
   | { type: 'segment'; index: number }
   | { type: 'corner'; index: number }
+  | { type: 'label' }
 
 function RoutedLinkEdgeComponent({
   id,
@@ -69,7 +80,9 @@ function RoutedLinkEdgeComponent({
     const source = { x: sourceX, y: sourceY }
     const target = { x: targetX, y: targetY }
     if (data?.routePoints && data.routePoints.length >= 2) {
-      return reattachOrthogonalEnds(data.routePoints, source, target)
+      return data.routeManual
+        ? repairManualRoute(data.routePoints, source, target)
+        : reattachOrthogonalEnds(data.routePoints, source, target)
     }
     const midY = (sourceY + targetY) / 2
     return [
@@ -78,17 +91,30 @@ function RoutedLinkEdgeComponent({
       { x: targetX, y: midY },
       target,
     ]
-  }, [data?.routePoints, sourceX, sourceY, targetX, targetY])
+  }, [data?.routePoints, data?.routeManual, sourceX, sourceY, targetX, targetY])
 
   pointsRef.current = points
 
   const path = useMemo(() => roundedOrthogonalPath(points, 8), [points])
-  const anchor = useMemo(() => pathLabelAnchor(points), [points])
+
+  const labelT = useMemo(() => {
+    if (data?.labelPathT != null && Number.isFinite(data.labelPathT)) {
+      return Math.min(1, Math.max(0, data.labelPathT))
+    }
+    const anchor = pathLabelAnchor(points)
+    if (data?.labelOffsetX || data?.labelOffsetY) {
+      return closestPointOnPath(points, {
+        x: anchor.x + (data.labelOffsetX ?? 0),
+        y: anchor.y + (data.labelOffsetY ?? 0),
+      }).t
+    }
+    return defaultLabelPathT(points)
+  }, [data?.labelPathT, data?.labelOffsetX, data?.labelOffsetY, points])
+
+  const labelPos = useMemo(() => pointAtPathT(points, labelT), [points, labelT])
 
   const mediumType = (data?.medium?.mediumType ?? 'utp') as MediumType
   const mediumStyle = MEDIUM_EDGE_STYLES[mediumType] ?? MEDIUM_EDGE_STYLES.utp
-  const labelX = anchor.x + (data?.labelOffsetX ?? 0)
-  const labelY = anchor.y + (data?.labelOffsetY ?? 0)
 
   const sourceText = data?.sourceLabel || data?.sourcePort || null
   const targetText = data?.targetLabel || data?.targetPort || null
@@ -98,7 +124,9 @@ function RoutedLinkEdgeComponent({
       : sourceText || targetText || null
   const label = data?.code != null ? formatLinkCode(data.code) : fullLabel
 
+  const stale = data?.routeStale === true
   const editable = Boolean(selected && !data?.readOnly)
+  const canDragLabel = !data?.readOnly
   const segmentHandles = useMemo(
     () => (editable ? listSegmentHandles(points) : []),
     [editable, points]
@@ -128,18 +156,47 @@ function RoutedLinkEdgeComponent({
     [id, setEdges]
   )
 
+  const commitLabelT = useCallback(
+    (t: number) => {
+      const pts = pointsRef.current
+      const clamped = clampLabelPathT(t, polylineLength(pts))
+      const pos = pointAtPathT(pts, clamped)
+      const anchor = pathLabelAnchor(pts)
+      setEdges((eds) =>
+        eds.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                data: {
+                  ...e.data,
+                  labelPathT: clamped,
+                  labelOffsetX: pos.x - anchor.x,
+                  labelOffsetY: pos.y - anchor.y,
+                },
+              }
+            : e
+        )
+      )
+    },
+    [id, setEdges]
+  )
+
   const onPointerMove = useCallback(
     (event: PointerEvent) => {
       const session = dragSessionRef.current
       if (!session) return
       const cursor = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      if (session.kind.type === 'label') {
+        commitLabelT(closestPointOnPath(pointsRef.current, cursor).t)
+        return
+      }
       const next =
         session.kind.type === 'segment'
           ? dragOrthogonalSegment(session.basePoints, session.kind.index, cursor)
           : dragOrthogonalCorner(session.basePoints, session.kind.index, cursor)
       commitPoints(next)
     },
-    [commitPoints, screenToFlowPosition]
+    [commitLabelT, commitPoints, screenToFlowPosition]
   )
 
   const onPointerUp = useCallback(() => {
@@ -180,23 +237,39 @@ function RoutedLinkEdgeComponent({
         interactionWidth={24}
         style={{
           ...style,
-          stroke: mediumStyle.stroke,
-          strokeDasharray: mediumStyle.strokeDasharray,
-          strokeWidth: selected ? 4 : 2,
+          stroke: stale ? '#f59e0b' : mediumStyle.stroke,
+          strokeDasharray: stale ? '7 5' : mediumStyle.strokeDasharray,
+          strokeWidth: selected ? 4 : stale ? 2.5 : 2,
           filter: selected
             ? 'drop-shadow(0 0 5px rgba(56, 189, 248, 0.95))'
-            : undefined,
+            : stale
+              ? 'drop-shadow(0 0 4px rgba(245, 158, 11, 0.7))'
+              : undefined,
         }}
       />
       {label ? (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan absolute z-[5000] rounded-md border border-sky-300/80 bg-slate-950/95 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-50 shadow-lg ring-1 ring-sky-500/30 dark:border-sky-600/80"
+            className={`nodrag nopan absolute z-[5000] select-none rounded-md border px-1.5 py-0.5 text-[10px] font-bold leading-none shadow-lg ${
+              stale
+                ? 'border-amber-400/90 bg-amber-950/95 text-amber-50 ring-1 ring-amber-500/40'
+                : 'border-sky-300/80 bg-slate-950/95 text-sky-50 ring-1 ring-sky-500/30 dark:border-sky-600/80'
+            } ${canDragLabel ? 'cursor-grab hover:ring-2 hover:ring-sky-400/70 active:cursor-grabbing' : ''}`}
             style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${labelPos.x}px, ${labelPos.y}px)`,
               pointerEvents: 'auto',
+              touchAction: 'none',
             }}
-            title={fullLabel ?? label}
+            title={
+              stale
+                ? `${fullLabel ?? label} · ruta desactualizada (cruza un equipo)`
+                : canDragLabel
+                  ? `${fullLabel ?? label} · arrastrar a lo largo del enlace`
+                  : (fullLabel ?? label)
+            }
+            onPointerDown={
+              canDragLabel ? (e) => startDrag(e, { type: 'label' }) : undefined
+            }
           >
             {label}
           </div>

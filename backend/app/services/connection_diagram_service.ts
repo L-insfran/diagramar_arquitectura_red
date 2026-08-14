@@ -104,8 +104,11 @@ export default class ConnectionDiagramService {
     return this.diagrams.findByIdOrFail(copy.id)
   }
 
-  async getGraph(id: string) {
+  async getGraph(id: string, actorId?: string) {
     const diagram = await this.diagrams.findByIdOrFail(id)
+    if (actorId) {
+      await this.diagramLinks.softDeleteOrphansWithDeletedDevices(actorId)
+    }
     const topology = await this.topology.getTopology(diagram.projectId)
 
     const siteFilter = new Set(diagram.scopeSiteIds ?? [])

@@ -6,6 +6,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   ConnectionMode,
+  getNodesBounds,
   useEdgesState,
   useNodesState,
   type ColorMode,
@@ -29,8 +30,11 @@ import { useTheme } from '../../contexts/ThemeContext'
 import {
   AreaContainerNode,
   AREA_BODY_PAD,
+  applySavedAreaExtent,
   areaContentTop,
+  areaLooseContentTop,
   layoutAreaChildren,
+  reorderLooseDeviceIdsByY,
   stackLooseDevicePositions,
 } from './AreaContainerNode'
 import { BoardContainerNode } from './BoardContainerNode'
@@ -49,6 +53,8 @@ import {
   CONTAINER_PAD,
   CONTAINER_HEADER_H,
   CONTAINER_SELECTOR_H,
+  SIMPLE_DEVICE_STACK_PAD,
+  resolveDeviceGap,
 } from './SimpleDeviceNode'
 import { accentColorForNodeId } from '../../utils/topologyAccent'
 import { areaFlowNodeId } from '../../utils/areaPlacement'
@@ -59,7 +65,7 @@ import {
   type DiagramRect,
   type DiagramRouteRequest,
 } from '../../utils/diagram/orthogonalRouter'
-import { reattachOrthogonalEnds } from '../../utils/diagram/orthogonalRouteEdit'
+import { isRouteStale, repairManualRoute } from '../../utils/diagram/routeTransform'
 import { computeClearLabelOffsets } from '../../utils/diagram/edgeLabelPlacement'
 import { formatEndpointLabel } from '../../utils/diagram/linkLabel'
 import {
@@ -76,13 +82,16 @@ import {
 } from '../../utils/pdf/diagramCapturePdf'
 import {
   getCaptureViewport,
+  getTopLevelVisibleNodes,
   planFromNodes,
 } from '../../utils/printDiagramSectorGrid'
 import type { PaperFormat, PrintOrientation } from '../../utils/pdf/a4Geometry'
-import { PrintSectorBoundsOverlay } from '../topology/PrintSectorBoundsOverlay'
+import { planFromFrame } from '../../utils/pdf/printFrame'
+import { PrintFrameOverlay } from './PrintFrameOverlay'
 import type {
   ConnectionDiagram,
   DiagramLinkEdge,
+  DiagramPrintFrame,
   DiagramSettings,
   TopologyAreaSummary,
   TopologyBoardSummary,
@@ -110,9 +119,21 @@ export type ConnectionDiagramCanvasHandle = {
     format: PaperFormat,
     orientation: PrintOrientation,
   ) => Promise<CapturedDiagram | null>
-  getPersistPayload: (printSettings?: Pick<DiagramSettings, 'paperSize' | 'printOrientation'>) => {
+  getContentBounds: () => { x: number; y: number; width: number; height: number } | null
+  getStaleLinkIds: () => string[]
+  autorouteLinks: (edgeIds: string[]) => void
+  getPersistPayload: (
+    printSettings?: Pick<
+      DiagramSettings,
+      | 'paperSize'
+      | 'printOrientation'
+      | 'printFrame'
+      | 'printIncludeLegend'
+      | 'printIncludeLinkTable'
+    >,
+  ) => {
     nodePositions: Record<string, { x: number; y: number }>
-    labelOffsets: Record<string, { y: number; x: number }>
+    labelOffsets: Record<string, { y: number; x: number; t?: number }>
     edgeRoutes: Record<string, { points: { x: number; y: number }[]; manual?: boolean }>
     containers: Record<
       string,
@@ -125,6 +146,8 @@ export type ConnectionDiagramCanvasHandle = {
         parentId?: string | null
         width?: number
         height?: number
+        contentMinWidth?: number
+        contentMinHeight?: number
       }
     >
     settings: DiagramSettings
@@ -145,6 +168,12 @@ type Props = {
   paperSize?: PaperFormat
   printOrientation?: PrintOrientation
   showPrintMargins?: boolean
+  printFrame?: DiagramPrintFrame | null
+  printFrameLocked?: boolean
+  onPrintFrameChange?: (frame: DiagramPrintFrame) => void
+  onPrintFrameChangeEnd?: (frame: DiagramPrintFrame) => void
+  onPrintDiagnostics?: (info: { outsideCount: number; cutCount: number }) => void
+  onStaleLinkIdsChange?: (ids: string[]) => void
   onConnectDevices?: (params: {
     sourceDeviceId: string
     targetDeviceId: string
@@ -192,22 +221,107 @@ function cloneFlowEdges(edges: Edge<RoutedLinkEdgeData>[]): Edge<RoutedLinkEdgeD
       ...e.data,
       routePoints: e.data?.routePoints?.map((p) => ({ ...p })),
       routeManual: e.data?.routeManual,
+      routeStale: e.data?.routeStale,
     },
   }))
 }
 
-function collectLabelObstacles(nodes: Node[]) {
-  const obstacles: { x: number; y: number; width: number; height: number }[] = []
+function containerChromeHeight(node: Node): number {
+  const hidePicker = Boolean((node.data as { hidePicker?: boolean })?.hidePicker)
+  return CONTAINER_HEADER_H + (hidePicker ? 0 : CONTAINER_SELECTOR_H)
+}
+
+/**
+ * Rack/board/área son huecos: los cables pueden pasar entre equipos apilados.
+ * Solo bloquean el chrome (título + buscador) y los equipos individuales.
+ */
+function collectRouteObstacles(nodes: Node[]): DiagramRect[] {
+  const obstacles: DiagramRect[] = []
   for (const n of nodes) {
-    // Área = contenedor hueco: no bloquear etiquetas/rutas en su interior.
-    if (n.type === 'areaContainer') continue
     const abs = absolutePos(nodes, n.id)
     if (!abs) continue
     const w = Number(n.style?.width ?? n.width ?? 200)
     const h = Number(n.style?.height ?? n.height ?? 80)
-    obstacles.push({ x: abs.x, y: abs.y, width: w, height: h })
+    if (n.type === 'areaContainer') continue
+    if (n.type === 'rackContainer' || n.type === 'boardContainer') {
+      obstacles.push({
+        id: `${n.id}:chrome`,
+        x: abs.x,
+        y: abs.y,
+        width: w,
+        height: containerChromeHeight(n),
+      })
+      continue
+    }
+    obstacles.push({ id: n.id, x: abs.x, y: abs.y, width: w, height: h })
   }
   return obstacles
+}
+
+function collectLabelObstacles(nodes: Node[]) {
+  return collectRouteObstacles(nodes).map(({ x, y, width, height }) => ({
+    x,
+    y,
+    width,
+    height,
+  }))
+}
+
+/** Mid-Y of the air gap between stacked sibling devices — passable Hanan rows. */
+function collectStackCorridorYs(nodes: Node[]): number[] {
+  const byParent = new Map<string, Node[]>()
+  for (const n of nodes) {
+    if (n.type !== 'simpleDevice' || !n.parentId) continue
+    const list = byParent.get(n.parentId) ?? []
+    list.push(n)
+    byParent.set(n.parentId, list)
+  }
+  const ys: number[] = []
+  for (const siblings of byParent.values()) {
+    const sorted = [...siblings].sort((a, b) => {
+      const ay = absolutePos(nodes, a.id)?.y ?? 0
+      const by = absolutePos(nodes, b.id)?.y ?? 0
+      return ay - by
+    })
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i]
+      const b = sorted[i + 1]
+      const aAbs = absolutePos(nodes, a.id)
+      const bAbs = absolutePos(nodes, b.id)
+      if (!aAbs || !bAbs) continue
+      const aH = Number(a.style?.height ?? a.height ?? 36)
+      const gapTop = aAbs.y + aH
+      const gapBot = bAbs.y
+      if (gapBot - gapTop >= 10) ys.push((gapTop + gapBot) / 2)
+    }
+  }
+  return ys
+}
+
+function nextDeviceOrderInContainer(
+  allNodes: Node[],
+  parentId: string,
+  baseIds: string[],
+  heightById: Record<string, number>,
+  draggedId: string,
+  dropY: number,
+  hidePicker: boolean,
+  deviceGap: number,
+): string[] {
+  const stackOpts = { hidePicker, deviceGap }
+  const parent = allNodes.find((n) => n.id === parentId)
+  if (parent?.type === 'areaContainer') {
+    const hasSub = Boolean(
+      (parent.data as { hasSubContainers?: boolean })?.hasSubContainers
+    )
+    return reorderLooseDeviceIdsByY(baseIds, heightById, draggedId, dropY, {
+      x: AREA_BODY_PAD,
+      y: hasSub
+        ? areaContentTop({ hidePicker })
+        : areaLooseContentTop({ hidePicker }),
+    }, stackOpts)
+  }
+  return reorderDeviceIdsByY(baseIds, heightById, draggedId, dropY, stackOpts)
 }
 
 function buildGraph(params: {
@@ -252,7 +366,8 @@ function buildGraph(params: {
   const nodes: Node[] = []
   const containers = diagram.containers ?? {}
   const visibleSet = new Set(visibleContainerIds)
-  const sizeOpts = { hidePicker }
+  const deviceGap = resolveDeviceGap({ deviceGap: diagram.settings?.deviceGap })
+  const sizeOpts = { hidePicker, deviceGap }
 
   const deviceById = new Map(inventory.map((d) => [d.id, d]))
   const shownDeviceIds = new Set<string>()
@@ -317,30 +432,38 @@ function buildGraph(params: {
   let autoX = 40
   let autoY = 40
 
+  const onlyExistingDeviceIds = (ids: string[]) => ids.filter((id) => deviceById.has(id))
+
   const resolveRackDevices = (rackId: string, containerKey: string) => {
     const saved = containers[containerKey]
-    return saved?.deviceIds != null
-      ? [...saved.deviceIds]
-      : inventory.filter((d) => d.data.rackId === rackId).map((d) => d.id)
+    const raw =
+      saved?.deviceIds != null
+        ? [...saved.deviceIds]
+        : inventory.filter((d) => d.data.rackId === rackId).map((d) => d.id)
+    return onlyExistingDeviceIds(raw)
   }
 
   const resolveBoardDevices = (boardId: string, containerKey: string) => {
     const saved = containers[containerKey]
-    return saved?.deviceIds != null
-      ? [...saved.deviceIds]
-      : inventory.filter((d) => d.data.boardId === boardId).map((d) => d.id)
+    const raw =
+      saved?.deviceIds != null
+        ? [...saved.deviceIds]
+        : inventory.filter((d) => d.data.boardId === boardId).map((d) => d.id)
+    return onlyExistingDeviceIds(raw)
   }
 
   const resolveLooseAreaDevices = (areaId: string, containerKey: string) => {
     const saved = containers[containerKey]
-    return saved?.deviceIds != null
-      ? [...saved.deviceIds]
-      : inventory
-          .filter(
-            (d) =>
-              d.data.areaId === areaId && !d.data.rackId && !d.data.boardId
-          )
-          .map((d) => d.id)
+    const raw =
+      saved?.deviceIds != null
+        ? [...saved.deviceIds]
+        : inventory
+            .filter(
+              (d) =>
+                d.data.areaId === areaId && !d.data.rackId && !d.data.boardId
+            )
+            .map((d) => d.id)
+    return onlyExistingDeviceIds(raw)
   }
 
   /** Equipos ya colocados en cualquier contenedor visible (orden-independiente). */
@@ -389,7 +512,10 @@ function buildGraph(params: {
         draggable: deviceDraggable,
         position: stack[did] ?? {
           x: CONTAINER_PAD,
-          y: CONTAINER_HEADER_H + (hidePicker ? 0 : CONTAINER_SELECTOR_H),
+          y:
+            CONTAINER_HEADER_H +
+            (hidePicker ? 0 : CONTAINER_SELECTOR_H) +
+            SIMPLE_DEVICE_STACK_PAD,
         },
         data: {
           label: dev.label,
@@ -648,7 +774,7 @@ function buildGraph(params: {
     if (looseHeights.length > 0) {
       const body =
         looseHeights.reduce((s, h) => s + h, 0) +
-        Math.max(0, looseHeights.length - 1) * 8
+        Math.max(0, looseHeights.length - 1) * deviceGap
       contentMinW = Math.max(
         contentMinW,
         autoLayout.looseOrigin.x + SIMPLE_DEVICE_WIDTH + 8 + AREA_BODY_PAD
@@ -659,8 +785,16 @@ function buildGraph(params: {
       )
     }
 
-    const areaW = Math.max(contentMinW, savedArea?.width ?? contentMinW)
-    const areaH = Math.max(contentMinH, savedArea?.height ?? contentMinH)
+    const areaW = applySavedAreaExtent(
+      contentMinW,
+      savedArea?.width,
+      savedArea?.contentMinWidth
+    )
+    const areaH = applySavedAreaExtent(
+      contentMinH,
+      savedArea?.height,
+      savedArea?.contentMinHeight
+    )
 
     const areaPos = { x: savedArea?.x ?? autoX, y: savedArea?.y ?? autoY }
     autoX += areaW + 64
@@ -726,7 +860,8 @@ function buildGraph(params: {
     const looseStack = stackLooseDevicePositions(
       looseDeviceIds,
       looseHeightById,
-      autoLayout.looseOrigin
+      autoLayout.looseOrigin,
+      sizeOpts,
     )
     pushDeviceNodes(areaId, looseDeviceIds, looseHeightById, looseStack, area.name)
   }
@@ -793,6 +928,7 @@ function buildGraph(params: {
           routeManual: route?.manual === true,
           labelOffsetX: labelOff?.x,
           labelOffsetY: labelOff?.y,
+          labelPathT: labelOff?.t,
         },
       }
     })
@@ -813,6 +949,12 @@ function ConnectionDiagramCanvasInner(
     paperSize = 'a4',
     printOrientation = 'landscape',
     showPrintMargins = false,
+    printFrame = null,
+    printFrameLocked = false,
+    onPrintFrameChange,
+    onPrintFrameChangeEnd,
+    onPrintDiagnostics,
+    onStaleLinkIdsChange,
     onConnectDevices,
     onPortClick,
     onDeviceDoubleClick,
@@ -834,6 +976,8 @@ function ConnectionDiagramCanvasInner(
     onPortClick,
     onDeviceDoubleClick,
     onFocusedLinkChange,
+    onStaleLinkIdsChange,
+    onPrintDiagnostics,
   })
   callbacksRef.current = {
     onAddDeviceToContainer,
@@ -842,6 +986,8 @@ function ConnectionDiagramCanvasInner(
     onPortClick,
     onDeviceDoubleClick,
     onFocusedLinkChange,
+    onStaleLinkIdsChange,
+    onPrintDiagnostics,
   }
 
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[])
@@ -861,6 +1007,10 @@ function ConnectionDiagramCanvasInner(
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
   const focusedLinkIdRef = useRef(focusedLinkId)
   focusedLinkIdRef.current = focusedLinkId
+  const deviceGap = resolveDeviceGap({ deviceGap: diagram.settings?.deviceGap })
+  const deviceGapRef = useRef(deviceGap)
+  deviceGapRef.current = deviceGap
+  const prevDeviceGapRef = useRef(deviceGap)
 
   useEffect(() => {
     didFitRef.current = false
@@ -922,7 +1072,8 @@ function ConnectionDiagramCanvasInner(
           n.type === 'boardContainer'
         ) {
           const existing = prevById.get(n.id)
-          // Roots: keep drag position + manual size.
+          // Roots: keep drag position. Areas also keep unsaved manual resize,
+          // but shrink when content (devices/racks) got smaller.
           // Nested racks/boards: keep manual drag position inside the area.
           if (
             existing &&
@@ -933,14 +1084,35 @@ function ConnectionDiagramCanvasInner(
             const builtH = Number(n.style?.height ?? 0)
             const prevW = Number(existing.style?.width ?? existing.width ?? 0)
             const prevH = Number(existing.style?.height ?? existing.height ?? 0)
+            let width = builtW || prevW
+            let height = builtH || prevH
+            if (n.type === 'areaContainer') {
+              const builtMinW = Number(
+                (n.data as { contentMinWidth?: number }).contentMinWidth ?? builtW
+              )
+              const prevMinW = Number(
+                (existing.data as { contentMinWidth?: number }).contentMinWidth ?? prevW
+              )
+              const builtMinH = Number(
+                (n.data as { contentMinHeight?: number }).contentMinHeight ?? builtH
+              )
+              const prevMinH = Number(
+                (existing.data as { contentMinHeight?: number }).contentMinHeight ?? prevH
+              )
+              const contentShrunk = builtMinW < prevMinW - 0.5 || builtMinH < prevMinH - 0.5
+              if (!contentShrunk) {
+                width = Math.max(builtW, prevW) || builtW
+                height = Math.max(builtH, prevH) || builtH
+              }
+            }
             return {
               ...n,
               position: existing.position,
               selected: existing.selected,
               style: {
                 ...n.style,
-                width: Math.max(builtW, prevW) || builtW,
-                height: Math.max(builtH, prevH) || builtH,
+                width,
+                height,
               },
               zIndex: existing.zIndex && existing.zIndex > 1 ? existing.zIndex : n.zIndex,
             }
@@ -1070,16 +1242,8 @@ function ConnectionDiagramCanvasInner(
     const currentNodes = nodesRef.current
     const currentEdges = edgesRef.current
 
-    const obstacles: DiagramRect[] = []
-    for (const n of currentNodes) {
-      // Área hueca: si se incluye, los cables intra-área no encuentran grid libre.
-      if (n.type === 'areaContainer') continue
-      const abs = absolutePos(currentNodes, n.id)
-      if (!abs) continue
-      const w = Number(n.style?.width ?? n.width ?? 200)
-      const h = Number(n.style?.height ?? n.height ?? 80)
-      obstacles.push({ id: n.id, x: abs.x, y: abs.y, width: w, height: h })
-    }
+    const obstacles = collectRouteObstacles(currentNodes)
+    const corridorYs = collectStackCorridorYs(currentNodes)
 
     const endpointByEdgeId: Record<
       string,
@@ -1155,7 +1319,8 @@ function ConnectionDiagramCanvasInner(
       requests.length > 0
         ? routeOrthogonalEdges(requests, obstacles, {
             laneSpacing: diagram.settings?.laneSpacing ?? 10,
-            padding: 14,
+            padding: 8,
+            extraYs: corridorYs,
           })
         : {}
 
@@ -1164,7 +1329,7 @@ function ConnectionDiagramCanvasInner(
       const ep = endpointByEdgeId[e.id]
       if (!ep) continue
       routes[e.id] = {
-        points: reattachOrthogonalEnds(e.data.routePoints, ep.source, ep.target),
+        points: repairManualRoute(e.data.routePoints, ep.source, ep.target),
       }
     }
 
@@ -1173,31 +1338,49 @@ function ConnectionDiagramCanvasInner(
     const edgesWithRoutes = currentEdges.map((e) => ({
       id: e.id,
       routePoints: routes[e.id]?.points ?? e.data?.routePoints,
-      labelOffsetX: undefined as number | undefined,
-      labelOffsetY: undefined as number | undefined,
+      labelOffsetX: e.data?.labelOffsetX,
+      labelOffsetY: e.data?.labelOffsetY,
+      labelPathT: e.data?.labelPathT,
     }))
     const labelObstacles = collectLabelObstacles(currentNodes)
     const labelOffsets = computeClearLabelOffsets(edgesWithRoutes, labelObstacles)
 
+    const staleIds: string[] = []
     setEdges((prev) =>
       prev.map((e) => {
         const next = routes[e.id]?.points
         const off = labelOffsets[e.id]
-        if (!next?.length && !off) return e
+        const points = next?.length ? next : e.data?.routePoints
+        const manual = e.data?.routeManual === true
+        const stale =
+          manual && points && points.length >= 2
+            ? isRouteStale(points, obstacles, { ignoreIds: [e.source, e.target] })
+            : false
+        if (stale) staleIds.push(e.id)
+        if (!next?.length && !off && e.data?.routeStale === stale) return e
         return {
           ...e,
           data: {
             ...e.data,
             ...(next?.length ? { routePoints: next } : {}),
-            // Preserve manual flag; autoroute never clears it here.
-            routeManual: e.data?.routeManual === true,
-            labelOffsetX: off?.x ?? 0,
-            labelOffsetY: off?.y ?? 0,
+            routeManual: manual,
+            routeStale: stale,
+            labelOffsetX: off?.x ?? e.data?.labelOffsetX ?? 0,
+            labelOffsetY: off?.y ?? e.data?.labelOffsetY ?? 0,
+            labelPathT: off?.t ?? e.data?.labelPathT,
           },
         }
       })
     )
+    callbacksRef.current.onStaleLinkIdsChange?.(staleIds)
   }, [diagram.settings?.laneSpacing, setEdges])
+
+  useEffect(() => {
+    if (prevDeviceGapRef.current === deviceGap) return
+    prevDeviceGapRef.current = deviceGap
+    const t = window.setTimeout(() => rerouteCables(), 120)
+    return () => window.clearTimeout(t)
+  }, [deviceGap, rerouteCables])
 
   const captureDiagramPng = useCallback(
     async (
@@ -1239,6 +1422,7 @@ function ConnectionDiagramCanvasInner(
             routePoints: e.data?.routePoints,
             labelOffsetX: e.data?.labelOffsetX,
             labelOffsetY: e.data?.labelOffsetY,
+            labelPathT: e.data?.labelPathT,
           })),
           obstacles,
         )
@@ -1252,6 +1436,7 @@ function ConnectionDiagramCanvasInner(
                 ...e.data,
                 labelOffsetX: off.x,
                 labelOffsetY: off.y,
+                labelPathT: off.t,
               },
             }
           })
@@ -1261,7 +1446,9 @@ function ConnectionDiagramCanvasInner(
         await new Promise<void>((r) => setTimeout(r, 60))
         await new Promise<void>((r) => requestAnimationFrame(() => r()))
 
-        const planned = planFromNodes(nodesRef.current, orientation, format)
+        const planned = printFrame
+          ? planFromFrame(printFrame, format, orientation)
+          : planFromNodes(nodesRef.current, orientation, format)
         if (!planned) return null
 
         const { plan, bounds } = planned
@@ -1295,7 +1482,7 @@ function ConnectionDiagramCanvasInner(
         await new Promise<void>((r) => setTimeout(r, 40))
       }
     },
-    [rerouteCables, setNodes, setEdges]
+    [printFrame, rerouteCables, setNodes, setEdges]
   )
 
   useImperativeHandle(
@@ -1304,6 +1491,36 @@ function ConnectionDiagramCanvasInner(
       rerouteCables,
       selectLink,
       captureDiagramPng,
+      getContentBounds: () => {
+        const top = getTopLevelVisibleNodes(nodesRef.current)
+        if (top.length === 0) return null
+        const bounds = getNodesBounds(top)
+        if (!(bounds.width > 0) || !(bounds.height > 0)) return null
+        return bounds
+      },
+      getStaleLinkIds: () =>
+        edgesRef.current
+          .filter((e) => e.data?.routeStale === true)
+          .map((e) => e.id),
+      autorouteLinks: (edgeIds) => {
+        if (!edgeIds.length) return
+        const idSet = new Set(edgeIds)
+        const next = edgesRef.current.map((e) =>
+          idSet.has(e.id)
+            ? {
+                ...e,
+                data: {
+                  ...e.data,
+                  routeManual: false,
+                  routeStale: false,
+                },
+              }
+            : e,
+        )
+        edgesRef.current = next
+        setEdges(next)
+        rerouteCables()
+      },
       getPersistPayload: (printSettings) => {
         const nodePositions: Record<string, { x: number; y: number }> = {}
         const containers: Record<
@@ -1317,11 +1534,13 @@ function ConnectionDiagramCanvasInner(
             parentId?: string | null
             width?: number
             height?: number
+            contentMinWidth?: number
+            contentMinHeight?: number
           }
         > = { ...(diagram.containers ?? {}) }
         const edgeRoutes: Record<string, { points: { x: number; y: number }[]; manual?: boolean }> =
           {}
-        const labelOffsets: Record<string, { x: number; y: number }> = {}
+        const labelOffsets: Record<string, { x: number; y: number; t?: number }> = {}
 
         for (const n of nodesRef.current) {
           if (
@@ -1332,6 +1551,14 @@ function ConnectionDiagramCanvasInner(
             const prev = containers[n.id] ?? { x: n.position.x, y: n.position.y }
             const w = Number(n.style?.width ?? n.width ?? prev.width ?? 0)
             const h = Number(n.style?.height ?? n.height ?? prev.height ?? 0)
+            const contentMinW = Number(
+              (n.data as { contentMinWidth?: number })?.contentMinWidth ?? prev.contentMinWidth ?? 0
+            )
+            const contentMinH = Number(
+              (n.data as { contentMinHeight?: number })?.contentMinHeight ??
+                prev.contentMinHeight ??
+                0
+            )
             containers[n.id] = {
               ...prev,
               x: n.position.x,
@@ -1341,6 +1568,12 @@ function ConnectionDiagramCanvasInner(
                 (n.data as { deviceIds?: string[] })?.deviceIds ?? prev.deviceIds ?? [],
               ...(n.type === 'areaContainer' && w > 0 ? { width: w } : {}),
               ...(n.type === 'areaContainer' && h > 0 ? { height: h } : {}),
+              ...(n.type === 'areaContainer' && contentMinW > 0
+                ? { contentMinWidth: contentMinW }
+                : {}),
+              ...(n.type === 'areaContainer' && contentMinH > 0
+                ? { contentMinHeight: contentMinH }
+                : {}),
             }
           } else if (!n.parentId) {
             nodePositions[n.id] = { x: n.position.x, y: n.position.y }
@@ -1353,10 +1586,17 @@ function ConnectionDiagramCanvasInner(
               ...(e.data.routeManual ? { manual: true } : {}),
             }
           }
-          if (e.data?.labelOffsetX != null || e.data?.labelOffsetY != null) {
+          if (
+            e.data?.labelOffsetX != null ||
+            e.data?.labelOffsetY != null ||
+            e.data?.labelPathT != null
+          ) {
             labelOffsets[e.id] = {
               x: e.data.labelOffsetX ?? 0,
               y: e.data.labelOffsetY ?? 0,
+              ...(e.data.labelPathT != null
+                ? { t: Math.min(1, Math.max(0, e.data.labelPathT)) }
+                : {}),
             }
           }
         }
@@ -1366,11 +1606,30 @@ function ConnectionDiagramCanvasInner(
           ...(printSettings?.printOrientation
             ? { printOrientation: printSettings.printOrientation }
             : {}),
+          ...(printSettings?.printFrame
+            ? { printFrame: printSettings.printFrame }
+            : printFrame
+              ? { printFrame }
+              : {}),
+          ...(printSettings?.printIncludeLegend != null
+            ? { printIncludeLegend: printSettings.printIncludeLegend }
+            : {}),
+          ...(printSettings?.printIncludeLinkTable != null
+            ? { printIncludeLinkTable: printSettings.printIncludeLinkTable }
+            : {}),
         }
         return { nodePositions, labelOffsets, edgeRoutes, containers, settings }
       },
     }),
-    [rerouteCables, selectLink, captureDiagramPng, diagram.containers, diagram.settings]
+    [
+      rerouteCables,
+      selectLink,
+      captureDiagramPng,
+      diagram.containers,
+      diagram.settings,
+      printFrame,
+      setEdges,
+    ]
   )
 
   useEffect(() => {
@@ -1416,6 +1675,7 @@ function ConnectionDiagramCanvasInner(
       deviceIds: string[],
       opts: { hidePicker: boolean; draggedId?: string; draggedY?: number }
     ): Node[] => {
+      const parent = allNodes.find((n) => n.id === containerId)
       const heightById: Record<string, number> = {}
       for (const id of deviceIds) {
         const child = allNodes.find((n) => n.id === id)
@@ -1423,10 +1683,23 @@ function ConnectionDiagramCanvasInner(
           child?.style?.height ?? child?.height ?? simpleDeviceHeight(0)
         )
       }
-      const sizeOpts = { hidePicker: opts.hidePicker }
-      const stack = stackDevicePositions(deviceIds, heightById, sizeOpts)
+      const sizeOpts = { hidePicker: opts.hidePicker, deviceGap: deviceGapRef.current }
+      const isArea = parent?.type === 'areaContainer'
+      const hasSubContainers = Boolean(
+        (parent?.data as { hasSubContainers?: boolean })?.hasSubContainers
+      )
+      const looseOrigin = {
+        x: AREA_BODY_PAD,
+        y: hasSubContainers
+          ? areaContentTop(sizeOpts)
+          : areaLooseContentTop(sizeOpts),
+      }
+      const stack = isArea
+        ? stackLooseDevicePositions(deviceIds, heightById, looseOrigin, sizeOpts)
+        : stackDevicePositions(deviceIds, heightById, sizeOpts)
       const heights = deviceIds.map((id) => heightById[id] ?? simpleDeviceHeight(0))
       const size = rackContainerSize(heights, sizeOpts)
+      const dragX = isArea ? AREA_BODY_PAD : CONTAINER_PAD
 
       return allNodes.map((n) => {
         if (n.id === containerId) {
@@ -1446,7 +1719,7 @@ function ConnectionDiagramCanvasInner(
         if (opts.draggedId && n.id === opts.draggedId && opts.draggedY != null) {
           return {
             ...n,
-            position: { x: CONTAINER_PAD, y: opts.draggedY },
+            position: { x: dragX, y: opts.draggedY },
           }
         }
         const pos = stack[n.id]
@@ -1481,12 +1754,15 @@ function ConnectionDiagramCanvasInner(
               child?.style?.height ?? child?.height ?? simpleDeviceHeight(0)
             )
           }
-          const nextIds = reorderDeviceIdsByY(
+          const nextIds = nextDeviceOrderInContainer(
+            nodesRef.current,
+            node.parentId,
             baseIds,
             heightById,
             node.id,
             pinnedY,
-            { hidePicker: hidePickerForPrint }
+            hidePickerForPrint,
+            deviceGapRef.current,
           )
           const next = applyDeviceStackInContainer(
             nodesRef.current,
@@ -1574,12 +1850,15 @@ function ConnectionDiagramCanvasInner(
               child?.style?.height ?? child?.height ?? simpleDeviceHeight(0)
             )
           }
-          const nextIds = reorderDeviceIdsByY(
+          const nextIds = nextDeviceOrderInContainer(
+            nodesRef.current,
+            node.parentId,
             baseIds,
             heightById,
             node.id,
             node.position.y,
-            { hidePicker: hidePickerForPrint }
+            hidePickerForPrint,
+            deviceGapRef.current,
           )
           const next = applyDeviceStackInContainer(
             nodesRef.current,
@@ -1716,10 +1995,16 @@ function ConnectionDiagramCanvasInner(
           maskColor={theme === 'dark' ? 'rgba(15, 23, 42, 0.7)' : 'rgba(15, 23, 42, 0.08)'}
           nodeStrokeWidth={2}
         />
-        <PrintSectorBoundsOverlay
+        <PrintFrameOverlay
           enabled={showPrintMargins && !hideMarginsForCapture}
+          frame={printFrame}
           orientation={printOrientation}
           format={paperSize}
+          locked={printFrameLocked}
+          readOnly={readOnly}
+          onFrameChange={onPrintFrameChange}
+          onFrameChangeEnd={onPrintFrameChangeEnd}
+          onDiagnostics={onPrintDiagnostics}
         />
       </ReactFlow>
     </div>

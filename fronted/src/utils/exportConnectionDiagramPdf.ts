@@ -28,6 +28,8 @@ export type ExportConnectionDiagramOptions = {
   format: PaperFormat
   /** Si es false, el PDF no incluye la leyenda. Default true. */
   includeLegend?: boolean
+  /** Si es false, el PDF no incluye la tabla de referencia de enlaces. Default true. */
+  includeLinkTable?: boolean
   /** Filas de la lista de referencia (ID + descripción completa). */
   linkReferences?: LinkReferenceRow[]
   captureDiagram: CaptureConnectionDiagramFn
@@ -48,6 +50,7 @@ export async function exportConnectionDiagramPdf(
     orientation,
     format,
     includeLegend = true,
+    includeLinkTable = true,
     linkReferences = [],
     captureDiagram,
   } = options
@@ -62,7 +65,9 @@ export async function exportConnectionDiagramPdf(
   }
 
   const probe = new jsPDF({ orientation, unit: 'mm', format })
-  const referencePages = countLinkReferencePages(probe, format, orientation, linkReferences)
+  const referencePages = includeLinkTable
+    ? countLinkReferencePages(probe, format, orientation, linkReferences)
+    : 0
   const totalPages =
     countDiagramPdfPages(captured.plan.cols, captured.plan.rows) + referencePages
   const pdf = new jsPDF({ orientation, unit: 'mm', format })
@@ -83,18 +88,20 @@ export async function exportConnectionDiagramPdf(
     includeLegend,
   })
 
-  drawLinkReferencePages(pdf, {
-    rows: linkReferences,
-    format,
-    orientation,
-    title,
-    projectName,
-    authorName,
-    dateStr,
-    branding,
-    startingPageNumber: pagesAdded + 1,
-    totalPages,
-  })
+  if (includeLinkTable) {
+    drawLinkReferencePages(pdf, {
+      rows: linkReferences,
+      format,
+      orientation,
+      title,
+      projectName,
+      authorName,
+      dateStr,
+      branding,
+      startingPageNumber: pagesAdded + 1,
+      totalPages,
+    })
+  }
 
   const base = safePdfFilename(title) || 'diagrama_conexiones'
   const orientLabel = orientation === 'landscape' ? 'horizontal' : 'vertical'

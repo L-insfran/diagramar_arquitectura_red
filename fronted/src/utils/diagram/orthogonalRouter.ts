@@ -38,6 +38,9 @@ export type OrthogonalRouterOptions = {
   stub?: number
   turnCost?: number
   reuseCost?: number
+  /** Extra Hanan-grid coordinates (e.g. mid-gap between stacked devices). */
+  extraXs?: number[]
+  extraYs?: number[]
 }
 
 type Interval = { start: number; end: number }
@@ -129,6 +132,7 @@ export function routeOrthogonalEdges(
       req.target.x,
       ...(req.waypoints ?? []).map((p) => p.x),
       ...expanded.flatMap((r) => [r.x, r.x + r.width]),
+      ...(options.extraXs ?? []),
     ])
     const ys = uniqueSorted([
       start.y,
@@ -137,6 +141,7 @@ export function routeOrthogonalEdges(
       req.target.y,
       ...(req.waypoints ?? []).map((p) => p.y),
       ...expanded.flatMap((r) => [r.y, r.y + r.height]),
+      ...(options.extraYs ?? []),
     ])
 
     // Filter grid points that sit inside obstacles (keep endpoints).

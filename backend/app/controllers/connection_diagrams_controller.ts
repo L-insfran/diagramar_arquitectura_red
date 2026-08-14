@@ -106,7 +106,7 @@ export default class ConnectionDiagramsController {
     if (!(await canAccessProject(user, diagram.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const data = await this.diagrams.getGraph(params.id)
+    const data = await this.diagrams.getGraph(params.id, user.id)
     return response.ok({ success: true, data })
   }
 }

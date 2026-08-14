@@ -8,9 +8,10 @@ import {
 import {
   CONTAINER_HEADER_H,
   CONTAINER_SELECTOR_H,
-  SIMPLE_DEVICE_GAP,
+  resolveDeviceGap,
   SIMPLE_DEVICE_WIDTH,
   simpleDeviceHeight,
+  type DeviceStackLayoutOpts,
 } from './SimpleDeviceNode'
 
 export type AreaContainerData = {
@@ -46,9 +47,31 @@ export function areaChromeHeight(opts?: { hidePicker?: boolean }): number {
   return CONTAINER_HEADER_H + (opts?.hidePicker ? 0 : CONTAINER_SELECTOR_H)
 }
 
-/** Y where nested content may start (below chrome + label lane + body pad). */
+/** Y where nested racks/boards may start (below chrome + label lane + body pad). */
 export function areaContentTop(opts?: { hidePicker?: boolean }): number {
   return areaChromeHeight(opts) + AREA_BODY_PAD + AREA_LABEL_LANE
+}
+
+/** Y where loose devices start when the area has no nested racks/boards. */
+export function areaLooseContentTop(opts?: { hidePicker?: boolean }): number {
+  return areaChromeHeight(opts) + AREA_BODY_PAD
+}
+
+/**
+ * Keep user extra padding on a resized area, but drop leftover space from
+ * devices/racks that no longer exist. Legacy layouts without contentMin snap to content.
+ */
+export function applySavedAreaExtent(
+  contentMin: number,
+  savedSize?: number,
+  savedContentMin?: number
+): number {
+  if (!Number.isFinite(contentMin) || contentMin <= 0) return Math.max(0, contentMin)
+  if (savedSize == null || !Number.isFinite(savedSize) || savedSize <= 0) return contentMin
+  if (savedContentMin == null || !Number.isFinite(savedContentMin) || savedContentMin <= 0) {
+    return contentMin
+  }
+  return contentMin + Math.max(0, savedSize - savedContentMin)
 }
 
 /**
@@ -58,14 +81,17 @@ export function areaContentTop(opts?: { hidePicker?: boolean }): number {
 export function layoutAreaChildren(
   childSizes: { id: string; width: number; height: number }[],
   looseHeights: number[],
-  opts?: { hidePicker?: boolean },
+  opts?: DeviceStackLayoutOpts,
 ): {
   width: number
   height: number
   childPositions: Record<string, { x: number; y: number }>
   looseOrigin: { x: number; y: number }
 } {
-  const contentTop = areaContentTop(opts)
+  const nestedTop = areaContentTop(opts)
+  const looseOnlyTop = areaLooseContentTop(opts)
+  const contentTop = childSizes.length > 0 ? nestedTop : looseOnlyTop
+  const gap = resolveDeviceGap(opts)
   const childPositions: Record<string, { x: number; y: number }> = {}
 
   let cursorX = AREA_BODY_PAD
@@ -93,7 +119,7 @@ export function layoutAreaChildren(
   if (looseHeights.length > 0) {
     const body =
       looseHeights.reduce((sum, h) => sum + h, 0) +
-      SIMPLE_DEVICE_GAP * Math.max(0, looseHeights.length - 1)
+      gap * Math.max(0, looseHeights.length - 1)
     if (childSizes.length > 0) {
       if (cursorX > AREA_BODY_PAD && cursorX + SIMPLE_DEVICE_WIDTH + 8 > AREA_WRAP_AT) {
         cursorX = AREA_BODY_PAD
@@ -111,7 +137,7 @@ export function layoutAreaChildren(
   }
 
   const emptyChrome =
-    areaChromeHeight(opts) + AREA_BODY_PAD + AREA_LABEL_LANE + 64 + AREA_BODY_PAD
+    areaChromeHeight(opts) + AREA_BODY_PAD + 64 + AREA_BODY_PAD
   if (childSizes.length === 0 && looseHeights.length === 0) {
     return {
       width: AREA_BODY_PAD * 2 + SIMPLE_DEVICE_WIDTH + 24,
@@ -133,14 +159,50 @@ export function stackLooseDevicePositions(
   deviceIds: string[],
   heightById: Record<string, number>,
   origin: { x: number; y: number },
+  opts?: DeviceStackLayoutOpts,
 ): Record<string, { x: number; y: number }> {
+  const gap = resolveDeviceGap(opts)
   const out: Record<string, { x: number; y: number }> = {}
   let y = origin.y
   for (const id of deviceIds) {
     out[id] = { x: origin.x, y }
-    y += (heightById[id] ?? simpleDeviceHeight(0)) + SIMPLE_DEVICE_GAP
+    y += (heightById[id] ?? simpleDeviceHeight(0)) + gap
   }
   return out
+}
+
+export function reorderLooseDeviceIdsByY(
+  deviceIds: string[],
+  heightById: Record<string, number>,
+  draggedId: string,
+  dropY: number,
+  origin: { x: number; y: number },
+  opts?: DeviceStackLayoutOpts,
+): string[] {
+  const from = deviceIds.indexOf(draggedId)
+  if (from < 0 || deviceIds.length < 2) return deviceIds
+
+  const without = deviceIds.filter((id) => id !== draggedId)
+  const stack = stackLooseDevicePositions(without, heightById, origin, opts)
+  const draggedH = heightById[draggedId] ?? simpleDeviceHeight(0)
+  const centerY = dropY + draggedH / 2
+
+  let insertAt = without.length
+  for (let i = 0; i < without.length; i++) {
+    const id = without[i]
+    const pos = stack[id]
+    if (!pos) continue
+    const h = heightById[id] ?? simpleDeviceHeight(0)
+    const mid = pos.y + h / 2
+    if (centerY < mid) {
+      insertAt = i
+      break
+    }
+  }
+
+  const next = [...without.slice(0, insertAt), draggedId, ...without.slice(insertAt)]
+  if (next.every((id, i) => id === deviceIds[i])) return deviceIds
+  return next
 }
 
 function AreaContainerNodeComponent({
@@ -226,11 +288,13 @@ function AreaContainerNodeComponent({
 
       <div className="shrink-0" style={{ height: chromeH }} aria-hidden />
 
-      <div
-        className="pointer-events-none shrink-0 border-b border-dashed border-sky-300/25 dark:border-sky-700/30"
-        style={{ height: AREA_LABEL_LANE }}
-        aria-hidden
-      />
+      {data.hasSubContainers ? (
+        <div
+          className="pointer-events-none shrink-0 border-b border-dashed border-sky-300/25 dark:border-sky-700/30"
+          style={{ height: AREA_LABEL_LANE }}
+          aria-hidden
+        />
+      ) : null}
 
       {showEmpty ? (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[11px] text-sky-700/65 dark:text-sky-300/55">

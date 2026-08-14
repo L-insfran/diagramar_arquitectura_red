@@ -2,12 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Cable,
   Copy,
-  Download,
-  Eye,
-  EyeOff,
-  MoreVertical,
   Pencil,
   Plus,
+  Printer,
+  RotateCcw,
   Save,
   Search,
   Trash2,
@@ -20,6 +18,9 @@ import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SimpleLinkModal } from '../components/diagram/SimpleLinkModal'
 import { DiagramLinkReferenceList } from '../components/diagram/DiagramLinkReferenceList'
+import { PrintModePanel } from '../components/diagram/PrintModePanel'
+import { DeviceStackGapControl } from '../components/diagram/DeviceStackGapControl'
+import { SIMPLE_DEVICE_GAP } from '../components/diagram/SimpleDeviceNode'
 import {
   ConnectionDiagramCanvas,
   type ConnectionDiagramCanvasHandle,
@@ -37,7 +38,17 @@ import { sitesService } from '../services/sites.service'
 import { systemBrandingService } from '../services/systemBranding.service'
 import { exportConnectionDiagramPdf } from '../utils/exportConnectionDiagramPdf'
 import type { PaperFormat, PrintOrientation } from '../utils/pdf/a4Geometry'
-import { formatLinkCode, formatLinkReference } from '../utils/diagram/linkLabel'
+import {
+  centerFrameOnBounds,
+  fitContentIntoFrame,
+  frameFromBounds,
+  parsePrintFrame,
+} from '../utils/pdf/printFrame'
+import {
+  formatLinkCode,
+  formatLinkReference,
+  occupancyEdgesFromDiagramLinks,
+} from '../utils/diagram/linkLabel'
 import { boardFlowNodeId } from '../utils/boardPlacement'
 import { areaFlowNodeId } from '../utils/areaPlacement'
 import { rackFlowNodeId } from '../utils/topologyRackLayout'
@@ -48,10 +59,33 @@ import type {
   BoardKind,
   ConnectionDiagram,
   DiagramContainerState,
+  DiagramLink,
   DiagramLinkEdge,
+  DiagramPrintFrame,
+  DiagramSettings,
   Rack,
   TopologyNode,
 } from '../types'
+
+function patchContainerDeviceIds(
+  prev: DiagramContainerState,
+  deviceIds: string[],
+  containerId: string
+): DiagramContainerState {
+  const next: DiagramContainerState = {
+    ...prev,
+    x: prev.x,
+    y: prev.y,
+    deviceIds,
+  }
+  if (containerId.startsWith('area:')) {
+    delete next.width
+    delete next.height
+    delete next.contentMinWidth
+    delete next.contentMinHeight
+  }
+  return next
+}
 
 const BOARD_KIND_OPTIONS = [
   { value: 'generic', label: 'Genérico' },
@@ -79,10 +113,16 @@ export default function ConnectionDiagramPage() {
   const [printOrientation, setPrintOrientation] = useState<PrintOrientation>('landscape')
   const [showPrintMargins, setShowPrintMargins] = useState(false)
   const [includeLegend, setIncludeLegend] = useState(true)
-  const [printMenuOpen, setPrintMenuOpen] = useState(false)
+  const [includeLinkTable, setIncludeLinkTable] = useState(true)
+  const [printFrame, setPrintFrame] = useState<DiagramPrintFrame | null>(null)
+  const [printFrameLocked, setPrintFrameLocked] = useState(false)
+  const [printModeOpen, setPrintModeOpen] = useState(false)
+  const [printDiagnostics, setPrintDiagnostics] = useState({ outsideCount: 0, cutCount: 0 })
+  const [staleLinkIds, setStaleLinkIds] = useState<string[]>([])
   const [referenceListCollapsed, setReferenceListCollapsed] = useState(false)
+  const [deviceGap, setDeviceGap] = useState(SIMPLE_DEVICE_GAP)
   const [focusedLinkId, setFocusedLinkId] = useState<string | null>(null)
-  const printMenuRef = useRef<HTMLDivElement | null>(null)
+  const printSaveTimer = useRef<number | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [renameOpen, setRenameOpen] = useState(false)
@@ -129,6 +169,11 @@ export default function ConnectionDiagramPage() {
 
   useEffect(() => {
     setFocusedLinkId(null)
+    setPrintModeOpen(false)
+    setShowPrintMargins(false)
+    setPrintFrameLocked(false)
+    setStaleLinkIds([])
+    setPrintDiagnostics({ outsideCount: 0, cutCount: 0 })
   }, [selectedId])
 
   const {
@@ -141,6 +186,11 @@ export default function ConnectionDiagramPage() {
         ? connectionDiagramsService.getGraph(selectedId)
         : Promise.resolve(null),
     [selectedId, projectId]
+  )
+
+  const { data: projectDiagramLinks, refetch: refetchProjectLinks } = useApi(
+    () => (projectId ? diagramLinksService.getAll() : Promise.resolve([] as DiagramLink[])),
+    [projectId]
   )
 
   const { data: sites } = useApi(
@@ -182,23 +232,25 @@ export default function ConnectionDiagramPage() {
     setPrintOrientation(
       d.settings?.printOrientation === 'portrait' ? 'portrait' : 'landscape',
     )
-  }, [graphPayload?.diagram?.id, graphPayload?.diagram?.settings?.paperSize, graphPayload?.diagram?.settings?.printOrientation])
+    setPrintFrame(parsePrintFrame(d.settings?.printFrame) ?? null)
+    setIncludeLegend(d.settings?.printIncludeLegend !== false)
+    setIncludeLinkTable(d.settings?.printIncludeLinkTable !== false)
+    setDeviceGap(d.settings?.deviceGap ?? SIMPLE_DEVICE_GAP)
+  }, [
+    graphPayload?.diagram?.id,
+    graphPayload?.diagram?.settings?.paperSize,
+    graphPayload?.diagram?.settings?.printOrientation,
+    graphPayload?.diagram?.settings?.printFrame,
+    graphPayload?.diagram?.settings?.printIncludeLegend,
+    graphPayload?.diagram?.settings?.printIncludeLinkTable,
+    graphPayload?.diagram?.settings?.deviceGap,
+  ])
 
   useEffect(() => {
-    if (!printMenuOpen) return
-    const onPointerDown = (e: MouseEvent) => {
-      if (!printMenuRef.current?.contains(e.target as Node)) setPrintMenuOpen(false)
-    }
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPrintMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
     return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
+      if (printSaveTimer.current != null) window.clearTimeout(printSaveTimer.current)
     }
-  }, [printMenuOpen])
+  }, [])
 
   const { data: siteRacks } = useApi(
     () =>
@@ -217,6 +269,17 @@ export default function ConnectionDiagramPage() {
   )
 
   const diagram: ConnectionDiagram | null = graphPayload?.diagram ?? null
+
+  const diagramForCanvas = useMemo((): ConnectionDiagram | null => {
+    if (!diagram) return null
+    return {
+      ...diagram,
+      settings: {
+        ...(diagram.settings ?? {}),
+        deviceGap,
+      },
+    }
+  }, [diagram, deviceGap])
 
   const visibleContainerIds = useMemo(() => {
     const keys = Object.keys(diagram?.containers ?? {})
@@ -461,8 +524,11 @@ export default function ConnectionDiagramPage() {
   const resolveContainerDeviceIds = useCallback(
     (containerId: string): string[] => {
       if (!diagram || !graphPayload) return []
+      const inventoryIds = new Set(graphPayload.inventory.map((d) => d.id))
       const saved = diagram.containers?.[containerId]
-      if (saved?.deviceIds != null) return [...saved.deviceIds]
+      if (saved?.deviceIds != null) {
+        return saved.deviceIds.filter((id) => inventoryIds.has(id))
+      }
       if (containerId.startsWith('rack:')) {
         const rackId = containerId.slice(5)
         return graphPayload.inventory
@@ -500,7 +566,7 @@ export default function ConnectionDiagramPage() {
         await connectionDiagramsService.update(selectedId, {
           containers: {
             ...live,
-            [containerId]: { ...prev, x: prev.x, y: prev.y, deviceIds },
+            [containerId]: patchContainerDeviceIds(prev, deviceIds, containerId),
           },
         })
         await refetchGraph()
@@ -523,7 +589,7 @@ export default function ConnectionDiagramPage() {
         await connectionDiagramsService.update(selectedId, {
           containers: {
             ...live,
-            [containerId]: { ...prev, x: prev.x, y: prev.y, deviceIds },
+            [containerId]: patchContainerDeviceIds(prev, deviceIds, containerId),
           },
         })
         toast.success('Equipo sacado del diagrama')
@@ -552,7 +618,7 @@ export default function ConnectionDiagramPage() {
         await connectionDiagramsService.update(selectedId, {
           containers: {
             ...live,
-            [containerId]: { ...prev, x: prev.x, y: prev.y, deviceIds },
+            [containerId]: patchContainerDeviceIds(prev, deviceIds, containerId),
           },
         })
         await refetchGraph()
@@ -631,6 +697,117 @@ export default function ConnectionDiagramPage() {
     }
   }
 
+  const buildPrintSettings = useCallback((): DiagramSettings => {
+    return {
+      ...(diagram?.settings ?? {}),
+      deviceGap,
+      paperSize,
+      printOrientation,
+      ...(printFrame ? { printFrame } : {}),
+      printIncludeLegend: includeLegend,
+      printIncludeLinkTable: includeLinkTable,
+    }
+  }, [
+    diagram?.settings,
+    deviceGap,
+    paperSize,
+    printOrientation,
+    printFrame,
+    includeLegend,
+    includeLinkTable,
+  ])
+
+  const persistSettingsSoon = useCallback(
+    (settings?: DiagramSettings) => {
+      if (!selectedId || !canMutate) return
+      if (printSaveTimer.current != null) window.clearTimeout(printSaveTimer.current)
+      printSaveTimer.current = window.setTimeout(() => {
+        void connectionDiagramsService
+          .update(selectedId, { settings: settings ?? buildPrintSettings() })
+          .catch(() => undefined)
+      }, 700)
+    },
+    [selectedId, canMutate, buildPrintSettings],
+  )
+
+  const persistDeviceGapSoon = useCallback(
+    (gap: number) => {
+      persistSettingsSoon({ ...buildPrintSettings(), deviceGap: gap })
+    },
+    [buildPrintSettings, persistSettingsSoon],
+  )
+
+  const handleDeviceGapChange = useCallback(
+    (gap: number) => {
+      setDeviceGap(gap)
+      persistDeviceGapSoon(gap)
+    },
+    [persistDeviceGapSoon],
+  )
+
+  const applyPrintFrame = useCallback(
+    (next: DiagramPrintFrame, persist = true) => {
+      setPrintFrame(next)
+      if (persist) {
+        persistSettingsSoon({ ...buildPrintSettings(), printFrame: next })
+      }
+    },
+    [buildPrintSettings, persistSettingsSoon],
+  )
+
+  const ensurePrintFrame = useCallback((): DiagramPrintFrame | null => {
+    if (printFrame) return printFrame
+    const bounds = canvasRef.current?.getContentBounds()
+    if (!bounds) return null
+    const next = frameFromBounds(bounds, paperSize, printOrientation)
+    setPrintFrame(next)
+    return next
+  }, [printFrame, paperSize, printOrientation])
+
+  const openPrintMode = () => {
+    setPrintModeOpen(true)
+    setShowPrintMargins(true)
+    const frame = ensurePrintFrame()
+    if (frame) {
+      persistSettingsSoon({ ...buildPrintSettings(), printFrame: frame })
+    }
+  }
+
+  const closePrintMode = () => {
+    setPrintModeOpen(false)
+    setShowPrintMargins(false)
+  }
+
+  const handleFitFrameToContent = () => {
+    const bounds = canvasRef.current?.getContentBounds()
+    if (!bounds) {
+      toast.error('No hay objetos para ajustar el marco')
+      return
+    }
+    applyPrintFrame(frameFromBounds(bounds, paperSize, printOrientation))
+  }
+
+  const handleFitContentIntoFrame = () => {
+    const frame = ensurePrintFrame()
+    const bounds = canvasRef.current?.getContentBounds()
+    if (!frame || !bounds) {
+      toast.error('No hay objetos para encajar en el marco')
+      return
+    }
+    applyPrintFrame(fitContentIntoFrame(bounds, frame, paperSize, printOrientation))
+  }
+
+  const handleCenterFrame = () => {
+    const frame = ensurePrintFrame()
+    const bounds = canvasRef.current?.getContentBounds()
+    if (!frame || !bounds) return
+    applyPrintFrame(centerFrameOnBounds(bounds, frame, paperSize, printOrientation))
+  }
+
+  const handleAutorouteLinks = (ids: string[]) => {
+    canvasRef.current?.autorouteLinks(ids)
+  }
+
   const handleSaveLayout = async () => {
     if (!selectedId || !canvasRef.current) return
     setSaving(true)
@@ -638,6 +815,9 @@ export default function ConnectionDiagramPage() {
       const payload = canvasRef.current.getPersistPayload({
         paperSize,
         printOrientation,
+        printFrame: printFrame ?? undefined,
+        printIncludeLegend: includeLegend,
+        printIncludeLinkTable: includeLinkTable,
       })
       await connectionDiagramsService.update(selectedId, {
         ...payload,
@@ -699,6 +879,7 @@ export default function ConnectionDiagramPage() {
         orientation: printOrientation,
         format: paperSize,
         includeLegend,
+        includeLinkTable,
         linkReferences,
         captureDiagram: (format, orientation) =>
           canvasRef.current!.captureDiagramPng(format, orientation),
@@ -708,7 +889,6 @@ export default function ConnectionDiagramPage() {
       toast.error(e?.message ?? 'No se pudo exportar el PDF')
     } finally {
       setExporting(false)
-      setPrintMenuOpen(false)
     }
   }
 
@@ -847,6 +1027,10 @@ export default function ConnectionDiagramPage() {
     })
   }, [])
 
+  const handleOpenCreateLink = useCallback(() => {
+    setLinkModal({ open: true })
+  }, [])
+
   const modalEdge: DiagramLinkEdge | null = useMemo(() => {
     if (!linkModal.open || !linkModal.edgeId) return null
     return graphPayload?.graph.edges.find((e) => e.id === linkModal.edgeId) ?? null
@@ -864,15 +1048,17 @@ export default function ConnectionDiagramPage() {
     const containers = diagram.containers ?? {}
     const visible = new Set(visibleContainerIds)
     const inventory = graphPayload.inventory
+    const inventoryIds = new Set(inventory.map((d) => d.id))
 
     for (const rack of graphPayload.racks) {
       const key = rackFlowNodeId(rack.id)
       if (!visible.has(key)) continue
       const saved = containers[key]
-      const ids =
+      const ids = (
         saved?.deviceIds != null
           ? saved.deviceIds
           : inventory.filter((d) => d.data.rackId === rack.id).map((d) => d.id)
+      ).filter((id) => inventoryIds.has(id))
       for (const id of ids) map[id] = rack.name
     }
 
@@ -880,10 +1066,11 @@ export default function ConnectionDiagramPage() {
       const key = boardFlowNodeId(board.id)
       if (!visible.has(key)) continue
       const saved = containers[key]
-      const ids =
+      const ids = (
         saved?.deviceIds != null
           ? saved.deviceIds
           : inventory.filter((d) => d.data.boardId === board.id).map((d) => d.id)
+      ).filter((id) => inventoryIds.has(id))
       for (const id of ids) map[id] = board.name
     }
 
@@ -891,7 +1078,7 @@ export default function ConnectionDiagramPage() {
       const key = areaFlowNodeId(area.id)
       if (!visible.has(key)) continue
       const saved = containers[key]
-      const ids = saved?.deviceIds ?? []
+      const ids = (saved?.deviceIds ?? []).filter((id) => inventoryIds.has(id))
       for (const id of ids) {
         if (!map[id]) map[id] = area.name
       }
@@ -924,6 +1111,7 @@ export default function ConnectionDiagramPage() {
       if (focusedLinkId === edgeId) setFocusedLinkId(null)
       setLinkDeleteConfirm(null)
       toast.success(`Enlace ${code} eliminado`)
+      refetchProjectLinks()
       await refetchGraph()
       window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
     } catch (e: any) {
@@ -931,7 +1119,7 @@ export default function ConnectionDiagramPage() {
     } finally {
       setDeletingLink(false)
     }
-  }, [focusedLinkId, linkDeleteConfirm, refetchGraph, toast])
+  }, [focusedLinkId, linkDeleteConfirm, refetchGraph, refetchProjectLinks, toast])
 
   const visibleLinkEdges = useMemo(() => {
     const shown = new Set(Object.keys(containerByDeviceId))
@@ -948,7 +1136,7 @@ export default function ConnectionDiagramPage() {
         const device = byId.get(id)
         if (!device) return null
         const container = containerByDeviceId[id]
-        const label = [container, device.label].filter(Boolean).join(' ')
+        const label = [device.label, container].filter(Boolean).join(' · ')
         return { value: id, label }
       })
       .filter((o): o is { value: string; label: string } => Boolean(o))
@@ -1358,9 +1546,27 @@ export default function ConnectionDiagramPage() {
           )}
         </aside>
 
-        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
+        <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div className="absolute right-3 top-3 z-20 flex flex-wrap items-center justify-end gap-2">
+          <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {canMutate && selectedId && scopeSiteId && graphPayload && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={handleOpenCreateLink}
+                disabled={destinationDeviceOptions.length < 2}
+                title={
+                  destinationDeviceOptions.length < 2
+                    ? 'Agregá al menos dos equipos al diagrama'
+                    : 'Crear un enlace entre dos equipos'
+                }
+              >
+                Nuevo enlace
+              </Button>
+            )}
             {canMutate && selectedId && (
               <Button
                 size="sm"
@@ -1371,144 +1577,37 @@ export default function ConnectionDiagramPage() {
                 Guardar layout
               </Button>
             )}
-            {selectedId && (
-              <div className="relative" ref={printMenuRef}>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<MoreVertical className="h-4 w-4" />}
-                  onClick={() => setPrintMenuOpen((v) => !v)}
-                  aria-expanded={printMenuOpen}
-                  aria-haspopup="menu"
-                >
-                  Impresión
-                </Button>
-                {printMenuOpen && (
-                  <div
-                    className="absolute right-0 top-full z-50 mt-1 w-60 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
-                    role="menu"
-                  >
-                    <div className="px-2.5 py-1.5">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Formato
-                      </p>
-                      <div className="flex overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
-                        <button
-                          type="button"
-                          aria-pressed={paperSize === 'a4'}
-                          onClick={() => setPaperSize('a4')}
-                          className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
-                            paperSize === 'a4'
-                              ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
-                              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          A4
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={paperSize === 'a3'}
-                          onClick={() => setPaperSize('a3')}
-                          className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
-                            paperSize === 'a3'
-                              ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
-                              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          A3
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="px-2.5 py-1.5">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Orientación
-                      </p>
-                      <div className="flex overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
-                        <button
-                          type="button"
-                          aria-pressed={printOrientation === 'portrait'}
-                          onClick={() => setPrintOrientation('portrait')}
-                          className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
-                            printOrientation === 'portrait'
-                              ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
-                              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          Vertical
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={printOrientation === 'landscape'}
-                          onClick={() => setPrintOrientation('landscape')}
-                          className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
-                            printOrientation === 'landscape'
-                              ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
-                              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          Horizontal
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="my-1 h-px bg-slate-200 dark:bg-slate-700" />
-
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-pressed={showPrintMargins}
-                      onClick={() => {
-                        setShowPrintMargins((v) => !v)
-                        setPrintMenuOpen(false)
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition ${
-                        showPrintMargins
-                          ? 'bg-orange-100 text-orange-900 dark:bg-orange-950/60 dark:text-orange-100'
-                          : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
-                      }`}
-                    >
-                      {showPrintMargins ? (
-                        <EyeOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                      )}
-                      {showPrintMargins ? 'Ocultar márgenes' : 'Ver márgenes'}
-                    </button>
-
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-pressed={includeLegend}
-                      onClick={() => setIncludeLegend((v) => !v)}
-                      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition ${
-                        includeLegend
-                          ? 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100'
-                          : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
-                      }`}
-                    >
-                      {includeLegend ? (
-                        <EyeOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                      )}
-                      {includeLegend ? 'Ocultar leyenda' : 'Ver leyenda'}
-                    </button>
-
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={exporting}
-                      onClick={() => void handleExportPdf()}
-                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                      {exporting ? 'Exportando…' : 'Exportar PDF'}
-                    </button>
-                  </div>
-                )}
-              </div>
+            {canMutate && staleLinkIds.length > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<RotateCcw className="h-4 w-4" />}
+                onClick={() => handleAutorouteLinks(staleLinkIds)}
+                title="Recalcular automáticamente las rutas que cruzan equipos"
+              >
+                Re-rutear desactualizados
+              </Button>
             )}
+            {selectedId && (
+              <Button
+                size="sm"
+                variant={printModeOpen ? 'primary' : 'secondary'}
+                icon={<Printer className="h-4 w-4" />}
+                onClick={() => (printModeOpen ? closePrintMode() : openPrintMode())}
+                aria-pressed={printModeOpen}
+              >
+                {printModeOpen ? 'Cerrar impresión' : 'Impresión'}
+              </Button>
+            )}
+          </div>
+
+          {selectedId && scopeSiteId && diagramForCanvas && graphPayload ? (
+            <DeviceStackGapControl
+              value={deviceGap}
+              onChange={handleDeviceGapChange}
+              disabled={!canMutate}
+            />
+          ) : null}
           </div>
 
           {!selectedId && !loadingList && (
@@ -1533,7 +1632,7 @@ export default function ConnectionDiagramPage() {
             </div>
           )}
 
-          {selectedId && scopeSiteId && diagram && graphPayload && (
+          {selectedId && scopeSiteId && diagramForCanvas && graphPayload && (
             <ConnectionDiagramCanvas
               canvasRef={canvasRef}
               inventory={graphPayload.inventory}
@@ -1542,11 +1641,17 @@ export default function ConnectionDiagramPage() {
               boards={graphPayload.boards}
               areas={graphPayload.areas ?? []}
               visibleContainerIds={visibleContainerIds}
-              diagram={diagram}
+              diagram={diagramForCanvas}
               readOnly={!canMutate}
               paperSize={paperSize}
               printOrientation={printOrientation}
               showPrintMargins={showPrintMargins}
+              printFrame={printFrame}
+              printFrameLocked={printFrameLocked}
+              onPrintFrameChange={canMutate ? setPrintFrame : undefined}
+              onPrintFrameChangeEnd={canMutate ? (frame) => applyPrintFrame(frame) : undefined}
+              onPrintDiagnostics={setPrintDiagnostics}
+              onStaleLinkIdsChange={setStaleLinkIds}
               focusedLinkId={focusedLinkId}
               onFocusedLinkChange={setFocusedLinkId}
               onConnectDevices={canMutate ? handleConnectDevices : undefined}
@@ -1574,6 +1679,7 @@ export default function ConnectionDiagramPage() {
 
           {selectedId && scopeSiteId && diagram && graphPayload ? (
             <DiagramLinkReferenceList
+              key={selectedId}
               edges={visibleLinkEdges}
               inventory={graphPayload.inventory}
               containerByDeviceId={containerByDeviceId}
@@ -1585,6 +1691,57 @@ export default function ConnectionDiagramPage() {
                 canMutate ? (id) => setLinkModal({ open: true, edgeId: id }) : undefined
               }
               onDeleteLink={canMutate ? requestDeleteLink : undefined}
+              onCreateLink={canMutate ? handleOpenCreateLink : undefined}
+              createDisabled={destinationDeviceOptions.length < 2}
+              createDisabledReason="Agregá al menos dos equipos al diagrama"
+              staleLinkIds={staleLinkIds}
+              onAutorouteLink={
+                canMutate ? (id) => handleAutorouteLinks([id]) : undefined
+              }
+              onAutorouteAllStale={
+                canMutate && staleLinkIds.length > 0
+                  ? () => handleAutorouteLinks(staleLinkIds)
+                  : undefined
+              }
+            />
+          ) : null}
+          </div>
+          {printModeOpen && selectedId ? (
+            <PrintModePanel
+              paperSize={paperSize}
+              printOrientation={printOrientation}
+              printFrame={printFrame}
+              frameLocked={printFrameLocked}
+              includeLegend={includeLegend}
+              includeLinkTable={includeLinkTable}
+              outsideCount={printDiagnostics.outsideCount}
+              cutCount={printDiagnostics.cutCount}
+              exporting={exporting}
+              readOnly={!canMutate}
+              onPaperSizeChange={(value) => {
+                setPaperSize(value)
+                persistSettingsSoon({ ...buildPrintSettings(), paperSize: value })
+              }}
+              onOrientationChange={(value) => {
+                setPrintOrientation(value)
+                persistSettingsSoon({ ...buildPrintSettings(), printOrientation: value })
+              }}
+              onFrameChange={setPrintFrame}
+              onFrameChangeEnd={(frame) => applyPrintFrame(frame)}
+              onToggleLock={() => setPrintFrameLocked((v) => !v)}
+              onFitToContent={handleFitFrameToContent}
+              onFitContentIntoFrame={handleFitContentIntoFrame}
+              onCenterFrame={handleCenterFrame}
+              onIncludeLegendChange={(value) => {
+                setIncludeLegend(value)
+                persistSettingsSoon({ ...buildPrintSettings(), printIncludeLegend: value })
+              }}
+              onIncludeLinkTableChange={(value) => {
+                setIncludeLinkTable(value)
+                persistSettingsSoon({ ...buildPrintSettings(), printIncludeLinkTable: value })
+              }}
+              onExport={() => void handleExportPdf()}
+              onClose={closePrintMode}
             />
           ) : null}
         </section>
@@ -1683,29 +1840,34 @@ export default function ConnectionDiagramPage() {
         </div>
       </Modal>
 
-      {canMutate && projectId && linkModal.open && modalSourceDeviceId ? (
+      {canMutate && projectId && linkModal.open ? (
         <SimpleLinkModal
           isOpen={linkModal.open}
           onClose={() => setLinkModal({ open: false })}
           projectId={projectId}
-          sourceDeviceId={modalSourceDeviceId}
+          sourceDeviceId={modalSourceDeviceId || undefined}
           targetDeviceId={modalTargetDeviceId}
           initialSourcePortId={linkModal.sourcePortId}
           initialSourcePortLabel={linkModal.sourcePortLabel}
           containerByDeviceId={containerByDeviceId}
           destinationOptions={destinationDeviceOptions}
           edge={modalEdge}
-          existingEdges={graphPayload?.graph.edges ?? []}
+          existingEdges={occupancyEdgesFromDiagramLinks(
+            projectDiagramLinks ?? [],
+            (graphPayload?.inventory ?? []).map((d) => d.id)
+          )}
           inventory={graphPayload?.inventory ?? []}
           racks={graphPayload?.racks ?? []}
           boards={graphPayload?.boards ?? []}
           onSaved={async () => {
             setLinkModal({ open: false })
+            refetchProjectLinks()
             await refetchGraph()
             window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
           }}
           onDeleted={async () => {
             setLinkModal({ open: false })
+            refetchProjectLinks()
             await refetchGraph()
             window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
           }}

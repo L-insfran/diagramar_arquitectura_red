@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Modal } from '../Modal'
 import { Button } from '../Button'
 import { Input } from '../Input'
-import { Select } from '../Select'
+import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect'
 import { diagramLinksService } from '../../services/diagram-links.service'
 import { formatLinkCode } from '../../utils/diagram/linkLabel'
 import type {
@@ -16,7 +16,8 @@ type Props = {
   isOpen: boolean
   onClose: () => void
   projectId: string
-  sourceDeviceId: string
+  /** Required when editing / drag-connect; optional when creating from the list button. */
+  sourceDeviceId?: string
   /** Required when editing / drag-connect; optional when picking destino in-modal. */
   targetDeviceId?: string
   /** Pre-fill source port when opening from a port click. */
@@ -25,8 +26,8 @@ type Props = {
   /** Contenedor visual del diagrama por device id (preferido sobre inventario). */
   containerByDeviceId?: Record<string, string>
   /**
-   * Equipos del diagrama (excepto origen) para elegir destino cuando
-   * targetDeviceId no viene fijo.
+   * Equipos del diagrama para elegir origen/destino cuando no vienen fijos
+   * (botón Nuevo enlace o doble clic en un equipo).
    */
   destinationOptions?: Array<{ value: string; label: string }>
   /** When editing an existing link */
@@ -44,16 +45,16 @@ function normalizePortLabel(label: string): string {
   return label.trim().toLowerCase()
 }
 
-function deviceLocationLabel(
+function deviceDisplayParts(
   device: TopologyNode | undefined,
   racks: TopologyRackSummary[],
   boards: TopologyBoardSummary[],
   containerByDeviceId?: Record<string, string>
-): string {
-  if (!device) return 'Equipo'
+): { name: string; location?: string } {
+  if (!device) return { name: 'Equipo' }
   const diagramContainer = containerByDeviceId?.[device.id]
   if (diagramContainer) {
-    return [diagramContainer, device.label].filter(Boolean).join(' ')
+    return { name: device.label, location: diagramContainer }
   }
   const board = device.data.boardId
     ? boards.find((b) => b.id === device.data.boardId)
@@ -62,8 +63,37 @@ function deviceLocationLabel(
     !board && device.data.rackId
       ? racks.find((r) => r.id === device.data.rackId)
       : null
-  const container = board?.name ?? rack?.name
-  return [container, device.label].filter(Boolean).join(' ')
+  const location = board?.name ?? rack?.name ?? undefined
+  return { name: device.label, location }
+}
+
+function DeviceReadout({
+  label,
+  name,
+  location,
+}: {
+  label: string
+  name: string
+  location?: string
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</div>
+      <div
+        className="min-h-[2.625rem] rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 dark:border-gray-700 dark:bg-gray-800"
+        title={location ? `${name} · ${location}` : name}
+      >
+        <div className="break-words text-sm font-medium leading-snug text-gray-900 dark:text-gray-100">
+          {name}
+        </div>
+        {location ? (
+          <div className="mt-0.5 break-words text-xs leading-snug text-gray-500 dark:text-gray-400">
+            {location}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 /** Ports already claimed by other diagram_links (not the edge being edited). */
@@ -91,6 +121,28 @@ function buildOccupiedPortIndex(edges: DiagramLinkEdge[], excludeEdgeId?: string
   }
 
   return { portIds, labelsByDevice }
+}
+
+function toDeviceSelectOptions(
+  destinationOptions: Array<{ value: string; label: string }>,
+  excludeDeviceId: string,
+  inventory: TopologyNode[],
+  containerByDeviceId?: Record<string, string>
+): SearchableSelectOption[] {
+  return destinationOptions
+    .filter((o) => o.value && o.value !== excludeDeviceId)
+    .map((o) => {
+      const device = inventory.find((d) => d.id === o.value)
+      const location = containerByDeviceId?.[o.value]
+      const deviceType = device?.data.deviceType ?? null
+      const ipAddress = device?.data.ipAddress ?? null
+      return {
+        value: o.value,
+        label: device?.label ?? o.label,
+        description: [location, deviceType, ipAddress].filter(Boolean).join(' · ') || undefined,
+        group: location,
+      }
+    })
 }
 
 function isPortOccupied(
@@ -138,16 +190,23 @@ export function SimpleLinkModal({
   onDeleted,
 }: Props) {
   const isEdit = Boolean(edge?.id)
+  const pickSource = !isEdit && !sourceDeviceId
   const pickDestination = !isEdit && !targetDeviceId
 
+  const [selectedSourceId, setSelectedSourceId] = useState(sourceDeviceId ?? '')
   const [selectedTargetId, setSelectedTargetId] = useState(targetDeviceId ?? '')
+  const effectiveSourceId = isEdit
+    ? (edge?.source ?? sourceDeviceId ?? '')
+    : pickSource
+      ? selectedSourceId
+      : (sourceDeviceId ?? '')
   const effectiveTargetId = isEdit
     ? (edge?.target ?? targetDeviceId ?? '')
     : pickDestination
       ? selectedTargetId
       : (targetDeviceId ?? '')
 
-  const sourceDevice = inventory.find((d) => d.id === sourceDeviceId)
+  const sourceDevice = inventory.find((d) => d.id === effectiveSourceId)
   const targetDevice = inventory.find((d) => d.id === effectiveTargetId)
 
   const sourcePorts = sourceDevice?.data.ports ?? []
@@ -170,6 +229,7 @@ export function SimpleLinkModal({
   useEffect(() => {
     if (!isOpen) return
     setError(null)
+    setSelectedSourceId(sourceDeviceId ?? '')
     setSelectedTargetId(targetDeviceId ?? '')
     if (edge?.id) {
       setSourcePortId(edge.sourcePortId ?? '')
@@ -187,24 +247,38 @@ export function SimpleLinkModal({
   }, [
     isOpen,
     edge,
+    sourceDeviceId,
     targetDeviceId,
     initialSourcePortId,
     initialSourcePortLabel,
   ])
 
-  const destSelectOptions = useMemo(
-    () => [
-      { value: '', label: 'Seleccionar equipo…' },
-      ...destinationOptions.filter((o) => o.value !== sourceDeviceId),
-    ],
-    [destinationOptions, sourceDeviceId]
+  const sourceSelectOptions = useMemo(
+    () =>
+      toDeviceSelectOptions(
+        destinationOptions,
+        effectiveTargetId,
+        inventory,
+        containerByDeviceId
+      ),
+    [destinationOptions, effectiveTargetId, inventory, containerByDeviceId]
   )
 
-  const sourcePortOptions = useMemo(
-    () => [
-      { value: '', label: 'Texto libre…' },
-      ...sourcePorts.map((p) => {
-        const taken = isPortOccupied(occupied, sourceDeviceId, p.id, p.name, p.name)
+  const destSelectOptions = useMemo(
+    () =>
+      toDeviceSelectOptions(
+        destinationOptions,
+        effectiveSourceId,
+        inventory,
+        containerByDeviceId
+      ),
+    [destinationOptions, effectiveSourceId, inventory, containerByDeviceId]
+  )
+
+  const sourcePortOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      sourcePorts.map((p) => {
+        const taken = isPortOccupied(occupied, effectiveSourceId, p.id, p.name, p.name)
         return {
           value: p.id,
           label: `${p.name} (#${p.portNumber})${p.status !== 'up' ? ` · ${p.status}` : ''}`,
@@ -212,14 +286,12 @@ export function SimpleLinkModal({
           disabledReason: taken ? 'en uso' : undefined,
         }
       }),
-    ],
-    [sourcePorts, occupied, sourceDeviceId]
+    [sourcePorts, occupied, effectiveSourceId]
   )
 
-  const targetPortOptions = useMemo(
-    () => [
-      { value: '', label: 'Texto libre…' },
-      ...targetPorts.map((p) => {
+  const targetPortOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      targetPorts.map((p) => {
         const taken = isPortOccupied(occupied, effectiveTargetId, p.id, p.name, p.name)
         return {
           value: p.id,
@@ -228,17 +300,16 @@ export function SimpleLinkModal({
           disabledReason: taken ? 'en uso' : undefined,
         }
       }),
-    ],
     [targetPorts, occupied, effectiveTargetId]
   )
 
-  const sourceTitle = deviceLocationLabel(
+  const sourceDisplay = deviceDisplayParts(
     sourceDevice,
     racks,
     boards,
     containerByDeviceId
   )
-  const targetTitle = deviceLocationLabel(
+  const targetDisplay = deviceDisplayParts(
     targetDevice,
     racks,
     boards,
@@ -261,6 +332,18 @@ export function SimpleLinkModal({
     }
   }
 
+  const handleSourceDeviceChange = (value: string) => {
+    setSelectedSourceId(value)
+    setSourcePortId('')
+    setSourcePortLabel('')
+    setError(null)
+    if (selectedTargetId === value) {
+      setSelectedTargetId('')
+      setTargetPortId('')
+      setTargetPortLabel('')
+    }
+  }
+
   const handleDestinationChange = (value: string) => {
     setSelectedTargetId(value)
     setTargetPortId('')
@@ -269,6 +352,10 @@ export function SimpleLinkModal({
   }
 
   const handleSave = async () => {
+    if (!effectiveSourceId) {
+      setError('Elegí el equipo origen.')
+      return
+    }
     if (!effectiveTargetId) {
       setError('Elegí el equipo destino.')
       return
@@ -290,7 +377,7 @@ export function SimpleLinkModal({
     if (
       isPortOccupied(
         occupied,
-        sourceDeviceId,
+        effectiveSourceId,
         sourcePortId || null,
         srcLabel,
         sourcePort?.name,
@@ -326,7 +413,7 @@ export function SimpleLinkModal({
       } else {
         await diagramLinksService.create({
           projectId,
-          sourceDeviceId,
+          sourceDeviceId: effectiveSourceId,
           targetDeviceId: effectiveTargetId,
           ...payload,
         })
@@ -374,65 +461,102 @@ export function SimpleLinkModal({
       }
       size="lg"
     >
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1.5">
-            <div className="block text-sm font-medium text-gray-700 dark:text-gray-300">Origen</div>
-            <div
-              className="truncate rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm font-medium text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-              title={sourceTitle}
-            >
-              {sourceTitle}
-            </div>
-          </div>
-          <Select
-            label="Puerto origen"
-            options={sourcePortOptions}
-            value={sourcePortId}
-            onChange={(e) => handleSourcePortChange(e.target.value)}
-          />
-          <Input
-            label="Etiqueta origen"
-            value={sourcePortLabel}
-            onChange={(e) => setSourcePortLabel(e.target.value)}
-            placeholder="LAN 1"
-          />
-        </div>
+      <div className="space-y-5">
+        {pickSource && pickDestination ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Elegí origen y destino entre los equipos del diagrama, y el puerto de cada extremo.
+          </p>
+        ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          {pickDestination ? (
-            <Select
-              label="Equipo destino"
-              options={destSelectOptions}
-              value={selectedTargetId}
-              onChange={(e) => handleDestinationChange(e.target.value)}
+        <section className="space-y-3" aria-labelledby="link-source-heading">
+          <h3
+            id="link-source-heading"
+            className="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300"
+          >
+            Origen
+          </h3>
+          {pickSource ? (
+            <SearchableSelect
+              label="Equipo"
+              options={sourceSelectOptions}
+              value={selectedSourceId}
+              onChange={handleSourceDeviceChange}
+              placeholder="Seleccionar equipo…"
+              searchPlaceholder="Buscar por nombre, rack, tablero o IP…"
+              emptyOptionLabel="Seleccionar equipo…"
+              groupFilterLabel="Ubicación"
+              wrapLabel
             />
           ) : (
-            <div className="space-y-1.5">
-              <div className="block text-sm font-medium text-gray-700 dark:text-gray-300">Destino</div>
-              <div
-                className="truncate rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm font-medium text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-                title={targetTitle}
-              >
-                {targetTitle}
-              </div>
-            </div>
+            <DeviceReadout label="Equipo" name={sourceDisplay.name} location={sourceDisplay.location} />
           )}
-          <Select
-            label="Puerto destino"
-            options={targetPortOptions}
-            value={targetPortId}
-            onChange={(e) => handleTargetPortChange(e.target.value)}
-            disabled={pickDestination && !selectedTargetId}
-          />
-          <Input
-            label="Etiqueta destino"
-            value={targetPortLabel}
-            onChange={(e) => setTargetPortLabel(e.target.value)}
-            placeholder="P1"
-            disabled={pickDestination && !selectedTargetId}
-          />
-        </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SearchableSelect
+              label="Puerto"
+              options={sourcePortOptions}
+              value={sourcePortId}
+              onChange={handleSourcePortChange}
+              placeholder="Texto libre…"
+              searchPlaceholder="Buscar puerto…"
+              emptyOptionLabel="Texto libre…"
+              disabled={pickSource && !selectedSourceId}
+            />
+            <Input
+              label="Etiqueta"
+              value={sourcePortLabel}
+              onChange={(e) => setSourcePortLabel(e.target.value)}
+              placeholder="LAN 1"
+              disabled={pickSource && !selectedSourceId}
+            />
+          </div>
+        </section>
+
+        <div className="border-t border-gray-200 dark:border-gray-700" role="separator" />
+
+        <section className="space-y-3" aria-labelledby="link-target-heading">
+          <h3
+            id="link-target-heading"
+            className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
+          >
+            Destino
+          </h3>
+          {pickDestination ? (
+            <SearchableSelect
+              label="Equipo"
+              options={destSelectOptions}
+              value={selectedTargetId}
+              onChange={handleDestinationChange}
+              placeholder="Seleccionar equipo…"
+              searchPlaceholder="Buscar por nombre, rack, tablero o IP…"
+              emptyOptionLabel="Seleccionar equipo…"
+              groupFilterLabel="Ubicación"
+              wrapLabel
+            />
+          ) : (
+            <DeviceReadout label="Equipo" name={targetDisplay.name} location={targetDisplay.location} />
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SearchableSelect
+              label="Puerto"
+              options={targetPortOptions}
+              value={targetPortId}
+              onChange={handleTargetPortChange}
+              placeholder="Texto libre…"
+              searchPlaceholder="Buscar puerto…"
+              emptyOptionLabel="Texto libre…"
+              disabled={pickDestination && !selectedTargetId}
+            />
+            <Input
+              label="Etiqueta"
+              value={targetPortLabel}
+              onChange={(e) => setTargetPortLabel(e.target.value)}
+              placeholder="P1"
+              disabled={pickDestination && !selectedTargetId}
+            />
+          </div>
+        </section>
+
+        <div className="border-t border-gray-200 dark:border-gray-700" role="separator" />
 
         <Input
           label="Descripción (opcional)"

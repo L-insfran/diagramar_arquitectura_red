@@ -1,9 +1,47 @@
 import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
+import db from '@adonisjs/lucid/services/db'
 import DiagramLink from '#models/diagram_link'
 import Device from '#models/device'
 import Port from '#models/port'
 import type { CreateDiagramLinkInput, UpdateDiagramLinkInput } from '#dtos/diagram_link_dto'
+
+/** Ignore links whose source or target device was soft-deleted. */
+function whereBothEndpointsActive(q: ModelQueryBuilderContract<typeof DiagramLink>) {
+  return q
+    .whereRaw(
+      `EXISTS (
+        SELECT 1 FROM devices
+        WHERE devices.id = diagram_links.source_device_id AND devices.deleted_at IS NULL
+      )`
+    )
+    .whereRaw(
+      `EXISTS (
+        SELECT 1 FROM devices
+        WHERE devices.id = diagram_links.target_device_id AND devices.deleted_at IS NULL
+      )`
+    )
+}
+
+/** Active diagram_links whose source or target device is missing / soft-deleted. */
+function whereOrphanEndpoints(q: ModelQueryBuilderContract<typeof DiagramLink>) {
+  return q.where((builder) => {
+    builder
+      .whereRaw(
+        `NOT EXISTS (
+          SELECT 1 FROM devices
+          WHERE devices.id = diagram_links.source_device_id AND devices.deleted_at IS NULL
+        )`
+      )
+      .orWhereRaw(
+        `NOT EXISTS (
+          SELECT 1 FROM devices
+          WHERE devices.id = diagram_links.target_device_id AND devices.deleted_at IS NULL
+        )`
+      )
+  })
+}
 
 type CountRow = { max_code: string | number | null }
 
@@ -22,9 +60,9 @@ export default class DiagramLinkRepository {
   }
 
   async findAllByProject(projectId: string) {
-    return DiagramLink.query()
-      .where('project_id', projectId)
-      .whereNull('deleted_at')
+    return whereBothEndpointsActive(
+      DiagramLink.query().where('project_id', projectId).whereNull('deleted_at')
+    )
       .preload('sourceDevice', (q) => q.preload('rack').preload('board'))
       .preload('targetDevice', (q) => q.preload('rack').preload('board'))
       .preload('sourcePort')
@@ -83,6 +121,55 @@ export default class DiagramLinkRepository {
     await link.save()
   }
 
+  async softDeleteByDeviceId(deviceId: string, deletedBy: string) {
+    const now = DateTime.now().toISO()
+    await db
+      .from('diagram_links')
+      .whereNull('deleted_at')
+      .where((builder) => {
+        builder.where('source_device_id', deviceId).orWhere('target_device_id', deviceId)
+      })
+      .update({
+        deleted_at: now,
+        deleted_by: deletedBy,
+        updated_by: deletedBy,
+        updated_at: now,
+      })
+  }
+
+  async findOrphansWithDeletedDevices() {
+    return whereOrphanEndpoints(DiagramLink.query().whereNull('deleted_at'))
+  }
+
+  /** Soft-delete all active links with a missing/soft-deleted endpoint. */
+  async softDeleteOrphansWithDeletedDevices(deletedBy: string) {
+    const now = DateTime.now().toISO()
+    await db
+      .from('diagram_links')
+      .whereNull('deleted_at')
+      .where((builder) => {
+        builder
+          .whereRaw(
+            `NOT EXISTS (
+              SELECT 1 FROM devices
+              WHERE devices.id = diagram_links.source_device_id AND devices.deleted_at IS NULL
+            )`
+          )
+          .orWhereRaw(
+            `NOT EXISTS (
+              SELECT 1 FROM devices
+              WHERE devices.id = diagram_links.target_device_id AND devices.deleted_at IS NULL
+            )`
+          )
+      })
+      .update({
+        deleted_at: now,
+        deleted_by: deletedBy,
+        updated_by: deletedBy,
+        updated_at: now,
+      })
+  }
+
   async findActiveDeviceInProject(deviceId: string, projectId: string) {
     return Device.query()
       .where('id', deviceId)
@@ -102,11 +189,13 @@ export default class DiagramLinkRepository {
 
   /** Active diagram_link that already uses this port as source or target. */
   async findActiveUsingPortId(portId: string, excludeLinkId?: string) {
-    const q = DiagramLink.query()
-      .whereNull('deleted_at')
-      .where((builder) => {
-        builder.where('source_port_id', portId).orWhere('target_port_id', portId)
-      })
+    const q = whereBothEndpointsActive(
+      DiagramLink.query()
+        .whereNull('deleted_at')
+        .where((builder) => {
+          builder.where('source_port_id', portId).orWhere('target_port_id', portId)
+        })
+    )
     if (excludeLinkId) q.whereNot('id', excludeLinkId)
     return q.first()
   }
@@ -123,21 +212,23 @@ export default class DiagramLinkRepository {
     const normalized = portLabel.trim().toLowerCase()
     if (!normalized) return null
 
-    const q = DiagramLink.query()
-      .whereNull('deleted_at')
-      .where((builder) => {
-        builder
-          .where((src) => {
-            src
-              .where('source_device_id', deviceId)
-              .whereRaw('LOWER(TRIM(source_port_label)) = ?', [normalized])
-          })
-          .orWhere((tgt) => {
-            tgt
-              .where('target_device_id', deviceId)
-              .whereRaw('LOWER(TRIM(target_port_label)) = ?', [normalized])
-          })
-      })
+    const q = whereBothEndpointsActive(
+      DiagramLink.query()
+        .whereNull('deleted_at')
+        .where((builder) => {
+          builder
+            .where((src) => {
+              src
+                .where('source_device_id', deviceId)
+                .whereRaw('LOWER(TRIM(source_port_label)) = ?', [normalized])
+            })
+            .orWhere((tgt) => {
+              tgt
+                .where('target_device_id', deviceId)
+                .whereRaw('LOWER(TRIM(target_port_label)) = ?', [normalized])
+            })
+        })
+    )
     if (excludeLinkId) q.whereNot('id', excludeLinkId)
     return q.first()
   }

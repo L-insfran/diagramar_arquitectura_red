@@ -9,9 +9,11 @@ import {
   CONTAINER_HEADER_H,
   CONTAINER_PAD,
   CONTAINER_SELECTOR_H,
-  SIMPLE_DEVICE_GAP,
+  resolveDeviceGap,
+  SIMPLE_DEVICE_STACK_PAD,
   SIMPLE_DEVICE_WIDTH,
   simpleDeviceHeight,
+  type DeviceStackLayoutOpts,
 } from './SimpleDeviceNode'
 
 export type RackContainerData = {
@@ -32,17 +34,18 @@ export type RackContainerNodeType = Node<RackContainerData, 'rackContainer'>
 
 export function rackContainerSize(
   deviceHeights: number[],
-  opts?: { hidePicker?: boolean },
+  opts?: DeviceStackLayoutOpts,
 ) {
   const selectorH = opts?.hidePicker ? 0 : CONTAINER_SELECTOR_H
+  const gap = resolveDeviceGap(opts)
   const body =
     deviceHeights.length === 0
       ? 40
       : deviceHeights.reduce((sum, h) => sum + h, 0) +
-        SIMPLE_DEVICE_GAP * Math.max(0, deviceHeights.length - 1)
+        gap * Math.max(0, deviceHeights.length - 1)
   return {
     width: CONTAINER_PAD * 2 + SIMPLE_DEVICE_WIDTH + 8,
-    height: CONTAINER_HEADER_H + selectorH + CONTAINER_PAD * 2 + body,
+    height: CONTAINER_HEADER_H + selectorH + SIMPLE_DEVICE_STACK_PAD * 2 + body,
   }
 }
 
@@ -111,14 +114,15 @@ export const RackContainerNode = memo(RackContainerNodeComponent)
 export function stackDevicePositions(
   deviceIds: string[],
   heightById: Record<string, number>,
-  opts?: { hidePicker?: boolean },
+  opts?: DeviceStackLayoutOpts,
 ): Record<string, { x: number; y: number }> {
   const selectorH = opts?.hidePicker ? 0 : CONTAINER_SELECTOR_H
+  const gap = resolveDeviceGap(opts)
   const out: Record<string, { x: number; y: number }> = {}
-  let y = CONTAINER_HEADER_H + selectorH + CONTAINER_PAD
+  let y = CONTAINER_HEADER_H + selectorH + SIMPLE_DEVICE_STACK_PAD
   for (const id of deviceIds) {
     out[id] = { x: CONTAINER_PAD, y }
-    y += (heightById[id] ?? simpleDeviceHeight(0)) + SIMPLE_DEVICE_GAP
+    y += (heightById[id] ?? simpleDeviceHeight(0)) + gap
   }
   return out
 }
@@ -132,7 +136,7 @@ export function reorderDeviceIdsByY(
   heightById: Record<string, number>,
   draggedId: string,
   dropY: number,
-  opts?: { hidePicker?: boolean },
+  opts?: DeviceStackLayoutOpts,
 ): string[] {
   const from = deviceIds.indexOf(draggedId)
   if (from < 0 || deviceIds.length < 2) return deviceIds
