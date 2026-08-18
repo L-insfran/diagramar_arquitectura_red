@@ -949,31 +949,6 @@ export class SystemUserSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
-export class TopologyCanvasLayoutSchema extends BaseModel {
-  static $columns = ['createdAt', 'id', 'labelOffsets', 'layer', 'nodeParents', 'nodePositions', 'projectId', 'scope', 'updatedAt', 'workAreas'] as const
-  $columns = TopologyCanvasLayoutSchema.$columns
-  @column.dateTime({ autoCreate: true })
-  declare createdAt: DateTime
-  @column({ isPrimary: true })
-  declare id: string
-  @column()
-  declare labelOffsets: any
-  @column()
-  declare layer: string
-  @column()
-  declare nodeParents: any
-  @column()
-  declare nodePositions: any
-  @column()
-  declare projectId: string
-  @column()
-  declare scope: string
-  @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime
-  @column()
-  declare workAreas: any
-}
-
 export class VlanSchema extends BaseModel {
   static $columns = ['createdAt', 'description', 'id', 'name', 'projectId', 'updatedAt', 'vlanId'] as const
   $columns = VlanSchema.$columns

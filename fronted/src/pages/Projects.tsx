@@ -108,7 +108,7 @@ export default function Projects() {
       return
     }
     const ok = window.confirm(
-      `¿Eliminar el proyecto "${project.name}"? Se borrarán dispositivos, VLANs, redes y topología asociados.`
+      `¿Eliminar el proyecto "${project.name}"? Se borrarán dispositivos, VLANs, redes y diagramas asociados.`
     )
     if (!ok) return
     try {

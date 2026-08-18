@@ -56,10 +56,10 @@ import {
   SIMPLE_DEVICE_STACK_PAD,
   resolveDeviceGap,
 } from './SimpleDeviceNode'
-import { accentColorForNodeId } from '../../utils/topologyAccent'
+import { accentColorForNodeId } from '../../utils/diagram/diagramAccent'
 import { areaFlowNodeId } from '../../utils/areaPlacement'
 import { boardFlowNodeId } from '../../utils/boardPlacement'
-import { rackFlowNodeId } from '../../utils/topologyRackLayout'
+import { rackFlowNodeId } from '../../utils/diagram/rackLayout'
 import {
   routeOrthogonalEdges,
   type DiagramRect,

@@ -1,14 +1,10 @@
 import { DateTime } from 'luxon'
 import Connection from '#models/connection'
 import Port from '#models/port'
-import TopologyCanvasLayout from '#models/topology_canvas_layout'
 import type {
   CreateConnectionInput,
   UpdateConnectionInput,
-  UpsertCanvasLayoutInput,
 } from '#dtos/connection_dto'
-
-const UNIFIED_LAYER = 'unified'
 
 export default class ConnectionRepository {
   async findAllByProjectWithPorts(projectId: string) {
@@ -106,40 +102,5 @@ export default class ConnectionRepository {
 
   async findPortWithDeviceOrFail(portId: string) {
     return Port.query().where('id', portId).preload('device').firstOrFail()
-  }
-
-  async findCanvasLayout(projectId: string, scope: string) {
-    return TopologyCanvasLayout.query()
-      .where('projectId', projectId)
-      .where('layer', UNIFIED_LAYER)
-      .where('scope', scope)
-      .first()
-  }
-
-  async createCanvasLayout(
-    scope: string,
-    data: UpsertCanvasLayoutInput & {
-      workAreas: UpsertCanvasLayoutInput['workAreas']
-      nodeParents: Record<string, string>
-    }
-  ) {
-    return TopologyCanvasLayout.create({
-      projectId: data.projectId,
-      layer: UNIFIED_LAYER,
-      scope,
-      nodePositions: data.nodePositions,
-      labelOffsets: data.labelOffsets,
-      workAreas: data.workAreas ?? [],
-      nodeParents: data.nodeParents,
-    })
-  }
-
-  async saveCanvasLayout(row: TopologyCanvasLayout) {
-    await row.save()
-    return row
-  }
-
-  async deleteCanvasLayout(row: TopologyCanvasLayout) {
-    await row.delete()
   }
 }

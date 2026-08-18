@@ -6,7 +6,6 @@ import {
   Shield,
   Radio,
   Network,
-  GitBranch,
   HardDrive,
   Cable,
   Link2,
@@ -147,7 +146,7 @@ export default function Dashboard() {
           Bienvenido, {user?.firstName || 'Usuario'}
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Métricas reales del proyecto activo
+          Documentación del proyecto activo
         </p>
       </div>
 
@@ -192,13 +191,13 @@ export default function Dashboard() {
               </p>
             </Card>
             <Card
-              title="Conexiones"
+              title="Enlaces"
               icon={<Link2 className="w-5 h-5" />}
-              value={c?.connections ?? 0}
-              onClick={() => navigate('/topology')}
+              value={c?.diagramLinks ?? 0}
+              onClick={() => navigate('/connection-diagram')}
             >
               <p className="text-xs text-gray-500 mt-2">
-                {c?.connectionsPhysical ?? 0} físicas
+                Enlaces documentados en diagramas
               </p>
             </Card>
           </div>
@@ -345,7 +344,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <Card
                 title="Dispositivos"
-                subtitle="Inventario y estado"
+                subtitle="Inventario del proyecto"
                 icon={<Server className="w-5 h-5" />}
                 onClick={() => navigate('/devices')}
               />
@@ -356,10 +355,10 @@ export default function Dashboard() {
                 onClick={() => navigate('/racks')}
               />
               <Card
-                title="Topología"
-                subtitle="Mapa de conexiones"
-                icon={<GitBranch className="w-5 h-5" />}
-                onClick={() => navigate('/topology')}
+                title="Diagrama de conexión"
+                subtitle="Documentar enlaces"
+                icon={<Cable className="w-5 h-5" />}
+                onClick={() => navigate('/connection-diagram')}
               />
             </div>
           </div>

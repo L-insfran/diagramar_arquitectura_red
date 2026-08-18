@@ -51,13 +51,6 @@ export type ScannedRoutes = {
     'departments.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'departments.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'departments.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'topology.canvas_layout_show': { paramsTuple?: []; params?: {} }
-    'topology.canvas_layout_update': { paramsTuple?: []; params?: {} }
-    'topology.canvas_layout_destroy': { paramsTuple?: []; params?: {} }
-    'topology.index': { paramsTuple?: []; params?: {} }
-    'topology.store': { paramsTuple?: []; params?: {} }
-    'topology.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'topology.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.index': { paramsTuple?: []; params?: {} }
     'device_types.store': { paramsTuple?: []; params?: {} }
     'device_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -176,8 +169,6 @@ export type ScannedRoutes = {
     'employees.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'departments.index': { paramsTuple?: []; params?: {} }
     'departments.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'topology.canvas_layout_show': { paramsTuple?: []; params?: {} }
-    'topology.index': { paramsTuple?: []; params?: {} }
     'device_types.index': { paramsTuple?: []; params?: {} }
     'device_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.index': { paramsTuple?: []; params?: {} }
@@ -239,8 +230,6 @@ export type ScannedRoutes = {
     'employees.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'departments.index': { paramsTuple?: []; params?: {} }
     'departments.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'topology.canvas_layout_show': { paramsTuple?: []; params?: {} }
-    'topology.index': { paramsTuple?: []; params?: {} }
     'device_types.index': { paramsTuple?: []; params?: {} }
     'device_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.index': { paramsTuple?: []; params?: {} }
@@ -293,7 +282,6 @@ export type ScannedRoutes = {
     'networks.store': { paramsTuple?: []; params?: {} }
     'employees.store': { paramsTuple?: []; params?: {} }
     'departments.store': { paramsTuple?: []; params?: {} }
-    'topology.store': { paramsTuple?: []; params?: {} }
     'device_types.store': { paramsTuple?: []; params?: {} }
     'device_templates.store': { paramsTuple?: []; params?: {} }
     'device_templates.ports_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -325,8 +313,6 @@ export type ScannedRoutes = {
     'networks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employees.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'departments.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'topology.canvas_layout_update': { paramsTuple?: []; params?: {} }
-    'topology.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.ports_bulk_passthrough': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -357,8 +343,6 @@ export type ScannedRoutes = {
     'networks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'employees.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'departments.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'topology.canvas_layout_destroy': { paramsTuple?: []; params?: {} }
-    'topology.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'device_templates.ports_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'portId': ParamValue} }

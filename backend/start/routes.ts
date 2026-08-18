@@ -8,7 +8,6 @@ const VlansController = () => import('#controllers/vlans_controller')
 const NetworksController = () => import('#controllers/networks_controller')
 const EmployeesController = () => import('#controllers/employees_controller')
 const DepartmentsController = () => import('#controllers/departments_controller')
-const TopologyController = () => import('#controllers/topology_controller')
 const DeviceTypesController = () => import('#controllers/device_types_controller')
 const DeviceTemplatesController = () => import('#controllers/device_templates_controller')
 const SitesController = () => import('#controllers/sites_controller')
@@ -107,15 +106,6 @@ router
     router.get('/departments/:id', [DepartmentsController, 'show'])
     router.put('/departments/:id', [DepartmentsController, 'update'])
     router.delete('/departments/:id', [DepartmentsController, 'destroy'])
-
-    // Topology (rutas estáticas antes de /topology/:id)
-    router.get('/topology/canvas-layout', [TopologyController, 'canvasLayoutShow'])
-    router.put('/topology/canvas-layout', [TopologyController, 'canvasLayoutUpdate'])
-    router.delete('/topology/canvas-layout', [TopologyController, 'canvasLayoutDestroy'])
-    router.get('/topology', [TopologyController, 'index'])
-    router.post('/topology', [TopologyController, 'store'])
-    router.put('/topology/:id', [TopologyController, 'update'])
-    router.delete('/topology/:id', [TopologyController, 'destroy'])
 
     // Device Types
     router.get('/device-types', [DeviceTypesController, 'index'])

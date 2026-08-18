@@ -208,7 +208,7 @@ export default class DeviceService {
         portNumber: port.portNumber,
         portType: port.portType,
         speed: port.speed,
-        status: isPassthrough ? 'up' : 'down',
+        status: 'up',
         description: port.description,
         isPassthrough,
         chassisFace: isPassthrough ? 'front' : (port.chassisFace ?? 'front'),

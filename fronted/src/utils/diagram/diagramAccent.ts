@@ -1,4 +1,4 @@
-/** Distinct accent colors for topology nodes / port labels (WCAG-friendly saturation). */
+/** Distinct accent colors for diagram nodes / port labels (WCAG-friendly saturation). */
 const ACCENT_PALETTE = [
   '#3b82f6',
   '#10b981',

@@ -15,7 +15,6 @@ import Vlans from './pages/Vlans'
 import VlanCreate from './pages/VlanCreate'
 import Networks from './pages/Networks'
 import NetworkCreate from './pages/NetworkCreate'
-import Topology from './pages/Topology'
 import ConnectionDiagram from './pages/ConnectionDiagram'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
@@ -123,7 +122,7 @@ function AppRoutes() {
         <Route path="/networks" element={<Networks />} />
         <Route path="/networks/new" element={<MutateOnly><NetworkCreate /></MutateOnly>} />
         <Route path="/networks/:id/edit" element={<MutateOnly><NetworkCreate /></MutateOnly>} />
-        <Route path="/topology" element={<Topology />} />
+        <Route path="/topology" element={<Navigate to="/connection-diagram" replace />} />
         <Route path="/connection-diagram" element={<ConnectionDiagram />} />
         <Route path="/employees" element={<Navigate to="/" replace />} />
         <Route path="/employees/:id" element={<Navigate to="/" replace />} />

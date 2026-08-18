@@ -18,7 +18,6 @@ import { facesForAccessory } from '#dtos/rack_accessory_dto'
 import type {
   CreateConnectionInput,
   UpdateConnectionInput,
-  UpsertCanvasLayoutInput,
 } from '#dtos/connection_dto'
 
 function mapFamilyToMediumType(family: string): MediumType {
@@ -305,19 +304,6 @@ const buildMediumInfo = (conn: Connection): MediumInfo => ({
   cableLength: conn.cableLength ?? null,
 })
 
-function serializeCanvasLayout(row: {
-  nodePositions: Record<string, unknown>
-  labelOffsets: Record<string, unknown>
-  workAreas: unknown
-  nodeParents: Record<string, unknown> | null
-} | null) {
-  return {
-    nodePositions: row?.nodePositions ?? {},
-    labelOffsets: row?.labelOffsets ?? {},
-    workAreas: Array.isArray(row?.workAreas) ? row.workAreas : [],
-    nodeParents: row?.nodeParents ?? {},
-  }
-}
 
 export default class TopologyService {
   private connections = new ConnectionRepository()
@@ -648,35 +634,5 @@ export default class TopologyService {
   async deleteConnection(id: string, actorId: string) {
     const conn = await this.connections.findActiveSummaryOrFail(id)
     await this.connections.softDelete(conn, actorId)
-  }
-
-  async getCanvasLayout(projectId: string, scope: string) {
-    const row = await this.connections.findCanvasLayout(projectId, scope)
-    return serializeCanvasLayout(row)
-  }
-
-  async upsertCanvasLayout(scope: string, data: UpsertCanvasLayoutInput) {
-    const workAreas = Array.isArray(data.workAreas) ? data.workAreas : []
-    const nodeParents = data.nodeParents ?? {}
-    let row = await this.connections.findCanvasLayout(data.projectId, scope)
-    if (!row) {
-      row = await this.connections.createCanvasLayout(scope, {
-        ...data,
-        workAreas,
-        nodeParents,
-      })
-    } else {
-      row.nodePositions = data.nodePositions
-      row.labelOffsets = data.labelOffsets
-      row.workAreas = workAreas
-      row.nodeParents = nodeParents
-      await this.connections.saveCanvasLayout(row)
-    }
-    return serializeCanvasLayout(row)
-  }
-
-  async deleteCanvasLayout(projectId: string, scope: string) {
-    const row = await this.connections.findCanvasLayout(projectId, scope)
-    if (row) await this.connections.deleteCanvasLayout(row)
   }
 }

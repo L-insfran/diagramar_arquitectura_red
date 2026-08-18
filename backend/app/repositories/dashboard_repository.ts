@@ -80,6 +80,10 @@ export default class DashboardRepository {
     })
   }
 
+  countDiagramLinks(projectId: string) {
+    return countWhere('diagram_links', projectId, (q) => q.whereNull('deleted_at'))
+  }
+
   countAttachments(projectId: string) {
     return countWhere('attachments', projectId, (q) => q.whereNull('deleted_at'))
   }

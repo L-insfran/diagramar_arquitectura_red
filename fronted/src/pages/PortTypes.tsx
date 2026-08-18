@@ -270,7 +270,7 @@ export default function PortTypes() {
       <p className="text-sm text-gray-500 dark:text-gray-400">
         Los tipos definidos aquí aparecerán en el selector al crear o editar puertos de un
         dispositivo. El código <code className="font-mono text-xs">wireless</code> se usa para
-        interfaces Wi‑Fi en la topología. La velocidad por defecto es una sugerencia; cada puerto
+        interfaces Wi‑Fi en los diagramas de conexión. La velocidad por defecto es una sugerencia; cada puerto
         puede tener la suya.
       </p>
 

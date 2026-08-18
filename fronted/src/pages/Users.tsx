@@ -424,12 +424,12 @@ export default function Users() {
             </p>
             <p>
               <strong className="text-gray-700 dark:text-gray-300">Operador:</strong> gestión
-              operativa de dispositivos, topología, redes, empleados. No gestiona proyectos ni
+              operativa de dispositivos, diagramas de conexión, redes, empleados. No gestiona proyectos ni
               tipos.
             </p>
             <p>
               <strong className="text-gray-700 dark:text-gray-300">Visor:</strong> solo lectura.
-              Ve topología, redes, VLANs. Accede a sus propias credenciales de red. Puede cargar
+              Ve diagramas de conexión, redes, VLANs. Accede a sus propias credenciales de red. Puede cargar
               notebooks.
             </p>
           </div>

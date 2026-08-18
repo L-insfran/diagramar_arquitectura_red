@@ -46,6 +46,7 @@ export type DashboardMetrics = {
     portsOccupied: number
     connections: number
     connectionsPhysical: number
+    diagramLinks: number
     vlans: number
     networks: number
     attachments: number

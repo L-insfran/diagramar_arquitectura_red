@@ -1,4 +1,4 @@
-import type { RackFace, TopologyRackSummary } from '../types'
+import type { RackFace, TopologyRackSummary } from '../../types'
 
 export const RACK_NODE_ID_PREFIX = 'rack:'
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Cable,
   Copy,
+  MoreVertical,
   Pencil,
   Plus,
   Printer,
@@ -50,7 +51,7 @@ import {
 } from '../utils/diagram/linkLabel'
 import { boardFlowNodeId } from '../utils/boardPlacement'
 import { areaFlowNodeId } from '../utils/areaPlacement'
-import { rackFlowNodeId } from '../utils/topologyRackLayout'
+import { rackFlowNodeId } from '../utils/diagram/rackLayout'
 import { parseDiagramHandlePort } from '../utils/diagram/diagramPortHandles'
 import type {
   Area,
@@ -127,6 +128,24 @@ export default function ConnectionDiagramPage() {
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameName, setRenameName] = useState('')
   const [renaming, setRenaming] = useState(false)
+  const [diagramActionsOpen, setDiagramActionsOpen] = useState(false)
+  const diagramActionsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!diagramActionsOpen) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (!diagramActionsRef.current?.contains(e.target as Node)) setDiagramActionsOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDiagramActionsOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [diagramActionsOpen])
 
   const [scopeSiteId, setScopeSiteId] = useState('')
   const [rackSearch, setRackSearch] = useState('')
@@ -1192,10 +1211,12 @@ export default function ConnectionDiagramPage() {
   }, [visibleContainerIds, graphPayload?.boards])
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col gap-3 p-4">
-      <PageHeader
-        title="Diagrama de conexión"
-        subtitle="Elegí un sitio, agregá áreas como contenedores y dentro racks, tableros o equipos sueltos."
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+        <PageHeader
+          title="Documentar enlaces"
+          subtitle="Sitio → áreas → racks o tableros → arrastrá un enlace entre equipos (E1, E2…)."
+          className="mb-0"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Select
@@ -1206,47 +1227,77 @@ export default function ConnectionDiagramPage() {
             />
             {canMutate && (
               <>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<Pencil className="h-4 w-4" />}
-                  disabled={!selectedId}
-                  onClick={openRenameDiagram}
-                  title="Renombrar diagrama"
-                >
-                  Renombrar
-                </Button>
                 <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>
                   Nuevo
                 </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<Copy className="h-4 w-4" />}
-                  disabled={!selectedId}
-                  onClick={handleDuplicate}
-                >
-                  Duplicar
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  icon={<Trash2 className="h-4 w-4" />}
-                  disabled={!selectedId}
-                  onClick={handleDelete}
-                >
-                  Eliminar
-                </Button>
+                {selectedId ? (
+                  <div className="relative" ref={diagramActionsRef}>
+                    <Button
+                      size="sm"
+                      variant={diagramActionsOpen ? 'primary' : 'secondary'}
+                      icon={<MoreVertical className="h-4 w-4" />}
+                      onClick={() => setDiagramActionsOpen((v) => !v)}
+                      aria-expanded={diagramActionsOpen}
+                      aria-haspopup="menu"
+                    >
+                      Más
+                    </Button>
+                    {diagramActionsOpen ? (
+                      <div
+                        className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                        role="menu"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                          onClick={() => {
+                            setDiagramActionsOpen(false)
+                            openRenameDiagram()
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Renombrar
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                          onClick={() => {
+                            setDiagramActionsOpen(false)
+                            void handleDuplicate()
+                          }}
+                        >
+                          <Copy className="h-4 w-4" />
+                          Duplicar
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                          onClick={() => {
+                            setDiagramActionsOpen(false)
+                            void handleDelete()
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Eliminar
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </>
             )}
           </div>
         }
-      />
+        />
+      </div>
 
-      <div className="flex min-h-0 flex-1 gap-3">
-        <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-auto rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex min-h-0 flex-1 gap-0">
+        <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-auto border-r border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Alcance
+            Alcance del diagrama
           </div>
 
           <Select
@@ -1282,15 +1333,9 @@ export default function ConnectionDiagramPage() {
                           </div>
                           {canMutate ? (
                             onCanvas ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() =>
-                                  void handleRemoveContainerFromCanvas(areaKey, area.name)
-                                }
-                              >
-                                Quitar
-                              </Button>
+                              <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                En lienzo
+                              </span>
                             ) : (
                               <Button
                                 size="sm"
@@ -1300,6 +1345,19 @@ export default function ConnectionDiagramPage() {
                                 Agregar
                               </Button>
                             )
+                          ) : onCanvas ? (
+                            <span className="shrink-0 text-[10px] text-slate-400">En lienzo</span>
+                          ) : null}
+                          {canMutate && onCanvas ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                void handleRemoveContainerFromCanvas(areaKey, area.name)
+                              }
+                            >
+                              Quitar
+                            </Button>
                           ) : null}
                         </div>
                       )
@@ -1545,7 +1603,7 @@ export default function ConnectionDiagramPage() {
           )}
         </aside>
 
-        <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
+        <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="relative min-h-0 flex-1 overflow-hidden">
           <div className="absolute right-3 top-3 z-20 flex flex-wrap items-center justify-end gap-2">
@@ -1581,9 +1639,18 @@ export default function ConnectionDiagramPage() {
           </div>
 
           {!selectedId && !loadingList && (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
-              <Cable className="h-10 w-10 opacity-40" />
-              <p>Creá o seleccioná un diagrama de conexión.</p>
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center text-slate-500">
+              <Cable className="h-12 w-12 opacity-40" />
+              <div>
+                <p className="text-base font-medium text-slate-700 dark:text-slate-200">
+                  Empezá a documentar enlaces
+                </p>
+                <ol className="mt-3 space-y-1 text-sm text-slate-500 dark:text-slate-400">
+                  <li>1. Creá o seleccioná un diagrama</li>
+                  <li>2. Elegí un sitio en el panel izquierdo</li>
+                  <li>3. Agregá un área y conectá equipos</li>
+                </ol>
+              </div>
               {canMutate && (
                 <Button
                   size="sm"
@@ -1597,8 +1664,11 @@ export default function ConnectionDiagramPage() {
           )}
 
           {selectedId && !scopeSiteId && (
-            <div className="flex h-full items-center justify-center text-sm text-slate-500">
-              Elegí un sitio en el panel izquierdo para empezar.
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-slate-500">
+              <p className="font-medium text-slate-700 dark:text-slate-200">Elegí un sitio</p>
+              <p className="max-w-sm text-slate-500 dark:text-slate-400">
+                Usá el selector de sitio en el panel izquierdo para cargar áreas, racks y tableros.
+              </p>
             </div>
           )}
 

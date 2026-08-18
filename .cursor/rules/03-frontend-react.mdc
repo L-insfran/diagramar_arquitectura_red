@@ -12,7 +12,7 @@ Pantallas limpias, minimalistas, profesionales. Preferir: Cards, Drawer, Context
 
 ## Reutilizar antes de crear
 
-Componentes en `fronted/src/components/`: Button, Card, DataTable, Input, Modal, Select, PageHeader, StatusBadge. Topología en `components/topology/`.
+Componentes en `fronted/src/components/`: Button, Card, DataTable, Input, Modal, Select, PageHeader, StatusBadge. Diagrama de conexión en `components/diagram/`.
 
 - No crear componentes gigantes; preferir piezas reutilizables.
 - Datos vía `services/*.service.ts` (axios en `api.ts`) + hook `useApi`.

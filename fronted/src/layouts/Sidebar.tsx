@@ -6,7 +6,6 @@ import {
   Server,
   Layers,
   Globe,
-  GitBranch,
   Cable,
   Settings,
   Network,
@@ -72,6 +71,15 @@ const allNavEntries: NavEntry[] = [
     children: [
       {
         kind: 'link',
+        id: 'connection-diagram',
+        to: '/connection-diagram',
+        icon: Cable,
+        label: 'Diagrama de conexión',
+        viewerVisible: true,
+        adminOnly: false,
+      },
+      {
+        kind: 'link',
         id: 'devices',
         to: '/devices',
         icon: Server,
@@ -85,24 +93,6 @@ const allNavEntries: NavEntry[] = [
         to: '/racks',
         icon: HardDrive,
         label: 'Racks',
-        viewerVisible: true,
-        adminOnly: false,
-      },
-      {
-        kind: 'link',
-        id: 'topology',
-        to: '/topology',
-        icon: GitBranch,
-        label: 'Topología',
-        viewerVisible: true,
-        adminOnly: false,
-      },
-      {
-        kind: 'link',
-        id: 'connection-diagram',
-        to: '/connection-diagram',
-        icon: Cable,
-        label: 'Diagrama de conexión',
         viewerVisible: true,
         adminOnly: false,
       },
@@ -360,17 +350,24 @@ export function Sidebar({ isOpen, isCollapsed, isViewer, onToggleCollapsed, onCl
                 : 'border-b border-slate-200 dark:border-slate-800/80'
             } ${isCollapsed ? 'px-3' : 'px-6'}`}
           >
-            <div className={`flex items-center ${isCollapsed ? 'gap-0' : 'gap-3'}`}>
-              <div className="p-1.5 bg-blue-600 rounded-lg">
-                <Network className="w-5 h-5 text-white" />
+            <div className={`flex flex-col ${isCollapsed ? 'gap-0' : 'gap-0.5'}`}>
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 bg-blue-600 rounded-lg">
+                  <Network className="w-5 h-5 text-white" />
+                </div>
+                <span
+                  className={`text-lg font-bold text-slate-900 dark:text-white origin-left transition-all duration-200 ${
+                    isCollapsed ? 'w-0 opacity-0 scale-95 ml-0 overflow-hidden' : 'opacity-100 scale-100'
+                  }`}
+                >
+                  NetManager
+                </span>
               </div>
-              <span
-                className={`text-lg font-bold text-slate-900 dark:text-white origin-left transition-all duration-200 ${
-                  isCollapsed ? 'w-0 opacity-0 scale-95 ml-0 overflow-hidden' : 'opacity-100 scale-100 ml-3'
-                }`}
-              >
-                NetManager
-              </span>
+              {!isCollapsed ? (
+                <p className="pl-[2.75rem] text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                  Documentación de conexiones
+                </p>
+              ) : null}
             </div>
             <div className="flex items-center gap-1">
               <button

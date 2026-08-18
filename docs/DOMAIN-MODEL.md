@@ -16,7 +16,6 @@ erDiagram
     projects ||--o{ vlans : has
     projects ||--o{ networks : has
     projects ||--o{ connections : has
-    projects ||--o{ topology_canvas_layouts : has
     system_users ||--o{ project_memberships : has
     system_users ||--o{ access_tokens : has
     device_types ||--o{ devices : classifies
@@ -75,15 +74,14 @@ erDiagram
 | `attachments` | Docs polimórficos (archivo/link/nota) por objeto + `project_id` |
 | `secrets` | Secretos cifrados polimórficos (reveal con mutate) |
 | `vlans`, `networks`, `port_vlans` | Capa L2/L3 |
-| `connections` | Entidad de primera clase; `source_face`/`target_face`; 1 física activa / (puerto, cara) |
-| `topology_canvas_layouts` | Layout visual de `/topology` + work_areas JSON; posiciones de racks (`rack:{id}`) |
-| `connection_diagrams` | Diagramas nombrados múltiples (scope sitios/áreas, containers, edge_routes) — ADR 0009 |
+| `connections` | Entidad de primera clase; `source_face`/`target_face`; 1 física activa / (puerto, cara); sin UI dedicada (retirado canvas `/topology`, ADR 0011) |
+| `connection_diagrams` | Canvas único de documentación visual: diagramas nombrados múltiples (scope sitios/áreas, containers, edge_routes) — ADR 0009 + 0011 |
 | `diagram_links` | Enlaces simplificados equipo↔equipo (puerto opcional + etiqueta; `code` correlativo por proyecto, visible como E1…) para diagrama/informe — ADR 0010 |
 | `device_credentials`, `employee_credentials` | Secretos legacy de device/employee |
 
-**Topología física (canvas `/topology`):** `GET /topology` expone en cada device ubicación física (incl. `boardId`/celda) y una lista `racks[]`. El canvas proyecta racks como contenedores con elevación por U. `work_areas` del canvas ≠ `areas` de inventario.
+**Grafo de inventario (backend):** `TopologyService.getTopology` alimenta `GET /connection-diagrams/:id/graph` (nodos, racks, boards, áreas). No hay canvas `/topology` ni tabla `topology_canvas_layouts` (ADR 0011).
 
-**Diagrama de conexión (`/connection-diagram`):** múltiples vistas por proyecto; contenedores **área → rack|tablero** (equipos también sueltos en el área); ruteo ortogonal con evitación de solapes; layout en `connection_diagrams`; edges = `diagram_links` (ADR 0010), no `connections` físicas. Sobre el cable se muestra el código (`E1`); la descripción completa vive en la lista de referencia.
+**Diagrama de conexión (`/connection-diagram`):** único lienzo de documentación de enlaces; contenedores **área → rack|tablero** (equipos también sueltos en el área); ruteo ortogonal; edges = `diagram_links` (ADR 0010), no `connections` físicas. Código visible `E1`… en el cable.
 
 ### Ausentes respecto a la visión
 

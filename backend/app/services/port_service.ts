@@ -17,7 +17,7 @@ export default class PortService {
     requestedStatus?: PortOperationalStatus | null
   ): PortOperationalStatus {
     if (isPassthrough) return 'up'
-    return requestedStatus ?? 'down'
+    return requestedStatus ?? 'up'
   }
 
   /**

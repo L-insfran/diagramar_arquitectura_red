@@ -55,19 +55,3 @@ export type UpdateConnectionInput = {
   description?: string | null
   metadata?: ConnectionMetadata | null
 }
-
-export type UpsertCanvasLayoutInput = {
-  projectId: string
-  nodePositions: Record<string, { x: number; y: number }>
-  labelOffsets: Record<string, { x: number; y: number; bendX?: number; bendY?: number }>
-  workAreas?: Array<{
-    id: string
-    name: string
-    x: number
-    y: number
-    width: number
-    height: number
-    titleFontSize?: number
-  }>
-  nodeParents?: Record<string, string>
-}

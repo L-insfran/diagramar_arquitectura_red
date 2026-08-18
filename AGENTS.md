@@ -38,17 +38,17 @@ Reglas Cursor (contexto persistente): [.cursor/rules/](.cursor/rules/)
 ## Hechos críticos (no inventar)
 
 - Scope **actual** en DB/código: **`projects`** (`project_id`, `X-Project-Id`, `project_memberships`). ADR aceptado: [docs/adr/0001-project-como-scope-raiz.md](docs/adr/0001-project-como-scope-raiz.md) (opción A).
-- Jerarquía física: **sites → areas → racks | boards → devices** (Fases 3–4 + ADR 0008). `work_areas` del canvas de topología es solo visual.
-- **Sí** existen `device_templates` + puertos de template (catálogo **global**, ADR 0004); devices nacen de template.
+- Jerarquía física: **sites → areas → racks | boards → devices** (Fases 3–4 + ADR 0008).
+- **Sí** existen `device_templates` + puertos de template (catálogo **global**, ADR 0004); devices nacen de template; puertos nuevos en **Up** (documentación, no monitoreo).
 - Soft delete / auditoría by-user: piloto en devices, connections, templates, sites, areas, racks, boards, connection_diagrams, diagram_links, attachments, secrets.
-- **Sí** existen conexiones como entidad, topología React Flow, diagrama de conexión (múltiples vistas + ruteo ortogonal), VLANs, networks, ports, `port_types` enriquecidos, `cable_types`, roles admin/operator/viewer.
+- **Sí** existen conexiones como entidad, **diagrama de conexión** React Flow (único canvas visual; múltiples vistas + ruteo ortogonal), VLANs, networks, ports, `port_types` enriquecidos, `cable_types`, roles admin/operator/viewer.
 - **Sí** existen `attachments` + `secrets` polimórficos (Fase 6); archivos en disco local (ADR 0003).
 - **Sí** existe `GET /api/dashboard` con métricas agregadas del proyecto (Fase 7).
 - Regla: 1 conexión física activa por **(puerto, cara)**; puertos passthrough tienen `front`/`rear` (ADR 0005); marca editable en UI + bulk; puertos normales usan `chassis_face` (ADR 0007).
 - Frontend vive en la carpeta **`fronted/`** (typo histórico).
-- Siguiente migración tras `0049_`: **`0050_`**.
+- Siguiente migración tras `0051_`: **`0052_`**.
 - Capas: Controller → Service → Repository → DTO → Validator (ADR 0002).
 - Regla de conexiones: 1 física activa por `(port, face)`; patch panels = `is_passthrough` (ADR 0005); full-depth = `is_full_depth` → `rack_face=both` (ADR 0007).
 - Bandejas/colgantes/chasis: `rack_accessories` + templates; shelf 1–6U / hang 1–5U / chassis 1–4U (sin slots); hang/chassis `face` front|rear; devices solo en shelf/hang vía `supported_by_accessory_id` (ADR 0006).
 - Tableros: `boards` bajo área (grilla filas×columnas); devices vía `board_id` + celda; exclusión mutua con rack (ADR 0008).
-- Diagramas de conexión: `connection_diagrams` (múltiples nombrados); contenedores **área → rack|tablero** + equipos sueltos en área; edges = `diagram_links` (código correlativo `E1…` por proyecto, ADR 0010); coexisten con `/topology` (ADR 0009).
+- Diagramas de conexión: `connection_diagrams` (múltiples nombrados); contenedores **área → rack|tablero** + equipos sueltos en área; edges = `diagram_links` (código correlativo `E1…` por proyecto, ADR 0010). Canvas `/topology` **retirado** (ADR 0011); `/topology` redirige a `/connection-diagram`.

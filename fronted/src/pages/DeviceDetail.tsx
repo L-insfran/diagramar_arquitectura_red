@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
-import { ArrowLeft, Server, Cpu, MapPin, Hash, Clock, Pencil, Plus, ArrowUp, ArrowDown } from 'lucide-react'
+import { ArrowLeft, Server, Cpu, MapPin, Hash, Clock, Pencil, Plus } from 'lucide-react'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
 import { DataTable, type Column } from '../components/DataTable'
@@ -33,12 +33,6 @@ const FALLBACK_PORT_TYPES: { value: string; label: string }[] = [
   { value: 'coaxial', label: 'Coaxil' },
 ]
 
-const portStatusOptions: { value: Port['status']; label: string }[] = [
-  { value: 'up', label: 'Up' },
-  { value: 'down', label: 'Down' },
-  { value: 'disabled', label: 'Disabled' },
-]
-
 type PortVlanFormRow = { vlanId: string; isTagged: boolean }
 
 export default function DeviceDetail() {
@@ -67,7 +61,6 @@ export default function DeviceDetail() {
     portNumber: '',
     portType: 'ethernet',
     speed: '',
-    status: 'down' as Port['status'],
     description: '',
     isPassthrough: false,
     chassisFace: 'front' as 'front' | 'rear',
@@ -75,27 +68,11 @@ export default function DeviceDetail() {
   const [portVlanAssignments, setPortVlanAssignments] = useState<PortVlanFormRow[]>([])
   const [portSubmitting, setPortSubmitting] = useState(false)
   const [portFormError, setPortFormError] = useState<string | null>(null)
-  const [bulkStatusSubmitting, setBulkStatusSubmitting] = useState<'up' | 'down' | null>(null)
   const [bulkPassthroughSubmitting, setBulkPassthroughSubmitting] = useState(false)
 
   const portsSorted = useMemo(
     () => [...(device?.ports ?? [])].sort((a, b) => a.portNumber - b.portNumber),
     [device?.ports]
-  )
-
-  const allPortsPassthrough = useMemo(
-    () => portsSorted.length > 0 && portsSorted.every((p) => !!p.isPassthrough),
-    [portsSorted]
-  )
-
-  const hasPassthroughPorts = useMemo(
-    () => portsSorted.some((p) => !!p.isPassthrough),
-    [portsSorted]
-  )
-
-  const nonPassthroughCount = useMemo(
-    () => portsSorted.filter((p) => !p.isPassthrough).length,
-    [portsSorted]
   )
 
   const vlanOptions = useMemo(
@@ -124,7 +101,6 @@ export default function DeviceDetail() {
       portNumber: '',
       portType: portTypeOptions[0]?.value ?? 'ethernet',
       speed: '',
-      status: 'down',
       description: '',
       isPassthrough: false,
       chassisFace: 'front',
@@ -153,7 +129,6 @@ export default function DeviceDetail() {
       portNumber: String(port.portNumber),
       portType: port.portType,
       speed: port.speed ?? '',
-      status: isPassthrough ? 'up' : port.status,
       description: port.description ?? '',
       isPassthrough,
       chassisFace: port.chassisFace === 'rear' ? 'rear' : 'front',
@@ -203,7 +178,7 @@ export default function DeviceDetail() {
     try {
       setPortSubmitting(true)
       setPortFormError(null)
-      const status = portForm.isPassthrough ? 'up' : portForm.status
+      const status = 'up' as const
       if (editingPortId) {
         await portsService.update(editingPortId, {
           name: portForm.name.trim(),
@@ -240,42 +215,6 @@ export default function DeviceDetail() {
       setPortFormError(message || (editingPortId ? 'Could not update port' : 'Could not create port'))
     } finally {
       setPortSubmitting(false)
-    }
-  }
-
-  const handleBulkPortStatus = async (status: 'up' | 'down') => {
-    if (!device?.id || portsSorted.length === 0) return
-    if (allPortsPassthrough) return
-
-    const label = status === 'up' ? 'Up' : 'Down'
-    const targetCount = status === 'down' ? nonPassthroughCount : portsSorted.length
-    if (targetCount === 0) return
-
-    const exceptNote =
-      status === 'down' && hasPassthroughPorts
-        ? ` (${nonPassthroughCount} activos; los puertos puente se mantienen Up)`
-        : ''
-    const ok = window.confirm(
-      `¿Poner ${targetCount} puerto${targetCount === 1 ? '' : 's'} de este dispositivo en ${label}?${exceptNote}`
-    )
-    if (!ok) return
-
-    try {
-      setBulkStatusSubmitting(status)
-      const result = await portsService.bulkUpdateStatus(device.id, status)
-      toast.success(
-        `Puertos en ${label}`,
-        `Se actualizaron ${result.updatedCount} puerto${result.updatedCount === 1 ? '' : 's'}.`
-      )
-      refetch()
-    } catch (err: unknown) {
-      const message =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
-          : undefined
-      toast.error('No se pudo actualizar el status', message || 'Intenta de nuevo.')
-    } finally {
-      setBulkStatusSubmitting(null)
     }
   }
 
@@ -330,7 +269,6 @@ export default function DeviceDetail() {
       ),
     },
     { key: 'speed', header: 'Speed', render: (p) => p.speed || '—' },
-    { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} /> },
     {
       key: 'vlans',
       header: 'VLANs',
@@ -560,48 +498,16 @@ export default function DeviceDetail() {
           {canMutate && (
             <div className="flex flex-wrap items-center gap-2">
               {portsSorted.length > 0 && (
-                <>
-                  {!allPortsPassthrough && (
-                    <>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        icon={<ArrowUp className="w-4 h-4" />}
-                        isLoading={bulkStatusSubmitting === 'up'}
-                        disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
-                        onClick={() => handleBulkPortStatus('up')}
-                      >
-                        All Up
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="danger"
-                        size="sm"
-                        icon={<ArrowDown className="w-4 h-4" />}
-                        isLoading={bulkStatusSubmitting === 'down'}
-                        disabled={
-                          bulkStatusSubmitting !== null ||
-                          bulkPassthroughSubmitting ||
-                          nonPassthroughCount === 0
-                        }
-                        onClick={() => handleBulkPortStatus('down')}
-                      >
-                        All Down
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    isLoading={bulkPassthroughSubmitting}
-                    disabled={bulkStatusSubmitting !== null || bulkPassthroughSubmitting}
-                    onClick={() => void handleBulkPassthrough(true)}
-                  >
-                    Marcar todos puente
-                  </Button>
-                </>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  isLoading={bulkPassthroughSubmitting}
+                  disabled={bulkPassthroughSubmitting}
+                  onClick={() => void handleBulkPassthrough(true)}
+                >
+                  Marcar todos puente
+                </Button>
               )}
               <Button
                 type="button"
@@ -658,28 +564,6 @@ export default function DeviceDetail() {
               }
               options={portTypeOptions.map((o) => ({ value: o.value, label: o.label }))}
             />
-            {portForm.isPassthrough ? (
-              <div>
-                <p className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Status
-                </p>
-                <p className="text-sm text-gray-600 dark:text-gray-300 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/40 px-3 py-2">
-                  Up
-                  <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    Los puertos puente no se pueden bajar.
-                  </span>
-                </p>
-              </div>
-            ) : (
-              <Select
-                label="Status"
-                value={portForm.status}
-                onChange={(e) =>
-                  setPortForm((p) => ({ ...p, status: e.target.value as Port['status'] }))
-                }
-                options={portStatusOptions.map((o) => ({ value: o.value, label: o.label }))}
-              />
-            )}
             <Input
               label="Speed"
               value={portForm.speed}
@@ -698,7 +582,6 @@ export default function DeviceDetail() {
                 setPortForm((p) => ({
                   ...p,
                   isPassthrough: checked,
-                  status: checked ? 'up' : p.status,
                 }))
               }}
             />
@@ -745,7 +628,7 @@ export default function DeviceDetail() {
                 VLANs del puerto
               </p>
               <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                Estas VLANs se muestran en topología y en la tabla de conexiones. Access = 1 VLAN
+                Estas VLANs se muestran en los diagramas de conexión. Access = 1 VLAN
                 untagged; Trunk = varias (tagged).
               </p>
             </div>

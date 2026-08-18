@@ -37,7 +37,7 @@ export default function Login() {
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">NetManager</h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Sign in to manage your network infrastructure
+            Documentá conexiones de comunicación de forma rápida
           </p>
         </div>
 
@@ -67,13 +67,13 @@ export default function Login() {
               required
             />
             <Button type="submit" isLoading={isLoading} className="w-full">
-              Sign In
+              Iniciar sesión
             </Button>
           </form>
         </div>
 
         <p className="mt-4 text-center text-xs text-gray-500 dark:text-gray-500">
-          Network Management System v1.0
+          Plataforma de documentación de infraestructura
         </p>
       </div>
     </div>

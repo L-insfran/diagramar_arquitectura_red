@@ -281,7 +281,7 @@ export function SimpleLinkModal({
         const taken = isPortOccupied(occupied, effectiveSourceId, p.id, p.name, p.name)
         return {
           value: p.id,
-          label: `${p.name} (#${p.portNumber})${p.status !== 'up' ? ` · ${p.status}` : ''}`,
+          label: `${p.name} (#${p.portNumber})`,
           disabled: taken,
           disabledReason: taken ? 'en uso' : undefined,
         }
@@ -295,7 +295,7 @@ export function SimpleLinkModal({
         const taken = isPortOccupied(occupied, effectiveTargetId, p.id, p.name, p.name)
         return {
           value: p.id,
-          label: `${p.name} (#${p.portNumber})${p.status !== 'up' ? ` · ${p.status}` : ''}`,
+          label: `${p.name} (#${p.portNumber})`,
           disabled: taken,
           disabledReason: taken ? 'en uso' : undefined,
         }
