@@ -22,6 +22,7 @@ import DeviceTypes from './pages/DeviceTypes'
 import DeviceTemplates from './pages/DeviceTemplates'
 import Sites from './pages/Sites'
 import Racks from './pages/Racks'
+import Containers from './pages/Containers'
 import PortTypes from './pages/PortTypes'
 import CableTypes from './pages/CableTypes'
 import Projects from './pages/Projects'
@@ -112,7 +113,8 @@ function AppRoutes() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/devices" element={<Devices />} />
-        <Route path="/racks" element={<Racks />} />
+        <Route path="/containers" element={<Containers />} />
+        <Route path="/racks" element={<Navigate to="/containers" replace />} />
         <Route path="/devices/new" element={<DeviceCreate />} />
         <Route path="/devices/:id/edit" element={<DeviceCreate />} />
         <Route path="/devices/:id" element={<DeviceDetail />} />
@@ -132,7 +134,7 @@ function AppRoutes() {
         <Route path="/settings/device-types" element={<AdminOnly><DeviceTypes /></AdminOnly>} />
         <Route path="/settings/device-templates" element={<MutateOnly><DeviceTemplates /></MutateOnly>} />
         <Route path="/settings/sites" element={<MutateOnly><Sites /></MutateOnly>} />
-        <Route path="/settings/racks" element={<Navigate to="/racks" replace />} />
+        <Route path="/settings/racks" element={<Navigate to="/containers" replace />} />
         <Route path="/settings/port-types" element={<AdminOnly><PortTypes /></AdminOnly>} />
         <Route path="/settings/cable-types" element={<AdminOnly><CableTypes /></AdminOnly>} />
       </Route>

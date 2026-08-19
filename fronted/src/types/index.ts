@@ -1,9 +1,8 @@
 export interface Project {
   id: string
   name: string
-  domain: string | null
+  clientName: string | null
   address: string | null
-  phone: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -27,7 +26,7 @@ export interface ProjectMembershipSummary {
   project?: {
     id: string
     name: string
-    domain: string | null
+    clientName: string | null
     isActive: boolean
   } | null
 }
@@ -459,6 +458,28 @@ export interface RackAccessory {
   updatedAt: string
 }
 
+export type ContainerKind = 'default' | 'rack' | 'board'
+
+export interface Container {
+  id: string
+  projectId: string
+  areaId: string
+  kind: ContainerKind
+  name: string
+  code: string | null
+  manufacturer: string | null
+  model: string | null
+  notes: string | null
+  heightU: number | null
+  boardKind: string | null
+  gridRows: number | null
+  gridCols: number | null
+  area?: Area
+  deviceCount?: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Device {
   id: string
   projectId: string
@@ -466,10 +487,9 @@ export interface Device {
   deviceTemplateId: string
   siteId: string | null
   areaId: string | null
-  rackId: string | null
+  containerId: string | null
   rackUnitStart: number | null
   rackFace: DeviceRackFace | null
-  boardId?: string | null
   boardRow?: number | null
   boardCol?: number | null
   boardRowSpan?: number | null
@@ -502,6 +522,25 @@ export interface Device {
   supportedByAccessory?: RackAccessory
   ports?: Port[]
   employees?: Employee[]
+}
+
+export type DiagramDevicePlacement = {
+  diagramId: string
+  diagramName: string
+  containerKey: string
+  areaId: string | null
+  areaName: string | null
+  containerLabel: string
+}
+
+export type DeviceRelocationImpact = {
+  requiresConfirmation: boolean
+  placements: DiagramDevicePlacement[]
+  linkCodes: number[]
+  fromAreaId: string | null
+  fromAreaName: string | null
+  toAreaId: string | null
+  toAreaName: string | null
 }
 
 export interface Port {
@@ -683,6 +722,14 @@ export interface TopologyBoardSummary {
 
 export type DiagramPoint = { x: number; y: number; t?: number }
 
+/** Device position on the connection diagram; optional size after a manual resize. */
+export type DiagramNodePosition = {
+  x: number
+  y: number
+  width?: number
+  height?: number
+}
+
 export type DiagramEdgeRoute = {
   points: DiagramPoint[]
   /** User-edited orthogonal path; auto-router must not overwrite it. */
@@ -698,7 +745,7 @@ export type DiagramContainerState = {
   deviceIds?: string[]
   /** Parent container id (e.g. `area:uuid` for nested rack/board). */
   parentId?: string | null
-  /** Manual size for area containers (subcontainers keep their own size). */
+  /** Manual size for area / rack / board containers on the connection diagram. */
   width?: number
   height?: number
   /** Content-fit size last persisted; used to preserve user padding when content shrinks. */
@@ -711,6 +758,14 @@ export interface TopologyAreaSummary {
   name: string
   siteId: string
   siteName: string | null
+}
+
+export type DiagramHandleSide = 'top' | 'bottom' | 'left' | 'right'
+
+export type DiagramHandleAnchor = {
+  side: DiagramHandleSide
+  /** 0–1 along the chosen side. */
+  t: number
 }
 
 export type DiagramPrintFrame = {
@@ -731,6 +786,8 @@ export type DiagramSettings = {
   printFrame?: DiagramPrintFrame
   printIncludeLegend?: boolean
   printIncludeLinkTable?: boolean
+  /** Invierte luminancia del diagrama al exportar PDF (fondos claros, trazos oscuros). */
+  printInvertColors?: boolean
 }
 
 export interface ConnectionDiagram {
@@ -740,10 +797,13 @@ export interface ConnectionDiagram {
   description: string | null
   scopeSiteIds: string[]
   scopeAreaIds: string[]
-  nodePositions: Record<string, DiagramPoint>
+  /** Positions relative to parent container (areas/racks/boards) or canvas root. */
+  nodePositions: Record<string, DiagramNodePosition>
   labelOffsets: Record<string, DiagramPoint>
   edgeRoutes: Record<string, DiagramEdgeRoute>
   containers: Record<string, DiagramContainerState>
+  /** Per-device handle anchor positions (`deviceId::handleId` → anchor). */
+  handleAnchors?: Record<string, DiagramHandleAnchor>
   settings: DiagramSettings
   sortOrder: number
   createdAt: string
@@ -807,11 +867,14 @@ export interface TopologyNode {
     areaId?: string | null
     siteName?: string | null
     areaName?: string | null
+    containerId?: string | null
+    /** @deprecated Use containerId — kept for legacy diagram data. */
     rackId?: string | null
     rackUnitStart?: number | null
     rackFace?: DeviceRackFace | null
     rackUnits?: number
     isFullDepth?: boolean
+    /** @deprecated Use containerId — kept for legacy diagram data. */
     boardId?: string | null
     boardRow?: number | null
     boardCol?: number | null
@@ -917,6 +980,7 @@ export interface DeviceFilters {
   deviceTemplateId?: string
   siteId?: string
   areaId?: string
+  containerId?: string
   rackId?: string
   search?: string
   projectId?: string
