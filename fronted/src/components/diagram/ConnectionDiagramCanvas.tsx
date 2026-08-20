@@ -32,34 +32,38 @@ import {
   AREA_BODY_PAD,
   applySavedAreaExtent,
   areaContentTop,
-  areaLooseContentTop,
   layoutAreaChildren,
-  reorderLooseDeviceIdsByY,
   stackLooseDevicePositions,
 } from './AreaContainerNode'
 import { BoardContainerNode } from './BoardContainerNode'
+import { RackContainerNode, stackDevicePositions } from './RackContainerNode'
 import {
-  RackContainerNode,
-  rackContainerSize,
-  reorderDeviceIdsByY,
-  stackDevicePositions,
-} from './RackContainerNode'
+  areaLooseOrigin,
+  clampDeviceInContainer,
+  clampDeviceMinInContainer,
+  contentMinFromDeviceRects,
+  emptyRackBoardFloorSize,
+  rackBoardContentTop,
+  resolveContainerDevicePositions,
+} from '../../utils/diagram/containerLayout'
 import { RoutedLinkEdge, type RoutedLinkEdgeData } from './RoutedLinkEdge'
 import {
   SimpleDeviceNode,
   simpleDeviceHeight,
+  SIMPLE_DEVICE_MIN_WIDTH,
   SIMPLE_DEVICE_WIDTH,
-  SIMPLE_DEVICE_NAME_ROW_H,
+  devicePortAreaTop,
   CONTAINER_PAD,
   CONTAINER_HEADER_H,
   CONTAINER_SELECTOR_H,
-  SIMPLE_DEVICE_STACK_PAD,
   resolveDeviceGap,
+  resolveDeviceNodeSize,
 } from './SimpleDeviceNode'
 import { accentColorForNodeId } from '../../utils/diagram/diagramAccent'
 import { areaFlowNodeId } from '../../utils/areaPlacement'
 import { boardFlowNodeId } from '../../utils/boardPlacement'
 import { rackFlowNodeId } from '../../utils/diagram/rackLayout'
+import { buildDevicePickerOption } from '../../utils/diagram/diagramContainerAssignment'
 import {
   routeOrthogonalEdges,
   type DiagramRect,
@@ -71,11 +75,23 @@ import { formatEndpointLabel } from '../../utils/diagram/linkLabel'
 import {
   DIAGRAM_CONNECT_SOURCE_HANDLE,
   DIAGRAM_CONNECT_TARGET_HANDLE,
-  diagramHandleCenterY,
-  diagramSourceHandleId,
-  diagramTargetHandleId,
-  type DiagramPortHandle,
 } from '../../utils/diagram/diagramPortHandles'
+import {
+  edgeHandleId,
+  edgeTargetHandleId,
+  legacyToNeutralHandleId,
+  normalizeHandleAnchorKeys,
+  portSlotsVerticalRows,
+  resolveDevicePortSlots,
+  type DiagramPortSlot,
+} from '../../utils/diagram/devicePortSlots'
+import {
+  anchorToEndpoint,
+  defaultHandleAnchor,
+  handleAnchorKey,
+  type DiagramHandleAnchor,
+} from '../../utils/diagram/handleAnchor'
+import { isTreeLayoutMode } from '../../utils/diagram/treeLayout'
 import {
   captureReactFlowViewport,
   type CapturedDiagram,
@@ -91,6 +107,7 @@ import { PrintFrameOverlay } from './PrintFrameOverlay'
 import type {
   ConnectionDiagram,
   DiagramLinkEdge,
+  DiagramNodePosition,
   DiagramPrintFrame,
   DiagramSettings,
   TopologyAreaSummary,
@@ -118,6 +135,7 @@ export type ConnectionDiagramCanvasHandle = {
   captureDiagramPng: (
     format: PaperFormat,
     orientation: PrintOrientation,
+    invertColors?: boolean,
   ) => Promise<CapturedDiagram | null>
   getContentBounds: () => { x: number; y: number; width: number; height: number } | null
   getStaleLinkIds: () => string[]
@@ -130,9 +148,10 @@ export type ConnectionDiagramCanvasHandle = {
       | 'printFrame'
       | 'printIncludeLegend'
       | 'printIncludeLinkTable'
+      | 'printInvertColors'
     >,
   ) => {
-    nodePositions: Record<string, { x: number; y: number }>
+    nodePositions: Record<string, DiagramNodePosition>
     labelOffsets: Record<string, { y: number; x: number; t?: number }>
     edgeRoutes: Record<string, { points: { x: number; y: number }[]; manual?: boolean }>
     containers: Record<
@@ -151,6 +170,8 @@ export type ConnectionDiagramCanvasHandle = {
       }
     >
     settings: DiagramSettings
+    handleAnchors: Record<string, DiagramHandleAnchor>
+    layoutMode?: ConnectionDiagram['layoutMode']
   }
 }
 
@@ -168,6 +189,8 @@ type Props = {
   paperSize?: PaperFormat
   printOrientation?: PrintOrientation
   showPrintMargins?: boolean
+  /** Vista previa de inversión de colores para impresión B/N. */
+  printInvertColors?: boolean
   printFrame?: DiagramPrintFrame | null
   printFrameLocked?: boolean
   onPrintFrameChange?: (frame: DiagramPrintFrame) => void
@@ -177,6 +200,8 @@ type Props = {
   onConnectDevices?: (params: {
     sourceDeviceId: string
     targetDeviceId: string
+    sourceHandle?: string | null
+    targetHandle?: string | null
   }) => void
   /** Click en etiqueta de puerto conectado → abrir modal con ese origen. */
   onPortClick?: (params: {
@@ -298,30 +323,281 @@ function collectStackCorridorYs(nodes: Node[]): number[] {
   return ys
 }
 
-function nextDeviceOrderInContainer(
-  allNodes: Node[],
-  parentId: string,
-  baseIds: string[],
-  heightById: Record<string, number>,
-  draggedId: string,
-  dropY: number,
+function flowNodeSize(n: Node): { width: number; height: number } {
+  const measured = n.measured as { width?: number; height?: number } | undefined
+  const width = Number(measured?.width ?? n.width ?? n.style?.width ?? 0)
+  const height = Number(measured?.height ?? n.height ?? n.style?.height ?? 0)
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : 0,
+    height: Number.isFinite(height) && height > 0 ? height : 0,
+  }
+}
+
+function deviceParentChrome(
+  parent: Node,
   hidePicker: boolean,
-  deviceGap: number,
-): string[] {
-  const stackOpts = { hidePicker, deviceGap }
-  const parent = allNodes.find((n) => n.id === parentId)
-  if (parent?.type === 'areaContainer') {
+): { contentTop: number; bodyPad: number } {
+  const opts = { hidePicker }
+  if (parent.type === 'areaContainer') {
     const hasSub = Boolean(
       (parent.data as { hasSubContainers?: boolean })?.hasSubContainers
     )
-    return reorderLooseDeviceIdsByY(baseIds, heightById, draggedId, dropY, {
-      x: AREA_BODY_PAD,
-      y: hasSub
-        ? areaContentTop({ hidePicker })
-        : areaLooseContentTop({ hidePicker }),
-    }, stackOpts)
+    return {
+      contentTop: areaLooseOrigin(hasSub, opts).y,
+      bodyPad: AREA_BODY_PAD,
+    }
   }
-  return reorderDeviceIdsByY(baseIds, heightById, draggedId, dropY, stackOpts)
+  return {
+    contentTop: rackBoardContentTop(opts),
+    bodyPad: CONTAINER_PAD,
+  }
+}
+
+/** Min-only clamp so expandParent can grow the parent toward +X/+Y. */
+function clampDeviceNodeMinInParent(
+  node: Node,
+  allNodes: Node[],
+  hidePicker: boolean,
+): Node {
+  if (!node.parentId || node.type !== 'simpleDevice') return node
+  const parent = allNodes.find((n) => n.id === node.parentId)
+  if (!parent) return node
+  const { contentTop, bodyPad } = deviceParentChrome(parent, hidePicker)
+  return {
+    ...node,
+    position: clampDeviceMinInContainer(node.position, contentTop, bodyPad),
+  }
+}
+
+function clampDeviceNodeInParent(
+  node: Node,
+  allNodes: Node[],
+  hidePicker: boolean,
+): Node {
+  if (!node.parentId || node.type !== 'simpleDevice') return node
+  const parent = allNodes.find((n) => n.id === node.parentId)
+  if (!parent) return node
+  const parentSize = flowNodeSize(parent)
+  const deviceSize = flowNodeSize(node)
+  const deviceW = deviceSize.width || SIMPLE_DEVICE_WIDTH
+  const deviceH = deviceSize.height || simpleDeviceHeight(0)
+  const parentW = parentSize.width
+  const parentH = parentSize.height
+  const { contentTop, bodyPad } = deviceParentChrome(parent, hidePicker)
+  return {
+    ...node,
+    position: clampDeviceInContainer(
+      node.position,
+      deviceW,
+      deviceH,
+      parentW,
+      parentH,
+      contentTop,
+      bodyPad,
+    ),
+  }
+}
+
+/**
+ * After a nested child grows its parent (expandParent), also grow ancestors
+ * so overflow-hidden areas do not clip the enlarged container.
+ */
+function expandAncestorsToFit(
+  child: Node,
+  allNodes: Node[],
+  hidePicker: boolean,
+): Node[] {
+  let next = allNodes
+  let current: Node | undefined = child
+  while (current?.parentId) {
+    const parentId = current.parentId
+    const parent = next.find((n) => n.id === parentId)
+    if (!parent) break
+
+    const childSize = flowNodeSize(current)
+    const childW =
+      childSize.width ||
+      (current.type === 'simpleDevice' ? SIMPLE_DEVICE_WIDTH : 0)
+    const childH =
+      childSize.height ||
+      (current.type === 'simpleDevice' ? simpleDeviceHeight(0) : 0)
+    if (childW <= 0 || childH <= 0) break
+
+    const { bodyPad } = deviceParentChrome(parent, hidePicker)
+    const needW = current.position.x + childW + bodyPad
+    const needH = current.position.y + childH + bodyPad
+    const parentSize = flowNodeSize(parent)
+    const prevW = parentSize.width || 0
+    const prevH = parentSize.height || 0
+    const nextW = Math.max(prevW, needW)
+    const nextH = Math.max(prevH, needH)
+
+    if (nextW > prevW + 0.5 || nextH > prevH + 0.5) {
+      const prevMinW = Number(
+        (parent.data as { contentMinWidth?: number })?.contentMinWidth ?? 0
+      )
+      const prevMinH = Number(
+        (parent.data as { contentMinHeight?: number })?.contentMinHeight ?? 0
+      )
+      next = next.map((n) =>
+        n.id === parentId
+          ? {
+              ...n,
+              width: nextW,
+              height: nextH,
+              style: { ...n.style, width: nextW, height: nextH },
+              data: {
+                ...n.data,
+                contentMinWidth: Math.max(prevMinW, needW),
+                contentMinHeight: Math.max(prevMinH, needH),
+              },
+            }
+          : n
+      )
+    }
+
+    // Nested rack/board inside area: keep chrome mins on the container itself.
+    if (
+      (current.type === 'rackContainer' || current.type === 'boardContainer') &&
+      parent.type === 'areaContainer'
+    ) {
+      const minY = areaContentTop({ hidePicker })
+      const clampedPos = {
+        x: Math.max(AREA_BODY_PAD, current.position.x),
+        y: Math.max(minY, current.position.y),
+      }
+      if (
+        clampedPos.x !== current.position.x ||
+        clampedPos.y !== current.position.y
+      ) {
+        next = next.map((n) =>
+          n.id === current!.id ? { ...n, position: clampedPos } : n
+        )
+        current = { ...current, position: clampedPos }
+      }
+    }
+
+    current = next.find((n) => n.id === parentId)
+  }
+  return next
+}
+
+function clampDeviceSizeInParent(
+  node: Node,
+  allNodes: Node[],
+  hidePicker: boolean,
+): Node {
+  if (!node.parentId || node.type !== 'simpleDevice') return node
+  const parent = allNodes.find((n) => n.id === node.parentId)
+  if (!parent) return node
+  const parentSize = flowNodeSize(parent)
+  const deviceSize = flowNodeSize(node)
+  const label = (node.data?.label as string) ?? ''
+  const sourcePorts = (node.data?.sourcePorts as { id: string }[] | undefined) ?? []
+  const targetPorts = (node.data?.targetPorts as { id: string }[] | undefined) ?? []
+  const rawW = deviceSize.width || SIMPLE_DEVICE_WIDTH
+  const minH = simpleDeviceHeight(
+    Math.max(sourcePorts.length, targetPorts.length),
+    label,
+    rawW,
+  )
+  const edgePad = 4
+  const maxW = Math.max(
+    SIMPLE_DEVICE_MIN_WIDTH,
+    parentSize.width - node.position.x - edgePad,
+  )
+  const maxH = Math.max(minH, parentSize.height - node.position.y - edgePad)
+  const width = Math.min(Math.max(rawW, SIMPLE_DEVICE_MIN_WIDTH), maxW)
+  const height = Math.min(Math.max(deviceSize.height || minH, minH), maxH)
+  return clampDeviceNodeInParent(
+    {
+      ...node,
+      width,
+      height,
+      style: { ...node.style, width, height },
+    },
+    allNodes,
+    hidePicker,
+  )
+}
+
+function clampChildrenInParent(
+  allNodes: Node[],
+  parentId: string,
+  hidePicker: boolean,
+): Node[] {
+  return allNodes.map((n) => {
+    if (n.parentId !== parentId || n.type !== 'simpleDevice') return n
+    return clampDeviceNodeInParent(n, allNodes, hidePicker)
+  })
+}
+
+function preserveContainerExtent(
+  built: Node,
+  existing: Node,
+): { width: number; height: number } {
+  const builtW = Number(built.style?.width ?? built.width ?? 0)
+  const builtH = Number(built.style?.height ?? built.height ?? 0)
+  const prevW = Number(existing.width ?? existing.style?.width ?? 0)
+  const prevH = Number(existing.height ?? existing.style?.height ?? 0)
+  if (prevW <= 0 || prevH <= 0) {
+    return { width: builtW, height: builtH }
+  }
+  const builtMinW = Number(
+    (built.data as { contentMinWidth?: number }).contentMinWidth ?? 0
+  )
+  const prevMinW = Number(
+    (existing.data as { contentMinWidth?: number }).contentMinWidth ?? 0
+  )
+  const builtMinH = Number(
+    (built.data as { contentMinHeight?: number }).contentMinHeight ?? 0
+  )
+  const prevMinH = Number(
+    (existing.data as { contentMinHeight?: number }).contentMinHeight ?? 0
+  )
+  const contentGrew =
+    (builtMinW > 0 && builtMinW > prevMinW + 0.5) ||
+    (builtMinH > 0 && builtMinH > prevMinH + 0.5)
+  if (contentGrew) {
+    return {
+      width: Math.max(prevW, builtMinW, builtW),
+      height: Math.max(prevH, builtMinH, builtH),
+    }
+  }
+  // Keep the live size so a manual shrink is not undone by auto-layout.
+  return { width: prevW, height: prevH }
+}
+
+function preserveDeviceExtent(
+  built: Node,
+  existing: Node,
+): { width: number; height: number } {
+  const builtW = Number(built.style?.width ?? built.width ?? SIMPLE_DEVICE_WIDTH)
+  const builtH = Number(built.style?.height ?? built.height ?? 0)
+  const prevW = Number(existing.style?.width ?? existing.width ?? 0)
+  const prevH = Number(existing.style?.height ?? existing.height ?? 0)
+  const label = (built.data?.label as string) ?? ''
+  const slots = (built.data?.slots as DiagramPortSlot[] | undefined) ?? []
+  const liveW = prevW > 0 ? prevW : builtW
+  const portRows =
+    slots.length > 0
+      ? Math.max(
+          ...(['left', 'right', 'top', 'bottom'] as const).map(
+            (side) => slots.filter((s) => s.anchor.side === side).length
+          ),
+          1
+        )
+      : 0
+  const contentMinH = simpleDeviceHeight(
+    portRows,
+    label,
+    liveW,
+    slots.length > 0 && slots.every((s) => !s.connected)
+  )
+  return {
+    width: liveW,
+    height: Math.max(contentMinH, prevH > 0 ? prevH : builtH, builtH),
+  }
 }
 
 function buildGraph(params: {
@@ -345,6 +621,19 @@ function buildGraph(params: {
     side: 'source' | 'target'
   }) => void
   onDeviceDoubleClick?: (deviceId: string) => void
+  handleAnchors?: Record<string, DiagramHandleAnchor>
+  onHandleAnchorChange?: (
+    deviceId: string,
+    handleId: string,
+    anchor: DiagramHandleAnchor
+  ) => void
+  onHandleAnchorChangeEnd?: (
+    deviceId: string,
+    handleId: string,
+    anchor: DiagramHandleAnchor
+  ) => void
+  onSlotsReorder?: (deviceId: string, slots: DiagramPortSlot[]) => void
+  onRedistributePorts?: (deviceId: string) => void
 }): { nodes: Node[]; edges: Edge<RoutedLinkEdgeData>[] } {
   const {
     inventory,
@@ -361,6 +650,11 @@ function buildGraph(params: {
     onPickerOpenChange,
     onPortClick,
     onDeviceDoubleClick,
+    handleAnchors = {},
+    onHandleAnchorChange,
+    onHandleAnchorChangeEnd,
+    onSlotsReorder,
+    onRedistributePorts,
   } = params
   const deviceDraggable = !readOnly && !hidePicker
   const nodes: Node[] = []
@@ -370,29 +664,20 @@ function buildGraph(params: {
   const sizeOpts = { hidePicker, deviceGap }
 
   const deviceById = new Map(inventory.map((d) => [d.id, d]))
+  const rackContainerIds = new Set(racks.map((r) => r.id))
+  const boardContainerIds = new Set(boards.map((b) => b.id))
   const shownDeviceIds = new Set<string>()
   const shownContainerByDeviceId = new Map<string, string>()
   const nestedChildIds = new Set<string>()
 
-  /** Solo puertos con al menos un diagram_link en este canvas. */
-  const sourcePortsByDevice = new Map<string, DiagramPortHandle[]>()
-  const targetPortsByDevice = new Map<string, DiagramPortHandle[]>()
+  const layoutMode = diagram.layoutMode ?? 'free'
+  const portDisplay = diagram.settings?.portDisplay ?? 'all'
+  const portFlowInverted = diagram.settings?.portFlowInverted ?? false
+  const treeMode = isTreeLayoutMode(layoutMode)
+  const normalizedAnchors = normalizeHandleAnchorKeys(handleAnchors)
+
   /** Puertos únicos usados por diagram_links (por equipo). */
   const usedPortsByDevice = new Map<string, Set<string>>()
-
-  const pushUniquePort = (
-    byDevice: Map<string, DiagramPortHandle[]>,
-    deviceId: string,
-    handle: DiagramPortHandle
-  ) => {
-    let list = byDevice.get(deviceId)
-    if (!list) {
-      list = []
-      byDevice.set(deviceId, list)
-    }
-    if (list.some((p) => p.id === handle.id)) return
-    list.push(handle)
-  }
 
   const markPortUsed = (
     deviceId: string,
@@ -411,23 +696,56 @@ function buildGraph(params: {
   }
 
   for (const e of edges) {
-    pushUniquePort(sourcePortsByDevice, e.source, {
-      id: diagramSourceHandleId(e.sourcePortId, e.sourcePort),
-      label: e.sourcePort,
-    })
-    pushUniquePort(targetPortsByDevice, e.target, {
-      id: diagramTargetHandleId(e.targetPortId, e.targetPort),
-      label: e.targetPort,
-    })
     markPortUsed(e.source, e.sourcePortId, e.sourcePort)
     markPortUsed(e.target, e.targetPortId, e.targetPort)
   }
 
-  const connectedSlotsFor = (deviceId: string) =>
-    Math.max(
-      sourcePortsByDevice.get(deviceId)?.length ?? 0,
-      targetPortsByDevice.get(deviceId)?.length ?? 0
+  const deviceAnchorsFor = (deviceId: string): Record<string, DiagramHandleAnchor> => {
+    const out: Record<string, DiagramHandleAnchor> = {}
+    for (const [key, val] of Object.entries(normalizedAnchors)) {
+      if (!key.startsWith(`${deviceId}::`)) continue
+      const handleId = legacyToNeutralHandleId(key.slice(deviceId.length + 2))
+      out[handleId] = val
+    }
+    return out
+  }
+
+  const buildSlotsForDevice = (
+    deviceId: string,
+    nodeWidth: number,
+    nodeHeight: number
+  ): DiagramPortSlot[] => {
+    const dev = deviceById.get(deviceId)
+    if (!dev) return []
+    const portCount = dev.data.portCount ?? dev.data.ports?.length ?? 0
+    const preliminary = resolveDevicePortSlots({
+      deviceId,
+      ports: dev.data.ports ?? [],
+      edges,
+      layoutMode,
+      portDisplay,
+      portFlowInverted,
+      savedAnchors: deviceAnchorsFor(deviceId),
+    })
+    const rows = portSlotsVerticalRows(preliminary)
+    const portAreaTop = devicePortAreaTop(
+      dev.label,
+      rows,
+      portCount,
+      nodeWidth
     )
+    return resolveDevicePortSlots({
+      deviceId,
+      ports: dev.data.ports ?? [],
+      edges,
+      layoutMode,
+      portDisplay,
+      portFlowInverted,
+      savedAnchors: deviceAnchorsFor(deviceId),
+      nodeHeight,
+      portAreaTop,
+    })
+  }
 
   let autoX = 40
   let autoY = 40
@@ -439,7 +757,7 @@ function buildGraph(params: {
     const raw =
       saved?.deviceIds != null
         ? [...saved.deviceIds]
-        : inventory.filter((d) => d.data.rackId === rackId).map((d) => d.id)
+        : inventory.filter((d) => d.data.containerId === rackId).map((d) => d.id)
     return onlyExistingDeviceIds(raw)
   }
 
@@ -448,7 +766,7 @@ function buildGraph(params: {
     const raw =
       saved?.deviceIds != null
         ? [...saved.deviceIds]
-        : inventory.filter((d) => d.data.boardId === boardId).map((d) => d.id)
+        : inventory.filter((d) => d.data.containerId === boardId).map((d) => d.id)
     return onlyExistingDeviceIds(raw)
   }
 
@@ -460,7 +778,10 @@ function buildGraph(params: {
         : inventory
             .filter(
               (d) =>
-                d.data.areaId === areaId && !d.data.rackId && !d.data.boardId
+                d.data.areaId === areaId &&
+                (!d.data.containerId ||
+                  (!racks.some((r) => r.id === d.data.containerId) &&
+                   !boards.some((b) => b.id === d.data.containerId)))
             )
             .map((d) => d.id)
     return onlyExistingDeviceIds(raw)
@@ -490,11 +811,14 @@ function buildGraph(params: {
     }
   }
 
+  const nodePositions = diagram.nodePositions ?? {}
+
   const pushDeviceNodes = (
-    parentId: string,
+    parentId: string | undefined,
     deviceIds: string[],
     heightById: Record<string, number>,
-    stack: Record<string, { x: number; y: number }>,
+    widthById: Record<string, number>,
+    positions: Record<string, { x: number; y: number }>,
     containerLabel: string
   ) => {
     for (const did of deviceIds) {
@@ -503,19 +827,25 @@ function buildGraph(params: {
       if (!dev) continue
       shownDeviceIds.add(did)
       shownContainerByDeviceId.set(did, containerLabel)
+      const size = resolveDeviceNodeSize(heightById[did], {
+        width: widthById[did],
+        height: heightById[did],
+      })
+      const slots = buildSlotsForDevice(did, size.width, size.height)
+      const deviceHandleAnchors: Record<string, DiagramHandleAnchor> = {}
+      for (const slot of slots) {
+        deviceHandleAnchors[slot.id] = slot.anchor
+      }
       nodes.push({
         id: did,
         type: 'simpleDevice',
-        parentId,
-        extent: 'parent',
-        expandParent: false,
+        ...(parentId
+          ? { parentId, expandParent: true }
+          : {}),
         draggable: deviceDraggable,
-        position: stack[did] ?? {
-          x: CONTAINER_PAD,
-          y:
-            CONTAINER_HEADER_H +
-            (hidePicker ? 0 : CONTAINER_SELECTOR_H) +
-            SIMPLE_DEVICE_STACK_PAD,
+        position: positions[did] ?? {
+          x: parentId ? CONTAINER_PAD : autoX,
+          y: parentId ? rackBoardContentTop(sizeOpts) : autoY,
         },
         data: {
           label: dev.label,
@@ -526,10 +856,28 @@ function buildGraph(params: {
           portCount: dev.data.portCount ?? dev.data.ports?.length ?? 0,
           accentColor: accentColorForNodeId(did),
           readOnly: readOnly || hidePicker,
-          sourcePorts: sourcePortsByDevice.get(did) ?? [],
-          targetPorts: targetPortsByDevice.get(did) ?? [],
+          slots,
+          handleAnchors: deviceHandleAnchors,
+          onHandleAnchorChange:
+            readOnly || hidePicker || !onHandleAnchorChange
+              ? undefined
+              : (handleId: string, anchor: DiagramHandleAnchor) =>
+                  onHandleAnchorChange(did, handleId, anchor),
+          onHandleAnchorChangeEnd:
+            readOnly || hidePicker || !onHandleAnchorChangeEnd
+              ? undefined
+              : (handleId: string, anchor: DiagramHandleAnchor) =>
+                  onHandleAnchorChangeEnd(did, handleId, anchor),
+          onSlotsReorder:
+            readOnly || hidePicker || !onSlotsReorder
+              ? undefined
+              : (nextSlots: DiagramPortSlot[]) => onSlotsReorder(did, nextSlots),
+          onRedistributePorts:
+            readOnly || hidePicker || !onRedistributePorts
+              ? undefined
+              : () => onRedistributePorts(did),
           onRemove:
-            readOnly || hidePicker
+            readOnly || hidePicker || !parentId
               ? undefined
               : () => onRemoveDeviceFromContainer?.(parentId, did),
           onPortClick:
@@ -546,42 +894,146 @@ function buildGraph(params: {
               : () => onDeviceDoubleClick(did),
         },
         style: {
-          width: SIMPLE_DEVICE_WIDTH,
-          height: heightById[did],
+          width: size.width,
+          height: size.height,
         },
+        width: size.width,
+        height: size.height,
         zIndex: 3,
       })
+      if (!parentId) {
+        autoX += size.width + 48
+        if (autoX > 1200) {
+          autoX = 40
+          autoY += size.height + 48
+        }
+      }
     }
   }
 
-  const measureDeviceHeight = (deviceId: string) =>
-    simpleDeviceHeight(
-      connectedSlotsFor(deviceId),
-      deviceById.get(deviceId)?.label ?? ''
+  const measureDeviceSize = (deviceId: string) => {
+    const saved = nodePositions[deviceId]
+    const dev = deviceById.get(deviceId)
+    const nodeWidth =
+      saved?.width && saved.width > 0 ? saved.width : SIMPLE_DEVICE_WIDTH
+    const preliminary = dev
+      ? resolveDevicePortSlots({
+          deviceId,
+          ports: dev.data.ports ?? [],
+          edges,
+          layoutMode,
+          portDisplay,
+          portFlowInverted,
+          savedAnchors: deviceAnchorsFor(deviceId),
+        })
+      : []
+    const rows = portSlotsVerticalRows(preliminary)
+    const autoH = simpleDeviceHeight(
+      rows,
+      dev?.label ?? '',
+      nodeWidth,
+      preliminary.length > 0 && preliminary.every((s) => !s.connected)
     )
+    return resolveDeviceNodeSize(autoH, saved)
+  }
+
+  const fillDeviceSizes = (deviceIds: string[]) => {
+    const heightById: Record<string, number> = {}
+    const widthById: Record<string, number> = {}
+    for (const did of deviceIds) {
+      const size = measureDeviceSize(did)
+      heightById[did] = size.height
+      widthById[did] = size.width
+    }
+    return { heightById, widthById }
+  }
 
   const measureRack = (rack: TopologyRackSummary, id: string) => {
     const deviceIds = resolveRackDevices(rack.id, id)
-    const heightById: Record<string, number> = {}
-    const heights: number[] = []
-    for (const did of deviceIds) {
-      const h = measureDeviceHeight(did)
-      heightById[did] = h
-      heights.push(h)
+    const { heightById, widthById } = fillDeviceSizes(deviceIds)
+    const contentTop = rackBoardContentTop(sizeOpts)
+    const bodyPad = CONTAINER_PAD
+    const stackFallback = stackDevicePositions(deviceIds, heightById, sizeOpts)
+    const positions = resolveContainerDevicePositions({
+      deviceIds,
+      heightById,
+      nodePositions,
+      stackFallback,
+      contentTop,
+      bodyPad,
+      deviceGap,
+    })
+    const deviceRects = deviceIds.map((did) => ({
+      x: positions[did].x,
+      y: positions[did].y,
+      width: widthById[did] ?? SIMPLE_DEVICE_WIDTH,
+      height: heightById[did],
+    }))
+    const emptyFloor = emptyRackBoardFloorSize(sizeOpts)
+    const contentMin = contentMinFromDeviceRects(
+      deviceRects,
+      contentTop,
+      bodyPad,
+      emptyFloor
+    )
+    const saved = containers[id]
+    const size = {
+      width: applySavedAreaExtent(
+        contentMin.width,
+        saved?.width,
+        saved?.contentMinWidth
+      ),
+      height: applySavedAreaExtent(
+        contentMin.height,
+        saved?.height,
+        saved?.contentMinHeight
+      ),
     }
-    return { deviceIds, heightById, size: rackContainerSize(heights, sizeOpts) }
+    return { deviceIds, heightById, widthById, size, contentMin, positions }
   }
 
   const measureBoard = (board: TopologyBoardSummary, id: string) => {
     const deviceIds = resolveBoardDevices(board.id, id)
-    const heightById: Record<string, number> = {}
-    const heights: number[] = []
-    for (const did of deviceIds) {
-      const h = measureDeviceHeight(did)
-      heightById[did] = h
-      heights.push(h)
+    const { heightById, widthById } = fillDeviceSizes(deviceIds)
+    const contentTop = rackBoardContentTop(sizeOpts)
+    const bodyPad = CONTAINER_PAD
+    const stackFallback = stackDevicePositions(deviceIds, heightById, sizeOpts)
+    const positions = resolveContainerDevicePositions({
+      deviceIds,
+      heightById,
+      nodePositions,
+      stackFallback,
+      contentTop,
+      bodyPad,
+      deviceGap,
+    })
+    const deviceRects = deviceIds.map((did) => ({
+      x: positions[did].x,
+      y: positions[did].y,
+      width: widthById[did] ?? SIMPLE_DEVICE_WIDTH,
+      height: heightById[did],
+    }))
+    const emptyFloor = emptyRackBoardFloorSize(sizeOpts)
+    const contentMin = contentMinFromDeviceRects(
+      deviceRects,
+      contentTop,
+      bodyPad,
+      emptyFloor
+    )
+    const saved = containers[id]
+    const size = {
+      width: applySavedAreaExtent(
+        contentMin.width,
+        saved?.width,
+        saved?.contentMinWidth
+      ),
+      height: applySavedAreaExtent(
+        contentMin.height,
+        saved?.height,
+        saved?.contentMinHeight
+      ),
     }
-    return { deviceIds, heightById, size: rackContainerSize(heights, sizeOpts) }
+    return { deviceIds, heightById, widthById, size, contentMin, positions }
   }
 
   const pushRackNode = (
@@ -591,28 +1043,28 @@ function buildGraph(params: {
     parentId: string | undefined,
     measured: ReturnType<typeof measureRack>
   ) => {
-    const { deviceIds, heightById, size } = measured
-    const deviceOptions = inventory.map((d) => ({
-      id: d.id,
-      label: d.label,
-      name: d.label,
-      deviceType: d.data.deviceType,
-      ipAddress: d.data.ipAddress,
-      alreadyIn: usedOnDiagram.has(d.id),
-    }))
+    const { deviceIds, heightById, widthById, size, contentMin, positions } = measured
+    const deviceOptions = inventory.map((d) =>
+      buildDevicePickerOption(d, usedOnDiagram.has(d.id)),
+    )
     nodes.push({
       id,
       type: 'rackContainer',
       position: pos,
       parentId,
-      extent: parentId ? 'parent' : undefined,
-      expandParent: false,
+      expandParent: Boolean(parentId),
       draggable: deviceDraggable,
-      style: { width: size.width, height: size.height, overflow: 'hidden' },
+      dragHandle: '.rack-drag-handle',
+      width: size.width,
+      height: size.height,
+      style: { width: size.width, height: size.height, overflow: 'visible' },
       data: {
         rack,
+        containerId: rack.id,
         deviceIds,
         deviceOptions,
+        contentMinWidth: contentMin.width,
+        contentMinHeight: contentMin.height,
         readOnly,
         hidePicker,
         onAddDevice: (deviceId: string) => onAddDeviceToContainer?.(id, deviceId),
@@ -620,8 +1072,7 @@ function buildGraph(params: {
       },
       zIndex: parentId ? 2 : 1,
     })
-    const stack = stackDevicePositions(deviceIds, heightById, sizeOpts)
-    pushDeviceNodes(id, deviceIds, heightById, stack, rack.name)
+    pushDeviceNodes(id, deviceIds, heightById, widthById, positions, rack.name)
   }
 
   const pushBoardNode = (
@@ -631,28 +1082,28 @@ function buildGraph(params: {
     parentId: string | undefined,
     measured: ReturnType<typeof measureBoard>
   ) => {
-    const { deviceIds, heightById, size } = measured
-    const deviceOptions = inventory.map((d) => ({
-      id: d.id,
-      label: d.label,
-      name: d.label,
-      deviceType: d.data.deviceType,
-      ipAddress: d.data.ipAddress,
-      alreadyIn: usedOnDiagram.has(d.id),
-    }))
+    const { deviceIds, heightById, widthById, size, contentMin, positions } = measured
+    const deviceOptions = inventory.map((d) =>
+      buildDevicePickerOption(d, usedOnDiagram.has(d.id)),
+    )
     nodes.push({
       id,
       type: 'boardContainer',
       position: pos,
       parentId,
-      extent: parentId ? 'parent' : undefined,
-      expandParent: false,
+      expandParent: Boolean(parentId),
       draggable: deviceDraggable,
-      style: { width: size.width, height: size.height, overflow: 'hidden' },
+      dragHandle: '.board-drag-handle',
+      width: size.width,
+      height: size.height,
+      style: { width: size.width, height: size.height, overflow: 'visible' },
       data: {
         board,
+        containerId: board.id,
         deviceIds,
         deviceOptions,
+        contentMinWidth: contentMin.width,
+        contentMinHeight: contentMin.height,
         readOnly,
         hidePicker,
         onAddDevice: (deviceId: string) => onAddDeviceToContainer?.(id, deviceId),
@@ -660,10 +1111,27 @@ function buildGraph(params: {
       },
       zIndex: parentId ? 2 : 1,
     })
-    const stack = stackDevicePositions(deviceIds, heightById, sizeOpts)
-    pushDeviceNodes(id, deviceIds, heightById, stack, board.name)
+    pushDeviceNodes(id, deviceIds, heightById, widthById, positions, board.name)
   }
 
+  // —— Layout: free (containers) vs tree (flat devices) ——
+  if (treeMode) {
+    const treeDeviceIds = [...usedOnDiagram]
+    const { heightById, widthById } = fillDeviceSizes(treeDeviceIds)
+    const positions: Record<string, { x: number; y: number }> = {}
+    for (const did of treeDeviceIds) {
+      const saved = nodePositions[did]
+      positions[did] = saved ? { x: saved.x, y: saved.y } : { x: autoX, y: autoY }
+    }
+    pushDeviceNodes(
+      undefined,
+      treeDeviceIds,
+      heightById,
+      widthById,
+      positions,
+      'Árbol'
+    )
+  } else {
   // —— Area containers (roots) with nested racks/boards + loose devices ——
   for (const area of areas) {
     const areaId = areaFlowNodeId(area.id)
@@ -728,14 +1196,9 @@ function buildGraph(params: {
     })
 
     const looseDeviceIds = resolveLooseAreaDevices(area.id, areaId)
-
-    const looseHeightById: Record<string, number> = {}
-    const looseHeights: number[] = []
-    for (const did of looseDeviceIds) {
-      const h = measureDeviceHeight(did)
-      looseHeightById[did] = h
-      looseHeights.push(h)
-    }
+    const { heightById: looseHeightById, widthById: looseWidthById } =
+      fillDeviceSizes(looseDeviceIds)
+    const looseHeights = looseDeviceIds.map((did) => looseHeightById[did])
 
     const autoLayout = layoutAreaChildren(
       childSpecs.map((c) => ({ id: c.id, width: c.width, height: c.height })),
@@ -770,19 +1233,34 @@ function buildGraph(params: {
       contentMinW = Math.max(contentMinW, p.x + spec.width + AREA_BODY_PAD)
       contentMinH = Math.max(contentMinH, p.y + spec.height + AREA_BODY_PAD)
     }
-    // Include loose devices origin in min bounds
-    if (looseHeights.length > 0) {
-      const body =
-        looseHeights.reduce((s, h) => s + h, 0) +
-        Math.max(0, looseHeights.length - 1) * deviceGap
-      contentMinW = Math.max(
-        contentMinW,
-        autoLayout.looseOrigin.x + SIMPLE_DEVICE_WIDTH + 8 + AREA_BODY_PAD
-      )
-      contentMinH = Math.max(
-        contentMinH,
-        autoLayout.looseOrigin.y + body + AREA_BODY_PAD
-      )
+    // Include loose devices in min bounds (free XY)
+    if (looseDeviceIds.length > 0) {
+      const looseOrigin = areaLooseOrigin(childSpecs.length > 0, sizeOpts)
+      const loosePositions = resolveContainerDevicePositions({
+        deviceIds: looseDeviceIds,
+        heightById: looseHeightById,
+        nodePositions,
+        stackFallback: stackLooseDevicePositions(
+          looseDeviceIds,
+          looseHeightById,
+          autoLayout.looseOrigin,
+          sizeOpts
+        ),
+        contentTop: looseOrigin.y,
+        bodyPad: AREA_BODY_PAD,
+        deviceGap,
+      })
+      for (const did of looseDeviceIds) {
+        const p = loosePositions[did]
+        contentMinW = Math.max(
+          contentMinW,
+          p.x + (looseWidthById[did] ?? SIMPLE_DEVICE_WIDTH) + AREA_BODY_PAD
+        )
+        contentMinH = Math.max(
+          contentMinH,
+          p.y + looseHeightById[did] + AREA_BODY_PAD
+        )
+      }
     }
 
     const areaW = applySavedAreaExtent(
@@ -806,16 +1284,12 @@ function buildGraph(params: {
     const looseOptions = inventory
       .filter(
         (d) =>
-          d.data.areaId === area.id && !d.data.rackId && !d.data.boardId
+          d.data.areaId === area.id &&
+          (!d.data.containerId ||
+            (!rackContainerIds.has(d.data.containerId) &&
+              !boardContainerIds.has(d.data.containerId))),
       )
-      .map((d) => ({
-        id: d.id,
-        label: d.label,
-        name: d.label,
-        deviceType: d.data.deviceType,
-        ipAddress: d.data.ipAddress,
-        alreadyIn: usedOnDiagram.has(d.id),
-      }))
+      .map((d) => buildDevicePickerOption(d, usedOnDiagram.has(d.id)))
 
     nodes.push({
       id: areaId,
@@ -823,6 +1297,8 @@ function buildGraph(params: {
       position: areaPos,
       dragHandle: '.area-drag-handle',
       draggable: deviceDraggable,
+      width: areaW,
+      height: areaH,
       style: { width: areaW, height: areaH, overflow: 'visible' },
       data: {
         area,
@@ -857,13 +1333,29 @@ function buildGraph(params: {
       }
     }
 
-    const looseStack = stackLooseDevicePositions(
+    const looseOrigin = areaLooseOrigin(childSpecs.length > 0, sizeOpts)
+    const loosePositions = resolveContainerDevicePositions({
+      deviceIds: looseDeviceIds,
+      heightById: looseHeightById,
+      nodePositions,
+      stackFallback: stackLooseDevicePositions(
+        looseDeviceIds,
+        looseHeightById,
+        autoLayout.looseOrigin,
+        sizeOpts
+      ),
+      contentTop: looseOrigin.y,
+      bodyPad: AREA_BODY_PAD,
+      deviceGap,
+    })
+    pushDeviceNodes(
+      areaId,
       looseDeviceIds,
       looseHeightById,
-      autoLayout.looseOrigin,
-      sizeOpts,
+      looseWidthById,
+      loosePositions,
+      area.name
     )
-    pushDeviceNodes(areaId, looseDeviceIds, looseHeightById, looseStack, area.name)
   }
 
   // —— Legacy flat racks/boards (no parentId or parent area not on canvas) ——
@@ -890,6 +1382,7 @@ function buildGraph(params: {
     autoX += measured.size.width + 48
     pushBoardNode(board, id, pos, undefined, measured)
   }
+  }
 
   const flowEdges: Edge<RoutedLinkEdgeData>[] = edges
     .filter((e) => shownDeviceIds.has(e.source) && shownDeviceIds.has(e.target))
@@ -913,8 +1406,8 @@ function buildGraph(params: {
         type: 'routedLink' as const,
         source: e.source,
         target: e.target,
-        sourceHandle: diagramSourceHandleId(e.sourcePortId, e.sourcePort),
-        targetHandle: diagramTargetHandleId(e.targetPortId, e.targetPort),
+        sourceHandle: edgeHandleId(e.sourcePortId, e.sourcePort),
+        targetHandle: edgeTargetHandleId(e.targetPortId, e.targetPort),
         zIndex: 1000,
         data: {
           code: e.code,
@@ -936,6 +1429,43 @@ function buildGraph(params: {
   return { nodes, edges: flowEdges }
 }
 
+function resolveNodeHandleEndpoint(
+  node: Node,
+  handleId: string,
+  role: 'source' | 'target',
+  handleAnchors: Record<string, DiagramHandleAnchor>,
+  absPos: { x: number; y: number }
+) {
+  const neutralId = legacyToNeutralHandleId(handleId.replace(/::in$/, ''))
+  const w = Number(node.width ?? node.style?.width ?? SIMPLE_DEVICE_WIDTH)
+  const h = Number(node.height ?? node.style?.height ?? 36)
+  const slots = (node.data?.slots as DiagramPortSlot[] | undefined) ?? []
+  const slot = slots.find((s) => s.id === neutralId)
+
+  if (slot?.anchor) {
+    return anchorToEndpoint(slot.anchor, absPos.x, absPos.y, w, h)
+  }
+
+  const label = (node.data?.label as string) ?? ''
+  const portCount = (node.data?.portCount as number) ?? 0
+  const rows = portSlotsVerticalRows(slots)
+  const portAreaTop = devicePortAreaTop(label, rows, portCount, w)
+  const nodeAnchors =
+    (node.data?.handleAnchors as Record<string, DiagramHandleAnchor> | undefined) ?? {}
+  const saved =
+    handleAnchors[handleAnchorKey(node.id, neutralId)] ?? nodeAnchors[neutralId]
+  const idx = slots.findIndex((s) => s.id === neutralId)
+  const anchor =
+    saved ??
+    (idx >= 0
+      ? defaultHandleAnchor(role, idx, Math.max(1, slots.length), h, portAreaTop)
+      : {
+          side: role === 'target' ? ('left' as const) : ('right' as const),
+          t: 0.5,
+        })
+  return anchorToEndpoint(anchor, absPos.x, absPos.y, w, h)
+}
+
 function ConnectionDiagramCanvasInner(
   {
     inventory,
@@ -949,6 +1479,7 @@ function ConnectionDiagramCanvasInner(
     paperSize = 'a4',
     printOrientation = 'landscape',
     showPrintMargins = false,
+    printInvertColors = false,
     printFrame = null,
     printFrameLocked = false,
     onPrintFrameChange,
@@ -1008,9 +1539,100 @@ function ConnectionDiagramCanvasInner(
   const focusedLinkIdRef = useRef(focusedLinkId)
   focusedLinkIdRef.current = focusedLinkId
   const deviceGap = resolveDeviceGap({ deviceGap: diagram.settings?.deviceGap })
-  const deviceGapRef = useRef(deviceGap)
-  deviceGapRef.current = deviceGap
   const prevDeviceGapRef = useRef(deviceGap)
+  const [handleAnchors, setHandleAnchors] = useState<Record<string, DiagramHandleAnchor>>(
+    () => diagram.handleAnchors ?? {}
+  )
+  const handleAnchorsRef = useRef(handleAnchors)
+  handleAnchorsRef.current = handleAnchors
+  const rerouteCablesRef = useRef<() => void>(() => {})
+  const scheduleRerouteRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    const next = normalizeHandleAnchorKeys(diagram.handleAnchors ?? {})
+    handleAnchorsRef.current = next
+    setHandleAnchors(next)
+  }, [diagram.id])
+
+  const handleAnchorChange = useCallback(
+    (deviceId: string, handleId: string, anchor: DiagramHandleAnchor) => {
+      const key = handleAnchorKey(deviceId, handleId)
+      setHandleAnchors((prev) => {
+        const next = { ...prev, [key]: anchor }
+        handleAnchorsRef.current = next
+        return next
+      })
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === deviceId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  handleAnchors: {
+                    ...((n.data?.handleAnchors as Record<string, DiagramHandleAnchor>) ??
+                      {}),
+                    [handleId]: anchor,
+                  },
+                },
+              }
+            : n
+        )
+      )
+      scheduleRerouteRef.current()
+    },
+    [setNodes]
+  )
+
+  const handleAnchorChangeEnd = useCallback(
+    (_deviceId: string, _handleId: string, _anchor: DiagramHandleAnchor) => {
+      rerouteCablesRef.current()
+    },
+    []
+  )
+
+  const handleSlotsReorder = useCallback(
+    (deviceId: string, slots: DiagramPortSlot[]) => {
+      setHandleAnchors((prev) => {
+        const next = { ...prev }
+        for (const slot of slots) {
+          next[handleAnchorKey(deviceId, slot.id)] = slot.anchor
+        }
+        handleAnchorsRef.current = next
+        return next
+      })
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === deviceId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  slots,
+                  handleAnchors: Object.fromEntries(
+                    slots.map((s) => [s.id, s.anchor])
+                  ),
+                },
+              }
+            : n
+        )
+      )
+      scheduleRerouteRef.current()
+    },
+    [setNodes]
+  )
+
+  const handleRedistributePorts = useCallback((deviceId: string) => {
+    setHandleAnchors((prev) => {
+      const next = { ...prev }
+      for (const key of Object.keys(next)) {
+        if (key.startsWith(`${deviceId}::`)) delete next[key]
+      }
+      handleAnchorsRef.current = next
+      return next
+    })
+    rerouteCablesRef.current()
+  }, [])
 
   useEffect(() => {
     didFitRef.current = false
@@ -1047,6 +1669,11 @@ function ConnectionDiagramCanvasInner(
         onPortClick: (params) => callbacksRef.current.onPortClick?.(params),
         onDeviceDoubleClick: (deviceId) =>
           callbacksRef.current.onDeviceDoubleClick?.(deviceId),
+        handleAnchors,
+        onHandleAnchorChange: handleAnchorChange,
+        onHandleAnchorChangeEnd: handleAnchorChangeEnd,
+        onSlotsReorder: handleSlotsReorder,
+        onRedistributePorts: handleRedistributePorts,
       }),
     [
       inventory,
@@ -1059,6 +1686,11 @@ function ConnectionDiagramCanvasInner(
       readOnly,
       hidePickerForPrint,
       handlePickerOpenChange,
+      handleAnchors,
+      handleAnchorChange,
+      handleAnchorChangeEnd,
+      handleSlotsReorder,
+      handleRedistributePorts,
     ]
   )
 
@@ -1066,63 +1698,53 @@ function ConnectionDiagramCanvasInner(
     setNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]))
       return built.nodes.map((n) => {
+        const existing = prevById.get(n.id)
+        if (n.type === 'simpleDevice' && existing && existing.parentId === n.parentId) {
+          const { width, height } = preserveDeviceExtent(n, existing)
+          return {
+            ...n,
+            position: existing.position,
+            selected: existing.selected,
+            width,
+            height,
+            style: {
+              ...n.style,
+              width,
+              height,
+            },
+            data: {
+              ...n.data,
+              handleAnchors: {
+                ...((n.data?.handleAnchors as Record<string, DiagramHandleAnchor>) ?? {}),
+                ...((existing.data?.handleAnchors as Record<string, DiagramHandleAnchor>) ??
+                  {}),
+              },
+            },
+          }
+        }
         if (
           n.type === 'areaContainer' ||
           n.type === 'rackContainer' ||
           n.type === 'boardContainer'
         ) {
-          const existing = prevById.get(n.id)
-          // Roots: keep drag position. Areas also keep unsaved manual resize,
+          // Roots: keep drag position. Containers keep unsaved manual resize,
           // but shrink when content (devices/racks) got smaller.
           // Nested racks/boards: keep manual drag position inside the area.
-          if (
-            existing &&
-            !n.parentId &&
-            existing.parentId === n.parentId
-          ) {
-            const builtW = Number(n.style?.width ?? 0)
-            const builtH = Number(n.style?.height ?? 0)
-            const prevW = Number(existing.style?.width ?? existing.width ?? 0)
-            const prevH = Number(existing.style?.height ?? existing.height ?? 0)
-            let width = builtW || prevW
-            let height = builtH || prevH
-            if (n.type === 'areaContainer') {
-              const builtMinW = Number(
-                (n.data as { contentMinWidth?: number }).contentMinWidth ?? builtW
-              )
-              const prevMinW = Number(
-                (existing.data as { contentMinWidth?: number }).contentMinWidth ?? prevW
-              )
-              const builtMinH = Number(
-                (n.data as { contentMinHeight?: number }).contentMinHeight ?? builtH
-              )
-              const prevMinH = Number(
-                (existing.data as { contentMinHeight?: number }).contentMinHeight ?? prevH
-              )
-              const contentShrunk = builtMinW < prevMinW - 0.5 || builtMinH < prevMinH - 0.5
-              if (!contentShrunk) {
-                width = Math.max(builtW, prevW) || builtW
-                height = Math.max(builtH, prevH) || builtH
-              }
-            }
+          if (existing && existing.parentId === n.parentId) {
+            const { width, height } = preserveContainerExtent(n, existing)
             return {
               ...n,
               position: existing.position,
               selected: existing.selected,
+              width,
+              height,
               style: {
                 ...n.style,
                 width,
                 height,
               },
-              zIndex: existing.zIndex && existing.zIndex > 1 ? existing.zIndex : n.zIndex,
-            }
-          }
-          if (existing && n.parentId && existing.parentId === n.parentId) {
-            return {
-              ...n,
-              position: existing.position,
-              selected: existing.selected,
-              zIndex: existing.zIndex && existing.zIndex > 1 ? existing.zIndex : n.zIndex,
+              zIndex:
+                existing.zIndex && existing.zIndex > 1 ? existing.zIndex : n.zIndex,
             }
           }
         }
@@ -1247,8 +1869,12 @@ function ConnectionDiagramCanvasInner(
 
     const endpointByEdgeId: Record<
       string,
-      { source: { x: number; y: number; side: 'right' }; target: { x: number; y: number; side: 'left' } }
+      {
+        source: ReturnType<typeof resolveNodeHandleEndpoint>
+        target: ReturnType<typeof resolveNodeHandleEndpoint>
+      }
     > = {}
+    const anchors = handleAnchorsRef.current
     const requests: DiagramRouteRequest[] = []
     for (const e of currentEdges) {
       const sourceAbs = absolutePos(currentNodes, e.source)
@@ -1256,50 +1882,26 @@ function ConnectionDiagramCanvasInner(
       if (!sourceAbs || !targetAbs) continue
       const sourceNode = currentNodes.find((n) => n.id === e.source)
       const targetNode = currentNodes.find((n) => n.id === e.target)
-      const sh = Number(sourceNode?.height ?? sourceNode?.style?.height ?? 36)
-      const th = Number(targetNode?.height ?? targetNode?.style?.height ?? 36)
-      const sw = Number(sourceNode?.width ?? sourceNode?.style?.width ?? SIMPLE_DEVICE_WIDTH)
+      if (!sourceNode || !targetNode) continue
 
-      const sourcePorts =
-        (sourceNode?.data?.sourcePorts as DiagramPortHandle[] | undefined) ?? []
-      const targetPorts =
-        (targetNode?.data?.targetPorts as DiagramPortHandle[] | undefined) ?? []
       const sourceHandleId = e.sourceHandle ?? DIAGRAM_CONNECT_SOURCE_HANDLE
       const targetHandleId = e.targetHandle ?? DIAGRAM_CONNECT_TARGET_HANDLE
-      const sourceIdx = sourcePorts.findIndex((p) => p.id === sourceHandleId)
-      const targetIdx = targetPorts.findIndex((p) => p.id === targetHandleId)
-      const sourcePortAreaTop = sourcePorts.length > 0 ? SIMPLE_DEVICE_NAME_ROW_H : 0
-      const targetPortAreaTop = targetPorts.length > 0 ? SIMPLE_DEVICE_NAME_ROW_H : 0
-      const sourceY =
-        sourceIdx >= 0
-          ? sourcePortAreaTop +
-            diagramHandleCenterY(
-              sourceIdx,
-              sourcePorts.length,
-              Math.max(1, sh - sourcePortAreaTop)
-            )
-          : sh / 2
-      const targetY =
-        targetIdx >= 0
-          ? targetPortAreaTop +
-            diagramHandleCenterY(
-              targetIdx,
-              targetPorts.length,
-              Math.max(1, th - targetPortAreaTop)
-            )
-          : th / 2
 
       const endpoints = {
-        source: {
-          x: sourceAbs.x + sw,
-          y: sourceAbs.y + sourceY,
-          side: 'right' as const,
-        },
-        target: {
-          x: targetAbs.x,
-          y: targetAbs.y + targetY,
-          side: 'left' as const,
-        },
+        source: resolveNodeHandleEndpoint(
+          sourceNode,
+          sourceHandleId,
+          'source',
+          anchors,
+          sourceAbs
+        ),
+        target: resolveNodeHandleEndpoint(
+          targetNode,
+          targetHandleId,
+          'target',
+          anchors,
+          targetAbs
+        ),
       }
       endpointByEdgeId[e.id] = endpoints
 
@@ -1386,6 +1988,7 @@ function ConnectionDiagramCanvasInner(
     async (
       format: PaperFormat,
       orientation: PrintOrientation,
+      invertColors = false,
     ): Promise<CapturedDiagram | null> => {
       const shell = shellElRef.current
       if (!shell) return null
@@ -1455,13 +2058,28 @@ function ConnectionDiagramCanvasInner(
         const vp = getCaptureViewport(bounds, plan.cssW, plan.cssH)
         if (!Number.isFinite(vp.zoom) || vp.zoom <= 0) return null
 
-        const imgData = await captureReactFlowViewport({
-          canvasElement: shell,
-          cssW: plan.cssW,
-          cssH: plan.cssH,
-          pixelRatio: plan.pixelRatio,
-          viewport: { x: vp.x, y: vp.y, zoom: vp.zoom },
-        })
+        // Quitar filtro CSS de preview para evitar doble inversión; el post-proceso PNG lo aplica.
+        const hadInvertClass = invertColors && shell.classList.contains('diagram-print-invert')
+        if (hadInvertClass) {
+          shell.classList.remove('diagram-print-invert')
+          await new Promise<void>((r) => requestAnimationFrame(() => r()))
+        }
+
+        let imgData: string
+        try {
+          imgData = await captureReactFlowViewport({
+            canvasElement: shell,
+            cssW: plan.cssW,
+            cssH: plan.cssH,
+            pixelRatio: plan.pixelRatio,
+            viewport: { x: vp.x, y: vp.y, zoom: vp.zoom },
+            invertColors,
+          })
+        } finally {
+          if (hadInvertClass) {
+            shell.classList.add('diagram-print-invert')
+          }
+        }
 
         const img = new Image()
         img.src = imgData
@@ -1522,7 +2140,7 @@ function ConnectionDiagramCanvasInner(
         rerouteCables()
       },
       getPersistPayload: (printSettings) => {
-        const nodePositions: Record<string, { x: number; y: number }> = {}
+        const nodePositions: Record<string, DiagramNodePosition> = {}
         const containers: Record<
           string,
           {
@@ -1549,8 +2167,8 @@ function ConnectionDiagramCanvasInner(
             n.type === 'boardContainer'
           ) {
             const prev = containers[n.id] ?? { x: n.position.x, y: n.position.y }
-            const w = Number(n.style?.width ?? n.width ?? prev.width ?? 0)
-            const h = Number(n.style?.height ?? n.height ?? prev.height ?? 0)
+            const w = Number(n.width ?? n.style?.width ?? prev.width ?? 0)
+            const h = Number(n.height ?? n.style?.height ?? prev.height ?? 0)
             const contentMinW = Number(
               (n.data as { contentMinWidth?: number })?.contentMinWidth ?? prev.contentMinWidth ?? 0
             )
@@ -1566,14 +2184,18 @@ function ConnectionDiagramCanvasInner(
               parentId: n.parentId ?? prev.parentId ?? null,
               deviceIds:
                 (n.data as { deviceIds?: string[] })?.deviceIds ?? prev.deviceIds ?? [],
-              ...(n.type === 'areaContainer' && w > 0 ? { width: w } : {}),
-              ...(n.type === 'areaContainer' && h > 0 ? { height: h } : {}),
-              ...(n.type === 'areaContainer' && contentMinW > 0
-                ? { contentMinWidth: contentMinW }
-                : {}),
-              ...(n.type === 'areaContainer' && contentMinH > 0
-                ? { contentMinHeight: contentMinH }
-                : {}),
+              ...(w > 0 ? { width: w } : {}),
+              ...(h > 0 ? { height: h } : {}),
+              ...(contentMinW > 0 ? { contentMinWidth: contentMinW } : {}),
+              ...(contentMinH > 0 ? { contentMinHeight: contentMinH } : {}),
+            }
+          } else if (n.type === 'simpleDevice') {
+            const size = flowNodeSize(n)
+            nodePositions[n.id] = {
+              x: n.position.x,
+              y: n.position.y,
+              ...(size.width > 0 ? { width: Math.round(size.width) } : {}),
+              ...(size.height > 0 ? { height: Math.round(size.height) } : {}),
             }
           } else if (!n.parentId) {
             nodePositions[n.id] = { x: n.position.x, y: n.position.y }
@@ -1617,8 +2239,19 @@ function ConnectionDiagramCanvasInner(
           ...(printSettings?.printIncludeLinkTable != null
             ? { printIncludeLinkTable: printSettings.printIncludeLinkTable }
             : {}),
+          ...(printSettings?.printInvertColors != null
+            ? { printInvertColors: printSettings.printInvertColors }
+            : {}),
         }
-        return { nodePositions, labelOffsets, edgeRoutes, containers, settings }
+        return {
+          nodePositions,
+          labelOffsets,
+          edgeRoutes,
+          containers,
+          settings,
+          handleAnchors: normalizeHandleAnchorKeys({ ...handleAnchorsRef.current }),
+          layoutMode: diagram.layoutMode ?? 'free',
+        }
       },
     }),
     [
@@ -1640,10 +2273,6 @@ function ConnectionDiagramCanvasInner(
 
   /** Keep orthogonal routes stuck to device handles while containers move. */
   const dragRerouteRaf = useRef<number | null>(null)
-  const deviceDragStartOrderRef = useRef<{
-    containerId: string
-    deviceIds: string[]
-  } | null>(null)
   const scheduleRerouteDuringDrag = useCallback(() => {
     if (dragRerouteRaf.current != null) return
     dragRerouteRaf.current = window.requestAnimationFrame(() => {
@@ -1651,6 +2280,11 @@ function ConnectionDiagramCanvasInner(
       rerouteCables()
     })
   }, [rerouteCables])
+
+  useEffect(() => {
+    rerouteCablesRef.current = rerouteCables
+    scheduleRerouteRef.current = scheduleRerouteDuringDrag
+  }, [rerouteCables, scheduleRerouteDuringDrag])
 
   useEffect(() => {
     return () => {
@@ -1668,124 +2302,21 @@ function ConnectionDiagramCanvasInner(
     )
   }, [])
 
-  const applyDeviceStackInContainer = useCallback(
-    (
-      allNodes: Node[],
-      containerId: string,
-      deviceIds: string[],
-      opts: { hidePicker: boolean; draggedId?: string; draggedY?: number }
-    ): Node[] => {
-      const parent = allNodes.find((n) => n.id === containerId)
-      const heightById: Record<string, number> = {}
-      for (const id of deviceIds) {
-        const child = allNodes.find((n) => n.id === id)
-        heightById[id] = Number(
-          child?.style?.height ?? child?.height ?? simpleDeviceHeight(0)
-        )
-      }
-      const sizeOpts = { hidePicker: opts.hidePicker, deviceGap: deviceGapRef.current }
-      const isArea = parent?.type === 'areaContainer'
-      const hasSubContainers = Boolean(
-        (parent?.data as { hasSubContainers?: boolean })?.hasSubContainers
-      )
-      const looseOrigin = {
-        x: AREA_BODY_PAD,
-        y: hasSubContainers
-          ? areaContentTop(sizeOpts)
-          : areaLooseContentTop(sizeOpts),
-      }
-      const stack = isArea
-        ? stackLooseDevicePositions(deviceIds, heightById, looseOrigin, sizeOpts)
-        : stackDevicePositions(deviceIds, heightById, sizeOpts)
-      const heights = deviceIds.map((id) => heightById[id] ?? simpleDeviceHeight(0))
-      const size = rackContainerSize(heights, sizeOpts)
-      const dragX = isArea ? AREA_BODY_PAD : CONTAINER_PAD
-
-      return allNodes.map((n) => {
-        if (n.id === containerId) {
-          if (n.type === 'areaContainer') {
-            return {
-              ...n,
-              data: { ...n.data, deviceIds },
-            }
-          }
-          return {
-            ...n,
-            data: { ...n.data, deviceIds },
-            style: { ...n.style, width: size.width, height: size.height },
-          }
-        }
-        if (n.parentId !== containerId || n.type !== 'simpleDevice') return n
-        if (opts.draggedId && n.id === opts.draggedId && opts.draggedY != null) {
-          return {
-            ...n,
-            position: { x: dragX, y: opts.draggedY },
-          }
-        }
-        const pos = stack[n.id]
-        if (!pos) return n
-        return { ...n, position: pos }
-      })
-    },
-    []
-  )
-
   const onNodeDrag = useCallback(
     (_event: ReactMouseEvent, node: Node) => {
       if (node.parentId && node.type === 'simpleDevice') {
-        const pinnedY = node.position.y
-        const parent = nodesRef.current.find((n) => n.id === node.parentId)
-        const deviceIds = (parent?.data as { deviceIds?: string[] })?.deviceIds
-        if (deviceIds?.length) {
-          if (
-            !deviceDragStartOrderRef.current ||
-            deviceDragStartOrderRef.current.containerId !== node.parentId
-          ) {
-            deviceDragStartOrderRef.current = {
-              containerId: node.parentId,
-              deviceIds: [...deviceIds],
-            }
-          }
-          const baseIds = deviceDragStartOrderRef.current.deviceIds
-          const heightById: Record<string, number> = {}
-          for (const id of baseIds) {
-            const child = nodesRef.current.find((n) => n.id === id)
-            heightById[id] = Number(
-              child?.style?.height ?? child?.height ?? simpleDeviceHeight(0)
-            )
-          }
-          const nextIds = nextDeviceOrderInContainer(
-            nodesRef.current,
-            node.parentId,
-            baseIds,
-            heightById,
-            node.id,
-            pinnedY,
-            hidePickerForPrint,
-            deviceGapRef.current,
-          )
-          const next = applyDeviceStackInContainer(
-            nodesRef.current,
-            node.parentId,
-            nextIds,
-            {
-              hidePicker: hidePickerForPrint,
-              draggedId: node.id,
-              draggedY: pinnedY,
-            }
-          )
-          nodesRef.current = next
-          setNodes(next)
-          scheduleRerouteDuringDrag()
-          return
-        }
-        const pinned = { ...node, position: { x: CONTAINER_PAD, y: pinnedY } }
-        syncDraggedNodePosition(pinned)
-        setNodes((prev) =>
-          prev.map((n) =>
-            n.id === node.id ? { ...n, position: pinned.position } : n
-          )
+        const withMin = clampDeviceNodeMinInParent(
+          node,
+          nodesRef.current,
+          hidePickerForPrint
         )
+        let next = nodesRef.current.map((n) =>
+          n.id === node.id ? { ...n, position: withMin.position } : n
+        )
+        const dragged = next.find((n) => n.id === node.id) ?? withMin
+        next = expandAncestorsToFit(dragged, next, hidePickerForPrint)
+        nodesRef.current = next
+        setNodes(next)
         scheduleRerouteDuringDrag()
         return
       }
@@ -1817,7 +2348,6 @@ function ConnectionDiagramCanvasInner(
       scheduleRerouteDuringDrag()
     },
     [
-      applyDeviceStackInContainer,
       hidePickerForPrint,
       scheduleRerouteDuringDrag,
       setNodes,
@@ -1833,51 +2363,20 @@ function ConnectionDiagramCanvasInner(
       }
 
       if (node.parentId && node.type === 'simpleDevice') {
-        const start = deviceDragStartOrderRef.current
-        deviceDragStartOrderRef.current = null
-        const baseIds =
-          start?.containerId === node.parentId
-            ? start.deviceIds
-            : (nodesRef.current.find((n) => n.id === node.parentId)?.data as {
-                deviceIds?: string[]
-              })?.deviceIds
-
-        if (baseIds?.length) {
-          const heightById: Record<string, number> = {}
-          for (const id of baseIds) {
-            const child = nodesRef.current.find((n) => n.id === id)
-            heightById[id] = Number(
-              child?.style?.height ?? child?.height ?? simpleDeviceHeight(0)
-            )
-          }
-          const nextIds = nextDeviceOrderInContainer(
-            nodesRef.current,
-            node.parentId,
-            baseIds,
-            heightById,
-            node.id,
-            node.position.y,
-            hidePickerForPrint,
-            deviceGapRef.current,
-          )
-          const next = applyDeviceStackInContainer(
-            nodesRef.current,
-            node.parentId,
-            nextIds,
-            { hidePicker: hidePickerForPrint }
-          )
-          nodesRef.current = next
-          setNodes(next)
-          const changed = nextIds.some((id, i) => id !== baseIds[i])
-          if (changed) {
-            callbacksRef.current.onReorderDevicesInContainer?.(
-              node.parentId,
-              nextIds
-            )
-          }
-          rerouteCables()
-          return
-        }
+        const withMin = clampDeviceNodeMinInParent(
+          node,
+          nodesRef.current,
+          hidePickerForPrint
+        )
+        let next = nodesRef.current.map((n) =>
+          n.id === node.id ? { ...n, position: withMin.position } : n
+        )
+        const dragged = next.find((n) => n.id === node.id) ?? withMin
+        next = expandAncestorsToFit(dragged, next, hidePickerForPrint)
+        nodesRef.current = next
+        setNodes(next)
+        rerouteCables()
+        return
       }
 
       if (
@@ -1906,7 +2405,6 @@ function ConnectionDiagramCanvasInner(
       rerouteCables()
     },
     [
-      applyDeviceStackInContainer,
       hidePickerForPrint,
       rerouteCables,
       setNodes,
@@ -1921,10 +2419,32 @@ function ConnectionDiagramCanvasInner(
         (c) => c.type === 'dimensions' && 'resizing' in c && c.resizing === false
       )
       if (resizeEnded) {
+        setNodes((prev) => {
+          let next = prev
+          for (const c of changes) {
+            if (c.type !== 'dimensions' || !('id' in c)) continue
+            const resized = next.find((n) => n.id === c.id)
+            if (
+              resized?.type === 'areaContainer' ||
+              resized?.type === 'rackContainer' ||
+              resized?.type === 'boardContainer'
+            ) {
+              next = clampChildrenInParent(next, c.id, hidePickerForPrint)
+            } else if (resized?.type === 'simpleDevice') {
+              next = next.map((n) =>
+                n.id === c.id
+                  ? clampDeviceSizeInParent(n, next, hidePickerForPrint)
+                  : n
+              )
+            }
+          }
+          nodesRef.current = next
+          return next
+        })
         window.setTimeout(() => rerouteCables(), 40)
       }
     },
-    [onNodesChange, rerouteCables]
+    [hidePickerForPrint, onNodesChange, rerouteCables, setNodes]
   )
 
   const onConnect = useCallback(
@@ -1932,9 +2452,13 @@ function ConnectionDiagramCanvasInner(
       if (readOnly || !onConnectDevices) return
       if (!connection.source || !connection.target) return
       if (connection.source === connection.target) return
+      const stripIn = (h: string | null | undefined) =>
+        h?.replace(/::in$/, '') ?? null
       onConnectDevices({
         sourceDeviceId: connection.source,
         targetDeviceId: connection.target,
+        sourceHandle: stripIn(connection.sourceHandle),
+        targetHandle: stripIn(connection.targetHandle),
       })
     },
     [onConnectDevices, readOnly]
@@ -1951,7 +2475,10 @@ function ConnectionDiagramCanvasInner(
   )
 
   return (
-    <div ref={shellElRef} className="h-full w-full">
+    <div
+      ref={shellElRef}
+      className={`h-full w-full${printInvertColors ? ' diagram-print-invert' : ''}`}
+    >
       <ReactFlow
         className="h-full w-full"
         nodes={nodes}
