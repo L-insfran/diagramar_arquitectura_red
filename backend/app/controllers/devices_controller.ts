@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import SystemUser from '#models/system_user'
-import DeviceService from '#services/device_service'
+import DeviceService, { DiagramRelocationRequiredError } from '#services/device_service'
 import DeviceTemplateService from '#services/device_template_service'
 import PortService from '#services/port_service'
 import {
@@ -9,8 +9,12 @@ import {
   isNotebookType,
   resolveRoleForProject,
 } from '#services/authorization_service'
-import { requireProjectContext } from '#services/project_context_service'
-import { createDeviceValidator, updateDeviceValidator } from '#validators/device_validator'
+import { requireProjectContext, requireMutateProjectContext } from '#services/project_context_service'
+import {
+  createDeviceValidator,
+  updateDeviceValidator,
+  assignContainerValidator,
+} from '#validators/device_validator'
 import { bulkUpdatePortStatusValidator, bulkUpdatePortPassthroughValidator } from '#validators/port_validator'
 
 export default class DevicesController {
@@ -27,7 +31,7 @@ export default class DevicesController {
     const deviceTemplateId = ctx.request.input('deviceTemplateId') as string | undefined
     const siteId = ctx.request.input('siteId') as string | undefined
     const areaId = ctx.request.input('areaId') as string | undefined
-    const rackId = ctx.request.input('rackId') as string | undefined
+    const containerId = ctx.request.input('containerId') as string | undefined
     const search = ctx.request.input('search') as string | undefined
     const devices = await this.deviceService.getAllByProject(context.projectId, {
       status,
@@ -35,7 +39,7 @@ export default class DevicesController {
       deviceTemplateId,
       siteId,
       areaId,
-      rackId,
+      containerId,
       search,
     })
     return ctx.response.ok({ success: true, data: devices })
@@ -96,6 +100,30 @@ export default class DevicesController {
     return response.ok({ success: true, data })
   }
 
+  async relocationImpact({ auth, params, request, response }: HttpContext) {
+    const user = auth.getUserOrFail() as SystemUser
+    const device = await this.deviceService.getActiveSummary(params.id)
+    if (!(await canAccessProject(user, device.projectId))) {
+      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+    }
+
+    const areaIdRaw = request.input('areaId') as string | undefined
+    const areaId = areaIdRaw === '' || areaIdRaw === undefined ? null : areaIdRaw
+    const containerIdRaw = request.input('containerId') as string | undefined
+    const containerId =
+      containerIdRaw === '' || containerIdRaw === undefined ? null : containerIdRaw
+
+    try {
+      const impact = await this.deviceService.getRelocationImpact(params.id, areaId, containerId)
+      return response.ok({ success: true, data: impact })
+    } catch (error: any) {
+      if (error?.status === 422) {
+        return response.unprocessableEntity({ success: false, message: error.message })
+      }
+      throw error
+    }
+  }
+
   async update({ auth, params, request, response }: HttpContext) {
     const user = auth.getUserOrFail() as SystemUser
     const existing = await this.deviceService.getActiveSummary(params.id)
@@ -119,8 +147,53 @@ export default class DevicesController {
     if (data.projectId && !(await canAccessProject(user, data.projectId))) {
       return response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const updated = await this.deviceService.update(params.id, data, user.id)
-    return response.ok({ success: true, data: updated })
+    try {
+      const updated = await this.deviceService.update(params.id, data, user.id)
+      return response.ok({ success: true, data: updated })
+    } catch (error: any) {
+      if (error instanceof DiagramRelocationRequiredError) {
+        return response.conflict({
+          success: false,
+          code: DiagramRelocationRequiredError.code,
+          impact: error.impact,
+          message: error.message,
+        })
+      }
+      if (error?.status === 422) {
+        return response.unprocessableEntity({ success: false, message: error.message })
+      }
+      throw error
+    }
+  }
+
+  /** POST /devices/:id/assign-container — placement sin U/celda (diagrama). */
+  async assignContainer(ctx: HttpContext) {
+    const context = await requireMutateProjectContext(ctx)
+    if (!context) return
+
+    const user = ctx.auth.getUserOrFail() as SystemUser
+    const device = await this.deviceService.getActiveSummary(ctx.params.id)
+    if (device.projectId !== context.projectId) {
+      return ctx.response.forbidden({
+        success: false,
+        message: 'El dispositivo debe pertenecer al proyecto activo',
+      })
+    }
+
+    const data = await ctx.request.validateUsing(assignContainerValidator)
+    try {
+      const updated = await this.deviceService.assignToContainer(
+        ctx.params.id,
+        { containerId: data.containerId, areaId: data.areaId },
+        user.id,
+      )
+      return ctx.response.ok({ success: true, data: updated })
+    } catch (error: any) {
+      if (error?.status === 422) {
+        return ctx.response.unprocessableEntity({ success: false, message: error.message })
+      }
+      throw error
+    }
   }
 
   async destroy({ auth, params, response }: HttpContext) {

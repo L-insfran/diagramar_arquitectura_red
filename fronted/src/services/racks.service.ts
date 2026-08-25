@@ -1,3 +1,9 @@
+/**
+ * Legacy rack-specific service — kept for backward compatibility
+ * (Racks page, rack occupancy viewer, rack accessories).
+ * New code should prefer `containersService` from `./containers.service`
+ * which calls `/api/containers` and handles all container kinds.
+ */
 import api from './api'
 import type { ApiResponse, Rack, RackOccupancy } from '../types'
 

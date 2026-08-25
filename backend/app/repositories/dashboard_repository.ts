@@ -1,6 +1,6 @@
 import db from '@adonisjs/lucid/services/db'
 import Device from '#models/device'
-import Rack from '#models/rack'
+import Container from '#models/container'
 import RackAccessory from '#models/rack_accessory'
 import type { DashboardRackSummary, DashboardRecentDevice } from '#dtos/dashboard_dto'
 import type { DeviceRackFace } from '#dtos/rack_dto'
@@ -46,7 +46,7 @@ export default class DashboardRepository {
   }
 
   countRacks(projectId: string) {
-    return countWhere('racks', projectId, (q) => q.whereNull('deleted_at'))
+    return countWhere('containers', projectId, (q) => q.whereNull('deleted_at').where('kind', 'rack'))
   }
 
   countSites(projectId: string) {
@@ -179,8 +179,9 @@ export default class DashboardRepository {
   }
 
   async listRacksWithMounted(projectId: string) {
-    const racks = await Rack.query()
+    const racks = await Container.query()
       .where('project_id', projectId)
+      .where('kind', 'rack')
       .whereNull('deleted_at')
       .orderBy('name', 'asc')
 
@@ -188,7 +189,7 @@ export default class DashboardRepository {
       Device.query()
         .where('project_id', projectId)
         .whereNull('deleted_at')
-        .whereNotNull('rack_id')
+        .whereNotNull('container_id')
         .whereNotNull('rack_unit_start')
         .whereNull('supported_by_accessory_id')
         .preload('deviceTemplate'),
@@ -253,33 +254,33 @@ export default class DashboardRepository {
   }
 
   buildRackSummaries(
-    racks: Rack[],
+    racks: Container[],
     mounted: Device[],
     accessories: RackAccessory[] = [],
     shelfDevices: Device[] = []
   ): { items: DashboardRackSummary[]; usedU: number; totalCapacityU: number } {
     const railByRack = new Map<string, Device[]>()
     for (const d of mounted) {
-      if (!d.rackId) continue
-      const list = railByRack.get(d.rackId) ?? []
+      if (!d.containerId) continue
+      const list = railByRack.get(d.containerId) ?? []
       list.push(d)
-      railByRack.set(d.rackId, list)
+      railByRack.set(d.containerId, list)
     }
 
     const shelvesByRack = new Map<string, RackAccessory[]>()
     for (const a of accessories) {
-      const list = shelvesByRack.get(a.rackId) ?? []
+      const list = shelvesByRack.get(a.containerId) ?? []
       list.push(a)
-      shelvesByRack.set(a.rackId, list)
+      shelvesByRack.set(a.containerId, list)
     }
 
     const shelfDevicesByRack = new Map<string, Device[]>()
     for (const d of shelfDevices) {
-      const rackId = d.rackId ?? d.supportedByAccessory?.rackId
-      if (!rackId) continue
-      const list = shelfDevicesByRack.get(rackId) ?? []
+      const containerId = d.containerId ?? d.supportedByAccessory?.containerId
+      if (!containerId) continue
+      const list = shelfDevicesByRack.get(containerId) ?? []
       list.push(d)
-      shelfDevicesByRack.set(rackId, list)
+      shelfDevicesByRack.set(containerId, list)
     }
 
     let usedU = 0
@@ -287,7 +288,7 @@ export default class DashboardRepository {
     const items: DashboardRackSummary[] = []
 
     for (const rack of racks) {
-      const capacity = rack.heightU * 2
+      const capacity = (rack.heightU ?? 0) * 2
       totalCapacityU += capacity
 
       const footprints: RackFootprint[] = []
@@ -366,7 +367,7 @@ export default class DashboardRepository {
         id: rack.id,
         name: rack.name,
         code: rack.code,
-        heightU: rack.heightU,
+        heightU: rack.heightU ?? 0,
         usedFrontU: agg.usedFrontU,
         usedRearU: agg.usedRearU,
         usedU: agg.usedU,

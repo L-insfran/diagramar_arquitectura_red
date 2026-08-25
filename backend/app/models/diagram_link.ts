@@ -4,6 +4,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Project from './project.js'
 import Device from './device.js'
 import Port from './port.js'
+import CableType from './cable_type.js'
 
 export default class DiagramLink extends BaseModel {
   @column({ isPrimary: true })
@@ -37,6 +38,9 @@ export default class DiagramLink extends BaseModel {
   declare description: string | null
 
   @column()
+  declare cableTypeId: string | null
+
+  @column()
   declare createdBy: string | null
 
   @column()
@@ -68,4 +72,7 @@ export default class DiagramLink extends BaseModel {
 
   @belongsTo(() => Port, { foreignKey: 'targetPortId' })
   declare targetPort: BelongsTo<typeof Port>
+
+  @belongsTo(() => CableType)
+  declare cableType: BelongsTo<typeof CableType>
 }

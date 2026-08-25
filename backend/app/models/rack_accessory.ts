@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Project from './project.js'
-import Rack from './rack.js'
+import Container from './container.js'
 import RackAccessoryTemplate from './rack_accessory_template.js'
 import Device from './device.js'
 import type {
@@ -21,7 +21,7 @@ export default class RackAccessory extends BaseModel {
   declare projectId: string
 
   @column()
-  declare rackId: string
+  declare containerId: string
 
   @column()
   declare accessoryTemplateId: string | null
@@ -87,8 +87,8 @@ export default class RackAccessory extends BaseModel {
   @belongsTo(() => Project)
   declare project: BelongsTo<typeof Project>
 
-  @belongsTo(() => Rack)
-  declare rack: BelongsTo<typeof Rack>
+  @belongsTo(() => Container)
+  declare container: BelongsTo<typeof Container>
 
   @belongsTo(() => RackAccessoryTemplate, { foreignKey: 'accessoryTemplateId' })
   declare accessoryTemplate: BelongsTo<typeof RackAccessoryTemplate>

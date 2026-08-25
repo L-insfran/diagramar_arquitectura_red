@@ -43,7 +43,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     if (!q) return projects
     return projects.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) || (p.domain ?? '').toLowerCase().includes(q)
+        p.name.toLowerCase().includes(q) || (p.clientName ?? '').toLowerCase().includes(q)
     )
   }, [projects, projectQuery])
 
@@ -55,7 +55,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             type="button"
             onClick={onMenuClick}
             className="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-            aria-label="Open menu"
+            aria-label="Abrir menú"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -78,7 +78,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 </span>
                 <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
                   {ROLE_LABELS[role] ?? role}
-                  {activeProject?.domain ? ` · ${activeProject.domain}` : ''}
+                  {activeProject?.clientName ? ` · ${activeProject.clientName}` : ''}
                 </span>
               </span>
               <ChevronDown className="w-4 h-4 shrink-0 text-slate-400" />
@@ -160,7 +160,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             type="button"
             onClick={toggleTheme}
             className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
           >
             {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>

@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import CableType from '#models/cable_type'
 import Connection from '#models/connection'
+import DiagramLink from '#models/diagram_link'
 import { requireMutateProjectContext } from '#services/project_context_service'
 import {
   createCableTypeValidator,
@@ -61,14 +62,25 @@ export default class CableTypesController {
     if (!context) return
     const cableType = await CableType.findOrFail(ctx.params.id)
 
-    const inUse = await Connection.query()
+    const inUseConnection = await Connection.query()
       .where('cable_type_id', cableType.id)
       .whereNull('deleted_at')
       .first()
-    if (inUse) {
+    if (inUseConnection) {
       return ctx.response.conflict({
         success: false,
         message: `No se puede eliminar "${cableType.name}": hay conexiones activas que lo usan`,
+      })
+    }
+
+    const inUseLink = await DiagramLink.query()
+      .where('cable_type_id', cableType.id)
+      .whereNull('deleted_at')
+      .first()
+    if (inUseLink) {
+      return ctx.response.conflict({
+        success: false,
+        message: `No se puede eliminar "${cableType.name}": hay enlaces de diagrama activos que lo usan`,
       })
     }
 

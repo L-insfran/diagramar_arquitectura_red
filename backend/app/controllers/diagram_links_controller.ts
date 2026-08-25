@@ -9,6 +9,7 @@ import {
 import {
   createDiagramLinkValidator,
   updateDiagramLinkValidator,
+  bulkDeleteDiagramLinksValidator,
 } from '#validators/diagram_link_validator'
 
 export default class DiagramLinksController {
@@ -79,6 +80,20 @@ export default class DiagramLinksController {
       }
       throw error
     }
+  }
+
+  async bulkDelete(ctx: HttpContext) {
+    const context = await requireMutateProjectContext(ctx)
+    if (!context) return
+
+    const user = ctx.auth.getUserOrFail() as SystemUser
+    const { deviceIds } = await ctx.request.validateUsing(bulkDeleteDiagramLinksValidator)
+    const result = await this.diagramLinks.bulkDeleteByDeviceIds(
+      context.projectId,
+      deviceIds,
+      user.id,
+    )
+    return ctx.response.ok({ success: true, data: result })
   }
 
   async destroy({ auth, params, response }: HttpContext) {

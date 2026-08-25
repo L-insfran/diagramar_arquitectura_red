@@ -29,9 +29,8 @@ export default class MeController {
           return {
             id: project.id,
             name: project.name,
-            domain: project.domain,
+            clientName: project.clientName,
             address: project.address,
-            phone: project.phone,
             isActive: project.isActive,
             role: (membership?.role ?? 'admin') as 'admin' | 'operator' | 'viewer',
             isDefault: membership?.isDefault ?? project.id === user.projectId,
@@ -65,9 +64,8 @@ export default class MeController {
             {
               id: project.id,
               name: project.name,
-              domain: project.domain,
+              clientName: project.clientName,
               address: project.address,
-              phone: project.phone,
               isActive: project.isActive,
               role: user.role,
               isDefault: true,
@@ -93,9 +91,8 @@ export default class MeController {
         return {
           id: project.id,
           name: project.name,
-          domain: project.domain,
+          clientName: project.clientName,
           address: project.address,
-          phone: project.phone,
           isActive: project.isActive,
           role: m.role,
           isDefault: m.isDefault,

@@ -13,8 +13,7 @@ export default class DeviceRepository {
       .preload('deviceTemplate')
       .preload('site')
       .preload('area')
-      .preload('rack')
-      .preload('board')
+      .preload('container')
       .preload('supportedByAccessory')
       .preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
       .orderBy('name', 'asc')
@@ -34,11 +33,8 @@ export default class DeviceRepository {
     if (filters?.areaId) {
       query.where('area_id', filters.areaId)
     }
-    if (filters?.rackId) {
-      query.where('rack_id', filters.rackId)
-    }
-    if (filters?.boardId) {
-      query.where('board_id', filters.boardId)
+    if (filters?.containerId) {
+      query.where('container_id', filters.containerId)
     }
     if (filters?.search) {
       query.where((q) => {
@@ -59,8 +55,7 @@ export default class DeviceRepository {
       .preload('deviceTemplate')
       .preload('site')
       .preload('area')
-      .preload('rack')
-      .preload('board')
+      .preload('container')
       .preload('supportedByAccessory')
       .preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
       .preload('credentials')
@@ -77,8 +72,7 @@ export default class DeviceRepository {
       .preload('deviceTemplate')
       .preload('site')
       .preload('area')
-      .preload('rack')
-      .preload('board')
+      .preload('container')
       .preload('supportedByAccessory')
       .firstOrFail()
   }
@@ -98,10 +92,9 @@ export default class DeviceRepository {
       deviceTemplateId: data.deviceTemplateId,
       siteId: data.siteId ?? null,
       areaId: data.areaId ?? null,
-      rackId: data.rackId ?? null,
+      containerId: data.containerId ?? null,
       rackUnitStart: data.rackUnitStart ?? null,
       rackFace: data.rackFace ?? null,
-      boardId: data.boardId ?? null,
       boardRow: data.boardRow ?? null,
       boardCol: data.boardCol ?? null,
       boardRowSpan: data.boardRowSpan ?? null,

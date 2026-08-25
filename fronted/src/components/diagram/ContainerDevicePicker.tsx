@@ -8,6 +8,9 @@ export type ContainerDeviceOption = {
   name: string
   deviceType: string | null
   ipAddress: string | null
+  areaName?: string | null
+  containerName?: string | null
+  templateName?: string | null
   alreadyIn: boolean
 }
 
@@ -50,7 +53,15 @@ export function ContainerDevicePicker({
     return available.filter((o) => {
       if (typeFilter && (o.deviceType ?? '') !== typeFilter) return false
       if (!q) return true
-      const hay = [o.name, o.deviceType, o.ipAddress, o.label]
+      const hay = [
+        o.name,
+        o.deviceType,
+        o.ipAddress,
+        o.areaName,
+        o.containerName,
+        o.templateName,
+        o.label,
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -207,7 +218,9 @@ export function ContainerDevicePicker({
                       {o.name}
                     </span>
                     <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
-                      {[o.deviceType, o.ipAddress].filter(Boolean).join(' · ') || 'Sin tipo'}
+                      {[o.areaName, o.containerName, o.templateName]
+                        .filter(Boolean)
+                        .join(' - ') || 'Sin ubicación'}
                     </span>
                   </button>
                 ))

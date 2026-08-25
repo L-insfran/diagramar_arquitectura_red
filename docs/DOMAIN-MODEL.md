@@ -24,15 +24,12 @@ erDiagram
     device_templates ||--o{ devices : instantiates
     sites ||--o{ areas : contains
     sites ||--o{ devices : hosts
-    areas ||--o{ devices : hosts
-    areas ||--o{ racks : contains
-    areas ||--o{ boards : contains
-    racks ||--o{ devices : mounts
-    boards ||--o{ devices : mounts
-    racks ||--o{ rack_accessories : hosts
+    areas ||--o{ containers : contains
+    containers ||--o{ devices : mounts
+    containers ||--o{ rack_accessories : hosts
     projects ||--o{ connection_diagrams : has
     projects ||--o{ diagram_links : has
-    projects ||--o{ boards : has
+    projects ||--o{ containers : has
     rack_accessory_templates ||--o{ rack_accessories : defines
     rack_accessories ||--o{ devices : supports
     devices ||--o{ ports : has
@@ -46,6 +43,7 @@ erDiagram
     employees ||--o{ employee_credentials : has
     port_types ||--o{ ports : "ports.port_type as code"
     cable_types ||--o{ connections : optional
+    cable_types ||--o{ diagram_links : optional
     projects ||--o{ attachments : has
     projects ||--o{ secrets : has
 ```
@@ -63,11 +61,10 @@ erDiagram
 | `device_template_ports` | Definición de puertos del template (`is_passthrough`, `chassis_face`); clonados a la instancia |
 | `sites` | Inventario físico por proyecto; soft delete |
 | `areas` | Bajo un sitio (planta/sala…); soft delete — **no** es `work_areas` del canvas |
-| `racks` | Bajo un área; `height_u`; soft delete |
-| `boards` | Tableros bajo un área; grilla `grid_rows`×`grid_cols`; `kind` electrical/communications/generic; soft delete — ADR 0008 |
+| `containers` | Contenedor unificado bajo área; `kind` = `default` \| `rack` \| `board`; rack: `height_u`; board: `board_kind` + `grid_rows`×`grid_cols`; default: equipos sueltos; soft delete — ADR 0012 |
 | `rack_accessory_templates` | Catálogo global de SKU: bandejas (`shelf`, 1–6U), colgantes (`hang`, 1–5U) y chasis/ordenadores (`chassis`, 1–4U, sin slots); `device_slot_count` 3–5 en shelf/hang, `0` en chassis; `face` en hang/chassis — ADR 0006 |
-| `rack_accessories` | Instancias en rack; shelf: `mount_type` front_only/four_post; hang/chassis: `face` front/rear; chassis ancho fijo 6/6 sin hospedar devices; soft delete |
-| `devices` | Instancia de template; montaje en rieles (`rack_unit_start` + `rack_face`) **o** en accesorio shelf/hang (`supported_by_accessory_id` + slots) **o** en tablero (`board_id` + fila/col/spans); exclusión mutua board↔rack; `location` texto legacy |
+| `rack_accessories` | Instancias en contenedor rack; shelf: `mount_type` front_only/four_post; hang/chassis: `face` front/rear; chassis ancho fijo 6/6 sin hospedar devices; soft delete |
+| `devices` | Instancia de template; montaje vía `container_id` + campos de montaje (rieles U, accesorio shelf/hang, grilla board); `location` texto legacy |
 | `ports` | Por dispositivo; `port_type` string; `is_passthrough` editable (patch panel = 2 caras); `chassis_face` para jacks normales (ADR 0007) |
 | `port_types` | Catálogo: code, name, description, `default_speed`, color, icon, direction |
 | `cable_types` | Catálogo global de medios (familia, defaults, color, orden) |
@@ -75,13 +72,13 @@ erDiagram
 | `secrets` | Secretos cifrados polimórficos (reveal con mutate) |
 | `vlans`, `networks`, `port_vlans` | Capa L2/L3 |
 | `connections` | Entidad de primera clase; `source_face`/`target_face`; 1 física activa / (puerto, cara); sin UI dedicada (retirado canvas `/topology`, ADR 0011) |
-| `connection_diagrams` | Canvas único de documentación visual: diagramas nombrados múltiples (scope sitios/áreas, containers, edge_routes) — ADR 0009 + 0011 |
-| `diagram_links` | Enlaces simplificados equipo↔equipo (puerto opcional + etiqueta; `code` correlativo por proyecto, visible como E1…) para diagrama/informe — ADR 0010 |
+| `connection_diagrams` | Canvas único de documentación visual: diagramas nombrados múltiples (scope sitios/áreas, containers, edge_routes) — ADR 0009 + 0011. Membresía visual en `containers[].deviceIds`; al cambiar `devices.container_id` el backend **reparenta** esos `deviceIds` en todos los diagramas del proyecto para mantener inventario y canvas sincronizados. Geometría libre en columnas `node_positions` / `edge_routes` / `label_offsets` / `handle_anchors`; geometría de árbol en `tree_layout` (ADR 0014). |
+| `diagram_links` | Enlaces simplificados equipo↔equipo (puerto opcional + etiqueta; `code` correlativo por proyecto, visible como E1…; `cable_type_id` opcional → catálogo `cable_types`) para diagrama/informe — ADR 0010 |
 | `device_credentials`, `employee_credentials` | Secretos legacy de device/employee |
 
-**Grafo de inventario (backend):** `TopologyService.getTopology` alimenta `GET /connection-diagrams/:id/graph` (nodos, racks, boards, áreas). No hay canvas `/topology` ni tabla `topology_canvas_layouts` (ADR 0011).
+**Grafo de inventario (backend):** `TopologyService.getTopology` alimenta `GET /connection-diagrams/:id/graph` (nodos, containers, áreas). No hay canvas `/topology` ni tabla `topology_canvas_layouts` (ADR 0011).
 
-**Diagrama de conexión (`/connection-diagram`):** único lienzo de documentación de enlaces; contenedores **área → rack|tablero** (equipos también sueltos en el área); ruteo ortogonal; edges = `diagram_links` (ADR 0010), no `connections` físicas. Código visible `E1`… en el cable.
+**Diagrama de conexión (`/connection-diagram`):** único lienzo de documentación de enlaces; contenedores **área → container** (kinds rack/board/default); ruteo ortogonal; edges = `diagram_links` (ADR 0010), no `connections` físicas. Código visible `E1`… en el cable; tipo de cable opcional en la etiqueta del canvas.
 
 ### Ausentes respecto a la visión
 
@@ -99,11 +96,11 @@ flowchart TB
     Project[Proyecto]
     Project --> Sites[Sitios]
     Sites --> Areas[Areas]
-    Areas --> Racks[Racks]
+    Areas --> Containers[Contenedores]
+    Containers --> Devices[Instancias de equipo]
     GlobalTemplates[Device Templates globales]
-    GlobalTemplates --> Devices[Instancias de equipo]
+    GlobalTemplates --> Devices
     Project --> Devices
-    Racks --> Devices
     Devices --> Ports[Puertos]
     Ports --> Connections[Conexiones]
     Project --> Vlans[VLANs]
@@ -119,7 +116,7 @@ flowchart TB
 |----------------|-----------------|
 | Marca, modelo, U, imagen, consumo, peso | Nombre |
 | Definición y layout de puertos | Serie, IP, MAC, hostname |
-| Vistas frontal/trasera, campos custom | Estado, ubicación, rack, proyecto, notas |
+| Vistas frontal/trasera, campos custom | Estado, ubicación, contenedor, proyecto, notas |
 
 ### Conexiones (ya alineadas en espíritu)
 

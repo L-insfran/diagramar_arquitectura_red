@@ -21,7 +21,7 @@ export default function Login() {
       await login(email, password)
       navigate('/')
     } catch {
-      setError('Invalid email or password')
+      setError('Email o contraseña inválidos')
     } finally {
       setIsLoading(false)
     }
@@ -59,11 +59,11 @@ export default function Login() {
               required
             />
             <Input
-              label="Password"
+              label="Contraseña"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
+              placeholder="Ingresá tu contraseña"
               required
             />
             <Button type="submit" isLoading={isLoading} className="w-full">

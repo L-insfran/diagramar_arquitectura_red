@@ -45,7 +45,7 @@ export const updateRackAccessoryTemplateValidator = vine.compile(
 export const createRackAccessoryValidator = vine.compile(
   vine.object({
     projectId: vine.string().uuid(),
-    rackId: vine.string().uuid(),
+    containerId: vine.string().uuid(),
     accessoryTemplateId: vine.string().uuid().nullable().optional(),
     name: vine.string().trim().minLength(1).maxLength(255),
     kind: kind.optional(),

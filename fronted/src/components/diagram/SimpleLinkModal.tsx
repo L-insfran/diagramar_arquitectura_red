@@ -4,6 +4,7 @@ import { Button } from '../Button'
 import { Input } from '../Input'
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect'
 import { diagramLinksService } from '../../services/diagram-links.service'
+import { cableTypesService } from '../../services/cable-types.service'
 import { formatLinkCode } from '../../utils/diagram/linkLabel'
 import type {
   DiagramLinkEdge,
@@ -23,6 +24,9 @@ type Props = {
   /** Pre-fill source port when opening from a port click. */
   initialSourcePortId?: string | null
   initialSourcePortLabel?: string
+  /** Pre-fill target port when drag-connecting to a specific handle. */
+  initialTargetPortId?: string | null
+  initialTargetPortLabel?: string
   /** Contenedor visual del diagrama por device id (preferido sobre inventario). */
   containerByDeviceId?: Record<string, string>
   /**
@@ -179,6 +183,8 @@ export function SimpleLinkModal({
   targetDeviceId,
   initialSourcePortId,
   initialSourcePortLabel,
+  initialTargetPortId,
+  initialTargetPortLabel,
   containerByDeviceId,
   destinationOptions = [],
   edge,
@@ -217,6 +223,8 @@ export function SimpleLinkModal({
   const [sourcePortLabel, setSourcePortLabel] = useState('')
   const [targetPortLabel, setTargetPortLabel] = useState('')
   const [description, setDescription] = useState('')
+  const [cableTypeId, setCableTypeId] = useState('')
+  const [cableTypeOptions, setCableTypeOptions] = useState<SearchableSelectOption[]>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -225,6 +233,14 @@ export function SimpleLinkModal({
     () => buildOccupiedPortIndex(existingEdges, edge?.id),
     [existingEdges, edge?.id]
   )
+
+  const resolvePortName = (
+    ports: Array<{ id: string; name: string }>,
+    portId: string | null | undefined
+  ): string | null => {
+    if (!portId) return null
+    return ports.find((p) => p.id === portId)?.name ?? null
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -237,13 +253,28 @@ export function SimpleLinkModal({
       setSourcePortLabel(edge.sourcePort ?? '')
       setTargetPortLabel(edge.targetPort ?? '')
       setDescription(edge.description ?? '')
+      setCableTypeId(edge.cableTypeId ?? '')
       return
     }
-    setSourcePortId(initialSourcePortId ?? '')
-    setTargetPortId('')
-    setSourcePortLabel(initialSourcePortLabel ?? '')
-    setTargetPortLabel('')
+    const srcId = initialSourcePortId ?? ''
+    const tgtId = initialTargetPortId ?? ''
+    setSourcePortId(srcId)
+    setTargetPortId(tgtId)
+    // Prefer inventory port name so Etiqueta matches Puerto without typing.
+    const srcDevice = inventory.find((d) => d.id === (sourceDeviceId ?? ''))
+    const tgtDevice = inventory.find((d) => d.id === (targetDeviceId ?? ''))
+    setSourcePortLabel(
+      resolvePortName(srcDevice?.data.ports ?? [], srcId) ??
+        initialSourcePortLabel ??
+        ''
+    )
+    setTargetPortLabel(
+      resolvePortName(tgtDevice?.data.ports ?? [], tgtId) ??
+        initialTargetPortLabel ??
+        ''
+    )
     setDescription('')
+    setCableTypeId('')
   }, [
     isOpen,
     edge,
@@ -251,7 +282,34 @@ export function SimpleLinkModal({
     targetDeviceId,
     initialSourcePortId,
     initialSourcePortLabel,
+    initialTargetPortId,
+    initialTargetPortLabel,
+    inventory,
   ])
+
+  useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    void cableTypesService
+      .getAll()
+      .then((types) => {
+        if (cancelled) return
+        setCableTypeOptions(
+          types.map((ct) => ({
+            value: ct.id,
+            label: ct.name,
+            description: ct.code,
+            group: ct.mediumFamily,
+          }))
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setCableTypeOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen])
 
   const sourceSelectOptions = useMemo(
     () =>
@@ -318,18 +376,16 @@ export function SimpleLinkModal({
 
   const handleSourcePortChange = (value: string) => {
     setSourcePortId(value)
-    if (value) {
-      const port = sourcePorts.find((p) => p.id === value)
-      if (port) setSourcePortLabel(port.name)
-    }
+    if (!value) return
+    const port = sourcePorts.find((p) => p.id === value)
+    if (port) setSourcePortLabel(port.name)
   }
 
   const handleTargetPortChange = (value: string) => {
     setTargetPortId(value)
-    if (value) {
-      const port = targetPorts.find((p) => p.id === value)
-      if (port) setTargetPortLabel(port.name)
-    }
+    if (!value) return
+    const port = targetPorts.find((p) => p.id === value)
+    if (port) setTargetPortLabel(port.name)
   }
 
   const handleSourceDeviceChange = (value: string) => {
@@ -407,6 +463,7 @@ export function SimpleLinkModal({
         sourcePortLabel: srcLabel,
         targetPortLabel: tgtLabel,
         description: description.trim() || null,
+        cableTypeId: cableTypeId || null,
       }
       if (isEdit && edge?.id) {
         await diagramLinksService.update(edge.id, payload)
@@ -505,8 +562,11 @@ export function SimpleLinkModal({
               label="Etiqueta"
               value={sourcePortLabel}
               onChange={(e) => setSourcePortLabel(e.target.value)}
-              placeholder="LAN 1"
+              placeholder={
+                resolvePortName(sourcePorts, sourcePortId) ?? 'Se completa al elegir el puerto'
+              }
               disabled={pickSource && !selectedSourceId}
+              title="Se completa con el nombre del puerto; podés editarla si hace falta"
             />
           </div>
         </section>
@@ -550,13 +610,26 @@ export function SimpleLinkModal({
               label="Etiqueta"
               value={targetPortLabel}
               onChange={(e) => setTargetPortLabel(e.target.value)}
-              placeholder="P1"
+              placeholder={
+                resolvePortName(targetPorts, targetPortId) ?? 'Se completa al elegir el puerto'
+              }
               disabled={pickDestination && !selectedTargetId}
+              title="Se completa con el nombre del puerto; podés editarla si hace falta"
             />
           </div>
         </section>
 
         <div className="border-t border-gray-200 dark:border-gray-700" role="separator" />
+
+        <SearchableSelect
+          label="Tipo de enlace (opcional)"
+          options={cableTypeOptions}
+          value={cableTypeId}
+          onChange={setCableTypeId}
+          placeholder="Sin tipo…"
+          searchPlaceholder="Buscar tipo de cable…"
+          emptyOptionLabel="Sin tipo…"
+        />
 
         <Input
           label="Descripción (opcional)"

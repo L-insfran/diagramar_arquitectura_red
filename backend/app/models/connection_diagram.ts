@@ -5,6 +5,9 @@ import Project from './project.js'
 import type {
   DiagramContainerState,
   DiagramEdgeRoute,
+  DiagramHandleAnchor,
+  DiagramLayoutMode,
+  DiagramLayoutState,
   DiagramPoint,
   DiagramSettings,
 } from '#dtos/connection_diagram_dto'
@@ -88,6 +91,22 @@ export default class ConnectionDiagram extends BaseModel {
     consume: (value: unknown) => parseJsonObject<Record<string, DiagramContainerState>>(value, {}),
   })
   declare containers: Record<string, DiagramContainerState>
+
+  @column({
+    prepare: (value: Record<string, DiagramHandleAnchor> | null) => JSON.stringify(value ?? {}),
+    consume: (value: unknown) =>
+      parseJsonObject<Record<string, DiagramHandleAnchor>>(value, {}),
+  })
+  declare handleAnchors: Record<string, DiagramHandleAnchor>
+
+  @column({
+    prepare: (value: DiagramLayoutState | null) => JSON.stringify(value ?? {}),
+    consume: (value: unknown) => parseJsonObject<DiagramLayoutState>(value, {}),
+  })
+  declare treeLayout: DiagramLayoutState
+
+  @column()
+  declare layoutMode: DiagramLayoutMode
 
   @column({
     prepare: (value: DiagramSettings | null) => JSON.stringify(value ?? {}),

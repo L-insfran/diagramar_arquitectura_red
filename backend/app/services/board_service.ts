@@ -61,8 +61,8 @@ export default class BoardService {
       }
     }
 
-    const nextRows = data.gridRows ?? board.gridRows
-    const nextCols = data.gridCols ?? board.gridCols
+    const nextRows = data.gridRows ?? board.gridRows ?? 6
+    const nextCols = data.gridCols ?? board.gridCols ?? 8
     if (nextRows < 1 || nextRows > 40 || nextCols < 1 || nextCols > 40) {
       throw new Exception('gridRows y gridCols deben estar entre 1 y 40', { status: 422 })
     }
@@ -137,8 +137,8 @@ export default class BoardService {
     }
 
     const cells: BoardOccupancyCell[] = []
-    for (let r = 0; r < board.gridRows; r++) {
-      for (let c = 0; c < board.gridCols; c++) {
+    for (let r = 0; r < (board.gridRows ?? 0); r++) {
+      for (let c = 0; c < (board.gridCols ?? 0); c++) {
         const owner = occupied.get(`${r}:${c}`)
         cells.push({
           row: r,
@@ -151,13 +151,15 @@ export default class BoardService {
     }
 
     const usedCells = occupied.size
-    const total = board.gridRows * board.gridCols
+    const rows = board.gridRows ?? 0
+    const cols = board.gridCols ?? 0
+    const total = rows * cols
     const freeCells = Math.max(0, total - usedCells)
 
     return {
       boardId: board.id,
-      gridRows: board.gridRows,
-      gridCols: board.gridCols,
+      gridRows: rows,
+      gridCols: cols,
       usedCells,
       freeCells,
       percentUsed: total === 0 ? 0 : Math.round((usedCells / total) * 1000) / 10,
@@ -172,14 +174,14 @@ export default class BoardService {
    */
   async resolveBoardPlacement(params: {
     projectId: string
-    boardId?: string | null
+    containerId?: string | null
     boardRow?: number | null
     boardCol?: number | null
     boardRowSpan?: number | null
     boardColSpan?: number | null
     excludeDeviceId?: string
   }): Promise<{
-    boardId: string
+    containerId: string
     boardRow: number
     boardCol: number
     boardRowSpan: number
@@ -187,9 +189,9 @@ export default class BoardService {
     siteId: string
     areaId: string
   }> {
-    const boardId = params.boardId
+    const boardId = params.containerId
     if (!boardId) {
-      throw new Exception('boardId es requerido para montar', { status: 422 })
+      throw new Exception('containerId es requerido para montar en tablero', { status: 422 })
     }
 
     const board = await this.boards.findActiveInProject(boardId, params.projectId)
@@ -217,9 +219,9 @@ export default class BoardService {
       colSpan,
     })
 
-    if (!footprintFitsGrid(candidate, board.gridRows, board.gridCols)) {
+    if (!footprintFitsGrid(candidate, board.gridRows ?? 0, board.gridCols ?? 0)) {
       throw new Exception(
-        `El equipo (${rowSpan}×${colSpan} desde ${row},${col}) no cabe en la grilla ${board.gridRows}×${board.gridCols}`,
+        `El equipo (${rowSpan}×${colSpan} desde ${row},${col}) no cabe en la grilla ${board.gridRows ?? 0}×${board.gridCols ?? 0}`,
         { status: 422 }
       )
     }
@@ -245,7 +247,7 @@ export default class BoardService {
     }
 
     return {
-      boardId,
+      containerId: boardId,
       boardRow: row,
       boardCol: col,
       boardRowSpan: rowSpan,

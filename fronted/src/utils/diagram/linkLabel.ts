@@ -2,11 +2,98 @@ import type { DiagramLink, DiagramLinkEdge, TopologyNode } from '../../types'
 
 export const LINK_CODE_PREFIX = 'E'
 
+/** ASCII separator — jsPDF helvetica/WinAnsi cannot render Unicode arrows. */
+export const PATH_SEP = ' -> '
+
 type ContainerLookup = Map<string, string> | Record<string, string>
+type InventoryLookup = TopologyNode[] | Map<string, TopologyNode>
+
+export type LinkEndpointPath = {
+  siteId: string | null
+  areaId: string | null
+  deviceId: string
+  site: string | null
+  area: string | null
+  container: string | null
+  device: string
+  port: string
+}
 
 function containerName(lookup: ContainerLookup, deviceId: string): string | undefined {
   if (lookup instanceof Map) return lookup.get(deviceId)
   return lookup[deviceId]
+}
+
+function resolveDevice(
+  inventory: InventoryLookup,
+  deviceId: string
+): TopologyNode | undefined {
+  if (inventory instanceof Map) return inventory.get(deviceId)
+  return inventory.find((d) => d.id === deviceId)
+}
+
+function cleanSegment(value: string | null | undefined): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  return trimmed || null
+}
+
+function normalizePortLabel(portLabel: string): string {
+  const trimmed = portLabel.trim()
+  if (!trimmed) return '?'
+  return trimmed.startsWith('-') ? trimmed.slice(1).trim() || '?' : trimmed
+}
+
+/**
+ * Full physical path for one link endpoint.
+ * Visual diagram container wins over inventory; if it equals the area name
+ * (loose device in an area), container is omitted to avoid duplicating the area.
+ */
+export function buildLinkEndpointPath(
+  deviceId: string,
+  portLabel: string,
+  inventory: InventoryLookup,
+  containerByDeviceId: ContainerLookup
+): LinkEndpointPath {
+  const device = resolveDevice(inventory, deviceId)
+  const site = cleanSegment(device?.data.siteName)
+  const area = cleanSegment(device?.data.areaName)
+  const fromDiagram = cleanSegment(containerName(containerByDeviceId, deviceId))
+  const fromInventory = cleanSegment(device?.data.containerName)
+  let container = fromDiagram ?? fromInventory
+  if (container && area && container.localeCompare(area, 'es', { sensitivity: 'accent' }) === 0) {
+    container = null
+  }
+  return {
+    siteId: cleanSegment(device?.data.siteId) ?? null,
+    areaId: cleanSegment(device?.data.areaId) ?? null,
+    deviceId,
+    site,
+    area,
+    container,
+    device: cleanSegment(device?.label) ?? 'Equipo',
+    port: normalizePortLabel(portLabel),
+  }
+}
+
+/** Location segments only (site › area › container), for UI chrome. */
+export function formatEndpointLocationText(path: LinkEndpointPath): string {
+  return [path.site, path.area, path.container].filter(Boolean).join(PATH_SEP)
+}
+
+/**
+ * Full path as plain text.
+ * Origin: Sitio -> Area -> Contenedor -> Equipo -> Puerto
+ * Mirrored (destination): Puerto -> Equipo -> Contenedor -> Area -> Sitio
+ */
+export function formatEndpointPathText(
+  path: LinkEndpointPath,
+  opts?: { mirrored?: boolean }
+): string {
+  const location = [path.site, path.area, path.container].filter(Boolean) as string[]
+  if (opts?.mirrored) {
+    return [path.port, path.device, ...[...location].reverse()].join(PATH_SEP)
+  }
+  return [...location, path.device, path.port].join(PATH_SEP)
 }
 
 /** Visible code on the canvas / reference list, e.g. "E1". */
@@ -15,38 +102,30 @@ export function formatLinkCode(code: number | null | undefined): string {
   return `${LINK_CODE_PREFIX}${code}`
 }
 
-/** "RACK-01 -> ES -LAN1" — container -> device -port */
+/** One endpoint: full site→…→port path (plain text). */
 export function formatEndpointLabel(
   deviceId: string,
   portLabel: string,
-  inventory: TopologyNode[],
+  inventory: InventoryLookup,
   containerByDeviceId: ContainerLookup
 ): string {
-  const device = inventory.find((d) => d.id === deviceId)
-  const deviceName = device?.label ?? 'Equipo'
-  const container = containerName(containerByDeviceId, deviceId)
-  const portPart = portLabel.startsWith('-') ? portLabel : `-${portLabel}`
-  if (container) return `${container} -> ${deviceName} ${portPart}`
-  return `${deviceName} ${portPart}`
+  return formatEndpointPathText(
+    buildLinkEndpointPath(deviceId, portLabel, inventory, containerByDeviceId)
+  )
 }
 
-/** Full reference: "RACK-01 -> PH -LAN2 A Tablero Rio 1 -> PB1 -P1" */
+/** Full reference: origin path A mirrored destination path. */
 export function formatLinkReference(
   edge: { source: string; target: string; sourcePort: string; targetPort: string },
-  inventory: TopologyNode[],
+  inventory: InventoryLookup,
   containerByDeviceId: ContainerLookup
 ): string {
-  const sourceText = formatEndpointLabel(
-    edge.source,
-    edge.sourcePort,
-    inventory,
-    containerByDeviceId
+  const sourceText = formatEndpointPathText(
+    buildLinkEndpointPath(edge.source, edge.sourcePort, inventory, containerByDeviceId)
   )
-  const targetText = formatEndpointLabel(
-    edge.target,
-    edge.targetPort,
-    inventory,
-    containerByDeviceId
+  const targetText = formatEndpointPathText(
+    buildLinkEndpointPath(edge.target, edge.targetPort, inventory, containerByDeviceId),
+    { mirrored: true }
   )
   return `${sourceText} A ${targetText}`
 }
@@ -123,6 +202,9 @@ export function occupancyEdgesFromDiagramLinks(
         sourceLabel: '',
         targetLabel: '',
         description: typeof link.description === 'string' ? link.description : null,
+        cableTypeId: asId(link.cableTypeId ?? link.cable_type_id),
+        cableTypeName:
+          asText(link.cableTypeName ?? link.cable_type_name) || null,
       },
     ]
   })

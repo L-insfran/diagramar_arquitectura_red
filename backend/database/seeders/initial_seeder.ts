@@ -11,24 +11,22 @@ export default class extends BaseSeeder {
     const vlanService = new VlanService()
 
     const demoProject = await Project.firstOrCreate(
-      { domain: 'demo.local' },
+      { clientName: 'demo.local' },
       {
         name: 'Demo Project',
-        domain: 'demo.local',
+        clientName: 'demo.local',
         address: '123 Network Street',
-        phone: '+1-555-0100',
         isActive: true,
       }
     )
     await vlanService.ensureNativeVlan(demoProject.id)
 
     const clientTwo = await Project.firstOrCreate(
-      { domain: 'cliente2.local' },
+      { clientName: 'cliente2.local' },
       {
         name: 'Cliente 2 S.A.',
-        domain: 'cliente2.local',
+        clientName: 'cliente2.local',
         address: 'Av. Industrial 450',
-        phone: '+1-555-0200',
         isActive: true,
       }
     )

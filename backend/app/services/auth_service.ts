@@ -21,7 +21,7 @@ async function serializeUserWithMemberships(user: SystemUser) {
         ? {
             id: m.project.id,
             name: m.project.name,
-            domain: m.project.domain,
+            clientName: m.project.clientName,
             isActive: m.project.isActive,
           }
         : null,

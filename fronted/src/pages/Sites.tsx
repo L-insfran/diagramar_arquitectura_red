@@ -7,6 +7,7 @@ import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { Modal } from '../components/Modal'
 import { ObjectDocsPanel } from '../components/ObjectDocsPanel'
+import { TruncatedText } from '../components/Tooltip'
 import { useApi } from '../hooks/useApi'
 import { useProject } from '../contexts/ProjectContext'
 import { sitesService } from '../services/sites.service'
@@ -200,9 +201,9 @@ export default function Sites() {
             <Building2 className="w-4 h-4 text-amber-400" />
           </div>
           <div className="min-w-0">
-            <p className="font-medium text-gray-900 dark:text-white truncate">{site.name}</p>
+            <TruncatedText text={site.name} className="font-medium text-gray-900 dark:text-white" />
             {site.address && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{site.address}</p>
+              <TruncatedText text={site.address} className="text-xs text-gray-500 dark:text-gray-400" />
             )}
           </div>
         </div>
@@ -358,11 +359,12 @@ export default function Sites() {
               {areas.map((area) => (
                 <li key={area.id} className="py-2 flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                      {area.name}
-                    </p>
+                    <TruncatedText
+                      text={area.name}
+                      className="text-sm font-medium text-gray-900 dark:text-white"
+                    />
                     {area.notes && (
-                      <p className="text-xs text-gray-500 truncate">{area.notes}</p>
+                      <TruncatedText text={area.notes} className="text-xs text-gray-500" />
                     )}
                   </div>
                   <div className="flex gap-1 shrink-0">

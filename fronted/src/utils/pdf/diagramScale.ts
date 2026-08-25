@@ -1,10 +1,10 @@
 import type { PaperFormat, PrintOrientation, PaperGeometry } from './a4Geometry'
 import { getPaperGeometry } from './a4Geometry'
 
-/** mm por píxel de flujo objetivo (1U = 44 px → 4.4 mm). */
-export const TARGET_MM_PER_FLOW_PX = 0.10
+/** mm por píxel de flujo objetivo — prioriza legibilidad en A4. */
+export const TARGET_MM_PER_FLOW_PX = 0.13
 /** Piso de legibilidad; por debajo se recorta en más sectores. */
-export const MIN_MM_PER_FLOW_PX = 0.05
+export const MIN_MM_PER_FLOW_PX = 0.07
 /** Tope de páginas de diagrama (sin contar portada ni tablas). */
 export const MAX_DIAGRAM_PAGES = 12
 /** DPI base de captura CSS → px. */

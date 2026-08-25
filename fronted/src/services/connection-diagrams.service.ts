@@ -5,7 +5,11 @@ import type {
   ConnectionDiagramGraphPayload,
   DiagramContainerState,
   DiagramEdgeRoute,
+  DiagramHandleAnchor,
+  DiagramLayoutState,
+  DiagramNodePosition,
   DiagramPoint,
+  DiagramLayoutMode,
   DiagramSettings,
 } from '../types'
 
@@ -16,6 +20,7 @@ export type CreateConnectionDiagramPayload = {
   scopeSiteIds?: string[]
   scopeAreaIds?: string[]
   sortOrder?: number
+  layoutMode?: DiagramLayoutMode
   settings?: DiagramSettings
 }
 
@@ -24,10 +29,13 @@ export type UpdateConnectionDiagramPayload = {
   description?: string | null
   scopeSiteIds?: string[]
   scopeAreaIds?: string[]
-  nodePositions?: Record<string, DiagramPoint>
+  nodePositions?: Record<string, DiagramNodePosition>
   labelOffsets?: Record<string, DiagramPoint>
   edgeRoutes?: Record<string, DiagramEdgeRoute>
   containers?: Record<string, DiagramContainerState>
+  handleAnchors?: Record<string, DiagramHandleAnchor>
+  treeLayout?: DiagramLayoutState
+  layoutMode?: DiagramLayoutMode
   settings?: DiagramSettings
   sortOrder?: number
 }
@@ -44,10 +52,46 @@ export const connectionDiagramsService = {
   },
 
   async getGraph(id: string): Promise<ConnectionDiagramGraphPayload> {
-    const { data } = await api.get<ApiResponse<ConnectionDiagramGraphPayload>>(
+    const { data } = await api.get<ApiResponse<any>>(
       `/connection-diagrams/${id}/graph`
     )
-    return data.data
+    const raw = data.data
+
+    // Backend returns unified `containers`; frontend expects `racks` + `boards`
+    const containers: any[] = raw.containers ?? []
+    const racks = containers
+      .filter((c: any) => c.kind === 'rack')
+      .map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        code: c.code,
+        heightU: c.heightU,
+        areaId: c.areaId,
+        siteId: c.siteId,
+        areaName: c.areaName,
+        siteName: c.siteName,
+        accessories: c.accessories,
+      }))
+    const boards = containers
+      .filter((c: any) => c.kind === 'board')
+      .map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        code: c.code,
+        kind: c.boardKind,
+        gridRows: c.gridRows,
+        gridCols: c.gridCols,
+        areaId: c.areaId,
+        siteId: c.siteId,
+        areaName: c.areaName,
+        siteName: c.siteName,
+      }))
+
+    return {
+      ...raw,
+      racks,
+      boards,
+    }
   },
 
   async create(payload: CreateConnectionDiagramPayload): Promise<ConnectionDiagram> {

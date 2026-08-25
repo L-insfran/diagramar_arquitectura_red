@@ -90,5 +90,5 @@ export function devicePositionOnBoard(row: number, col: number, rowSpan = 1, col
 }
 
 export function boardFlowNodeId(boardId: string) {
-  return `board:${boardId}`
+  return `container:${boardId}`
 }

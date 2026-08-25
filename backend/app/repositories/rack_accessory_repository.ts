@@ -12,13 +12,13 @@ export default class RackAccessoryRepository {
     const query = RackAccessory.query()
       .where('project_id', projectId)
       .whereNull('deleted_at')
-      .preload('rack', (q) => q.preload('area', (a) => a.preload('site')))
+      .preload('container', (q) => q.preload('area', (a) => a.preload('site')))
       .preload('accessoryTemplate')
       .orderBy('unit_start', 'asc')
       .orderBy('name', 'asc')
 
-    if (filters?.rackId) {
-      query.where('rack_id', filters.rackId)
+    if (filters?.containerId) {
+      query.where('container_id', filters.containerId)
     }
     if (filters?.kind) {
       query.where('kind', filters.kind)
@@ -38,7 +38,7 @@ export default class RackAccessoryRepository {
     return RackAccessory.query()
       .where('id', id)
       .whereNull('deleted_at')
-      .preload('rack', (q) => q.preload('area', (a) => a.preload('site')))
+      .preload('container', (q) => q.preload('area', (a) => a.preload('site')))
       .preload('accessoryTemplate')
       .preload('supportedDevices', (q) =>
         q.whereNull('deleted_at').preload('deviceTemplate').orderBy('shelf_slot_start', 'asc')
@@ -47,7 +47,7 @@ export default class RackAccessoryRepository {
   }
 
   async findSummaryOrFail(id: string) {
-    return RackAccessory.query().where('id', id).whereNull('deleted_at').preload('rack').firstOrFail()
+    return RackAccessory.query().where('id', id).whereNull('deleted_at').preload('container').firstOrFail()
   }
 
   async findActiveInProject(id: string, projectId: string) {
@@ -55,13 +55,13 @@ export default class RackAccessoryRepository {
       .where('id', id)
       .where('project_id', projectId)
       .whereNull('deleted_at')
-      .preload('rack', (q) => q.preload('area'))
+      .preload('container', (q) => q.preload('area'))
       .first()
   }
 
-  async findByRack(rackId: string) {
+  async findByRack(containerId: string) {
     return RackAccessory.query()
-      .where('rack_id', rackId)
+      .where('container_id', containerId)
       .whereNull('deleted_at')
       .orderBy('unit_start', 'asc')
   }
@@ -70,7 +70,7 @@ export default class RackAccessoryRepository {
     const kind = data.kind ?? 'shelf'
     return RackAccessory.create({
       projectId: data.projectId,
-      rackId: data.rackId,
+      containerId: data.containerId,
       accessoryTemplateId: data.accessoryTemplateId ?? null,
       name: data.name,
       kind,
@@ -102,9 +102,9 @@ export default class RackAccessoryRepository {
     await row.save()
   }
 
-  async countActiveOnRack(rackId: string) {
+  async countActiveOnRack(containerId: string) {
     const row = await RackAccessory.query()
-      .where('rack_id', rackId)
+      .where('container_id', containerId)
       .whereNull('deleted_at')
       .count('* as total')
       .first()
@@ -133,9 +133,9 @@ export default class RackAccessoryRepository {
   }
 
   /** All shelf-resting devices in a rack (for collision / occupancy). */
-  async findShelfDevicesByRack(rackId: string, excludeDeviceId?: string) {
+  async findShelfDevicesByRack(containerId: string, excludeDeviceId?: string) {
     const query = Device.query()
-      .where('rack_id', rackId)
+      .where('container_id', containerId)
       .whereNotNull('supported_by_accessory_id')
       .whereNull('deleted_at')
       .preload('deviceTemplate')

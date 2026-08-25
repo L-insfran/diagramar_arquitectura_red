@@ -163,7 +163,7 @@ export default function Employees() {
   const columns: Column<Employee>[] = [
     {
       key: 'firstName',
-      header: 'Name',
+      header: 'Nombre',
       sortable: true,
       render: (e) => (
         <div className="flex items-center gap-3">
@@ -181,14 +181,14 @@ export default function Employees() {
     },
     {
       key: 'email',
-      header: 'Email',
+      header: 'Correo',
       render: (e) => (
         <span className="text-gray-500 dark:text-gray-400">{e.email || '—'}</span>
       ),
     },
     {
       key: 'department',
-      header: 'Department',
+      header: 'Departamento',
       render: (e) =>
         e.department ? (
           <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded text-xs font-medium">
@@ -200,21 +200,21 @@ export default function Employees() {
     },
     {
       key: 'position',
-      header: 'Position',
+      header: 'Cargo',
       render: (e) => (
         <span className="text-gray-600 dark:text-gray-300">{e.position || '—'}</span>
       ),
     },
     {
       key: 'phone',
-      header: 'Phone',
+      header: 'Teléfono',
       render: (e) => (
         <span className="text-gray-500 dark:text-gray-400">{e.phone || '—'}</span>
       ),
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: 'Acciones',
       render: (e) => (
         <div className="flex items-center gap-1">
           <Button
@@ -271,12 +271,12 @@ export default function Employees() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Employees"
-        subtitle={`${employees?.length || 0} employees registered`}
+        title="Empleados"
+        subtitle={`${employees?.length || 0} empleados registrados`}
         actions={
           canMutate ? (
             <Button type="button" icon={<Plus className="w-4 h-4" />} onClick={openModal}>
-              Add Employee
+              Agregar empleado
             </Button>
           ) : undefined
         }
@@ -292,7 +292,7 @@ export default function Employees() {
         columns={columns}
         data={employees || []}
         isLoading={isLoading}
-        emptyMessage={isViewer ? 'No se encontró un empleado vinculado a tu cuenta' : 'No employees registered yet'}
+        emptyMessage={isViewer ? 'No se encontró un empleado vinculado a tu cuenta' : 'No hay empleados registrados'}
       />
 
       {canMutate && (

@@ -19,13 +19,10 @@ export default class Project extends BaseModel {
   declare name: string
 
   @column()
-  declare domain: string | null
+  declare clientName: string | null
 
   @column()
   declare address: string | null
-
-  @column()
-  declare phone: string | null
 
   @column()
   declare isActive: boolean

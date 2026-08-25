@@ -63,10 +63,11 @@ export default class DiagramLinkRepository {
     return whereBothEndpointsActive(
       DiagramLink.query().where('project_id', projectId).whereNull('deleted_at')
     )
-      .preload('sourceDevice', (q) => q.preload('rack').preload('board'))
-      .preload('targetDevice', (q) => q.preload('rack').preload('board'))
+      .preload('sourceDevice', (q) => q.preload('container'))
+      .preload('targetDevice', (q) => q.preload('container'))
       .preload('sourcePort')
       .preload('targetPort')
+      .preload('cableType')
       .orderBy('code', 'asc')
       .orderBy('created_at', 'asc')
   }
@@ -75,10 +76,11 @@ export default class DiagramLinkRepository {
     return DiagramLink.query()
       .where('id', id)
       .whereNull('deleted_at')
-      .preload('sourceDevice', (q) => q.preload('rack').preload('board'))
-      .preload('targetDevice', (q) => q.preload('rack').preload('board'))
+      .preload('sourceDevice', (q) => q.preload('container'))
+      .preload('targetDevice', (q) => q.preload('container'))
       .preload('sourcePort')
       .preload('targetPort')
+      .preload('cableType')
       .firstOrFail()
   }
 
@@ -101,6 +103,7 @@ export default class DiagramLinkRepository {
         sourcePortLabel: data.sourcePortLabel,
         targetPortLabel: data.targetPortLabel,
         description: data.description ?? null,
+        cableTypeId: data.cableTypeId ?? null,
         createdBy: data.createdBy,
         updatedBy: data.updatedBy,
       },
@@ -135,6 +138,52 @@ export default class DiagramLinkRepository {
         updated_by: deletedBy,
         updated_at: now,
       })
+  }
+
+  async findActiveByDevice(projectId: string, deviceId: string) {
+    return whereBothEndpointsActive(
+      DiagramLink.query()
+        .where('project_id', projectId)
+        .whereNull('deleted_at')
+        .where((builder) => {
+          builder
+            .where('source_device_id', deviceId)
+            .orWhere('target_device_id', deviceId)
+        }),
+    ).select('id', 'code')
+  }
+
+  async softDeleteByDeviceIds(
+    projectId: string,
+    deviceIds: string[],
+    deletedBy: string,
+  ): Promise<{ deletedCount: number; codes: number[] }> {
+    if (deviceIds.length === 0) return { deletedCount: 0, codes: [] }
+    const rows = await DiagramLink.query()
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
+      .where((builder) => {
+        builder.whereIn('source_device_id', deviceIds).orWhereIn('target_device_id', deviceIds)
+      })
+      .select('id', 'code')
+    if (rows.length === 0) return { deletedCount: 0, codes: [] }
+    const now = DateTime.now().toISO()
+    await db
+      .from('diagram_links')
+      .whereIn(
+        'id',
+        rows.map((r) => r.id),
+      )
+      .update({
+        deleted_at: now,
+        deleted_by: deletedBy,
+        updated_by: deletedBy,
+        updated_at: now,
+      })
+    return {
+      deletedCount: rows.length,
+      codes: rows.map((r) => r.code).filter((c) => c != null),
+    }
   }
 
   async findOrphansWithDeletedDevices() {
@@ -175,8 +224,7 @@ export default class DiagramLinkRepository {
       .where('id', deviceId)
       .where('project_id', projectId)
       .whereNull('deleted_at')
-      .preload('rack')
-      .preload('board')
+      .preload('container')
       .first()
   }
 

@@ -12,6 +12,8 @@ export const MARGIN = 12
 export const HEADER_H = 44
 export const FOOTER_H = 16
 export const LEGEND_H = 12
+/** Nota de sectores bajo el diagrama en la portada (mm). */
+export const SECTOR_NOTE_H = 10
 /** Cabecera compacta de páginas de sector. */
 export const SECTOR_HEADER_H = 24
 
@@ -76,7 +78,7 @@ export function getPaperGeometry(
     x: MARGIN,
     y: HEADER_H + 2,
     w: pageW - MARGIN * 2,
-    h: pageH - HEADER_H - FOOTER_H - 22,
+    h: pageH - HEADER_H - FOOTER_H - 4,
   }
 
   const value: PaperGeometry = { format, orientation, pageW, pageH, cover, sector, table }

@@ -77,3 +77,9 @@ body {
 ::-webkit-scrollbar-thumb {
   @apply bg-gray-300 dark:bg-gray-700 rounded-full;
 }
+
+/* Vista previa de inversión de colores para impresión B/N (solo diagrama, no marco) */
+.diagram-print-invert .react-flow__viewport,
+.diagram-print-invert .react-flow__edgelabel-renderer {
+  filter: invert(1) hue-rotate(180deg);
+}

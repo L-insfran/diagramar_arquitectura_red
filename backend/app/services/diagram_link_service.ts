@@ -1,6 +1,7 @@
 import { Exception } from '@adonisjs/core/exceptions'
 import db from '@adonisjs/lucid/services/db'
 import DiagramLinkRepository from '#repositories/diagram_link_repository'
+import CableType from '#models/cable_type'
 import type {
   CreateDiagramLinkInput,
   DiagramLinkEdge,
@@ -10,12 +11,7 @@ import type Device from '#models/device'
 import type DiagramLink from '#models/diagram_link'
 
 function containerName(device: Device): string | null {
-  // Board mount wins over rack (mutual exclusion; prefer explicit boardId)
-  if (device.boardId && device.board) return device.board.name
-  if (device.rackId && device.rack) return device.rack.name
-  if (device.board) return device.board.name
-  if (device.rack) return device.rack.name
-  return null
+  return device.container?.name ?? null
 }
 
 /** e.g. "Rack 1 -> OS2 -LAN 1" — joined as "… A …" on the edge label */
@@ -49,8 +45,18 @@ export default class DiagramLinkService {
       sourcePortLabel: link.sourcePortLabel,
       targetPortLabel: link.targetPortLabel,
       description: link.description,
+      cableTypeId: link.cableTypeId ?? null,
+      cableTypeName: link.cableType?.name ?? null,
       createdAt: link.createdAt?.toISO?.() ?? null,
       updatedAt: link.updatedAt?.toISO?.() ?? null,
+    }
+  }
+
+  private async assertCableTypeExists(cableTypeId: string | null | undefined) {
+    if (cableTypeId === undefined || cableTypeId === null) return
+    const cableType = await CableType.find(cableTypeId)
+    if (!cableType) {
+      throw new Exception('Tipo de cable no encontrado', { status: 422 })
     }
   }
 
@@ -176,6 +182,7 @@ export default class DiagramLinkService {
   }
 
   async create(data: CreateDiagramLinkInput, actorId: string) {
+    await this.assertCableTypeExists(data.cableTypeId)
     await this.assertDevicesAndPorts(
       data.projectId,
       data.sourceDeviceId,
@@ -242,6 +249,9 @@ export default class DiagramLinkService {
 
   async update(id: string, data: UpdateDiagramLinkInput, actorId: string) {
     const existing = await this.links.findByIdOrFail(id)
+    if (data.cableTypeId !== undefined) {
+      await this.assertCableTypeExists(data.cableTypeId)
+    }
     const sourceDeviceId = data.sourceDeviceId ?? existing.sourceDeviceId
     const targetDeviceId = data.targetDeviceId ?? existing.targetDeviceId
     const sourcePortId =
@@ -288,6 +298,18 @@ export default class DiagramLinkService {
     await this.links.softDeleteByDeviceId(deviceId, actorId)
   }
 
+  async bulkDeleteByDeviceIds(projectId: string, deviceIds: string[], actorId: string) {
+    return this.links.softDeleteByDeviceIds(projectId, deviceIds, actorId)
+  }
+
+  async findActiveLinkCodesByDevice(projectId: string, deviceId: string) {
+    const rows = await this.links.findActiveByDevice(projectId, deviceId)
+    return {
+      linkIds: rows.map((r) => r.id),
+      linkCodes: rows.map((r) => r.code).filter((c): c is number => c != null),
+    }
+  }
+
   toEdge(link: DiagramLink): DiagramLinkEdge {
     const sourceDevice = link.sourceDevice
     const targetDevice = link.targetDevice
@@ -303,6 +325,8 @@ export default class DiagramLinkService {
       sourceLabel: formatDiagramLinkEndpoint(sourceDevice, link.sourcePortLabel),
       targetLabel: formatDiagramLinkEndpoint(targetDevice, link.targetPortLabel),
       description: link.description,
+      cableTypeId: link.cableTypeId ?? null,
+      cableTypeName: link.cableType?.name ?? null,
     }
   }
 

@@ -2,29 +2,20 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/Button'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Input } from '../components/Input'
 import { PageHeader } from '../components/PageHeader'
 import { Select } from '../components/Select'
-import { RackUnitPicker } from '../components/racks/RackUnitPicker'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { usePermissions } from '../hooks/usePermissions'
-import { devicesService } from '../services/devices.service'
+import { devicesService, type UpdateDevicePayload } from '../services/devices.service'
 import { deviceTemplatesService } from '../services/device-templates.service'
 import { sitesService } from '../services/sites.service'
-import { racksService } from '../services/racks.service'
-import { rackAccessoriesService } from '../services/rackAccessories.service'
-import type {
-  DeviceRackFace,
-  DeviceTemplate,
-  Rack,
-  RackAccessory,
-  RackFace,
-  RackOccupancy,
-  Site,
-} from '../types'
-import { canPlaceAt, canPlaceFullDepthAt, occupiedRangesForFace } from '../utils/rackPlacement'
+import { containersService } from '../services/containers.service'
+import type { Container, DeviceRelocationImpact, DeviceTemplate, Site } from '../types'
+import { formatLinkCode } from '../utils/diagram/linkLabel'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
 
@@ -34,19 +25,6 @@ const statusOptions = [
   { value: 'maintenance', label: 'Maintenance' },
   { value: 'unknown', label: 'Unknown' },
 ]
-
-const faceOptions = [
-  { value: 'front', label: 'Frontal' },
-  { value: 'rear', label: 'Trasera' },
-]
-
-const mountModeOptions = [
-  { value: 'none', label: 'Sin montaje en rack' },
-  { value: 'rail', label: 'Montaje en rieles (U)' },
-  { value: 'shelf', label: 'En bandeja o accesorio' },
-]
-
-type MountMode = 'none' | 'rail' | 'shelf'
 
 interface DeviceFormState {
   name: string
@@ -59,14 +37,7 @@ interface DeviceFormState {
   firmwareVersion: string
   siteId: string
   areaId: string
-  mountMode: MountMode
-  rackId: string
-  rackUnitStart: string
-  rackFace: 'front' | 'rear' | 'both' | ''
-  supportedByAccessoryId: string
-  shelfWidthSlots: string
-  shelfSlotStart: string
-  shelfHeightU: string
+  containerId: string
   notes: string
 }
 
@@ -81,15 +52,14 @@ const initialFormState: DeviceFormState = {
   firmwareVersion: '',
   siteId: '',
   areaId: '',
-  mountMode: 'none',
-  rackId: '',
-  rackUnitStart: '',
-  rackFace: 'front',
-  supportedByAccessoryId: '',
-  shelfWidthSlots: '1',
-  shelfSlotStart: '0',
-  shelfHeightU: '',
+  containerId: '',
   notes: '',
+}
+
+function containerSelectLabel(c: Container): string {
+  if (c.kind === 'rack') return `${c.name} (Rack)`
+  if (c.kind === 'board') return `${c.name} (Tablero)`
+  return c.name
 }
 
 function formatApiError(error: unknown, fallback: string): string {
@@ -134,7 +104,6 @@ export default function DeviceCreate() {
     []
   )
   const { data: sites } = useApi<Site[]>(() => sitesService.getAll(), [activeProjectId])
-  const { data: racks } = useApi<Rack[]>(() => racksService.getAll(), [activeProjectId])
 
   const templates = useMemo(() => {
     if (!allTemplates) return null
@@ -153,9 +122,16 @@ export default function DeviceCreate() {
   }))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [occupancy, setOccupancy] = useState<RackOccupancy | null>(null)
-  const [occupancyLoading, setOccupancyLoading] = useState(false)
-  const [occupancyError, setOccupancyError] = useState<string | null>(null)
+  const [relocateConfirm, setRelocateConfirm] = useState<{
+    impact: DeviceRelocationImpact
+    payload: UpdateDevicePayload
+  } | null>(null)
+
+  const isLocationLocked = Boolean(
+    existingDevice?.rackUnitStart != null ||
+      existingDevice?.boardRow != null ||
+      existingDevice?.supportedByAccessoryId
+  )
 
   const selectedTemplate = useMemo(
     () => templates?.find((t) => t.id === form.deviceTemplateId) ?? null,
@@ -172,46 +148,25 @@ export default function DeviceCreate() {
     return list.map((a) => ({ value: a.id, label: a.name }))
   }, [selectedSite])
 
-  const rackOptions = useMemo(() => {
-    const list = (racks || []).filter((r) => {
-      if (form.areaId) return r.areaId === form.areaId
-      if (form.siteId) return r.area?.siteId === form.siteId || r.area?.site?.id === form.siteId
-      return true
-    })
-    return list.map((r) => ({
-      value: r.id,
-      label: `${r.name} (${r.heightU}U)`,
-    }))
-  }, [racks, form.areaId, form.siteId])
-
-  const selectedRack = useMemo(
-    () => racks?.find((r) => r.id === form.rackId) ?? null,
-    [racks, form.rackId]
+  const { data: containers } = useApi<Container[]>(
+    () =>
+      form.areaId
+        ? containersService.getAll({ areaId: form.areaId })
+        : Promise.resolve([]),
+    [activeProjectId, form.areaId]
   )
+
+  const containerOptions = useMemo(() => {
+    return (containers || [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+      .map((c) => ({ value: c.id, label: containerSelectLabel(c) }))
+  }, [containers])
 
   const templateHeightU = Math.max(
     1,
     selectedTemplate?.rackUnits ?? existingDevice?.deviceTemplate?.rackUnits ?? 1
   )
-  const isFullDepth = !!(
-    selectedTemplate?.isFullDepth ?? existingDevice?.deviceTemplate?.isFullDepth
-  )
-
-  const shelfHeightUValue = useMemo(() => {
-    const parsed = Number.parseInt(form.shelfHeightU, 10)
-    if (!Number.isNaN(parsed) && parsed >= 1) return Math.min(20, parsed)
-    return templateHeightU
-  }, [form.shelfHeightU, templateHeightU])
-
-  const activeFace: RackFace = form.rackFace === 'rear' ? 'rear' : 'front'
-  const mountFace = isFullDepth
-    ? ('both' as const)
-    : form.rackFace === 'rear'
-      ? ('rear' as const)
-      : ('front' as const)
-  const parsedUnit = form.rackUnitStart.trim()
-    ? Number.parseInt(form.rackUnitStart, 10)
-    : null
 
   useEffect(() => {
     if (!existingDevice) {
@@ -229,107 +184,10 @@ export default function DeviceCreate() {
       firmwareVersion: existingDevice.firmwareVersion ?? '',
       siteId: existingDevice.siteId ?? '',
       areaId: existingDevice.areaId ?? '',
-      mountMode: existingDevice.supportedByAccessoryId
-        ? 'shelf'
-        : existingDevice.rackId
-          ? 'rail'
-          : 'none',
-      rackId: existingDevice.rackId ?? '',
-      rackUnitStart:
-        existingDevice.rackUnitStart != null ? String(existingDevice.rackUnitStart) : '',
-      rackFace: existingDevice.rackFace ?? 'front',
-      supportedByAccessoryId: existingDevice.supportedByAccessoryId ?? '',
-      shelfWidthSlots:
-        existingDevice.shelfWidthSlots != null
-          ? String(existingDevice.shelfWidthSlots)
-          : '1',
-      shelfSlotStart:
-        existingDevice.shelfSlotStart != null ? String(existingDevice.shelfSlotStart) : '0',
-      shelfHeightU:
-        existingDevice.shelfHeightU != null
-          ? String(existingDevice.shelfHeightU)
-          : existingDevice.deviceTemplate?.rackUnits != null
-            ? String(existingDevice.deviceTemplate.rackUnits)
-            : '',
+      containerId: existingDevice.containerId ?? '',
       notes: existingDevice.notes ?? '',
     })
   }, [existingDevice])
-
-  useEffect(() => {
-    if ((form.mountMode !== 'rail' && form.mountMode !== 'shelf') || !form.rackId) {
-      setOccupancy(null)
-      setOccupancyError(null)
-      setOccupancyLoading(false)
-      return
-    }
-
-    let cancelled = false
-    setOccupancyLoading(true)
-    setOccupancyError(null)
-
-    racksService
-      .getOccupancy(form.rackId)
-      .then((data) => {
-        if (!cancelled) setOccupancy(data)
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setOccupancy(null)
-          setOccupancyError(formatApiError(error, 'No se pudo cargar la ocupación del rack'))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setOccupancyLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [form.rackId, form.mountMode])
-
-  const shelfRackId = form.mountMode === 'shelf' ? form.rackId : ''
-  const { data: shelves } = useApi<RackAccessory[]>(
-    () =>
-      shelfRackId
-        ? rackAccessoriesService.getAll({ rackId: shelfRackId })
-        : Promise.resolve([]),
-    [shelfRackId, activeProjectId]
-  )
-
-  // Clear invalid U when face, height, or occupancy changes
-  useEffect(() => {
-    if (form.mountMode !== 'rail' || !form.rackId || !occupancy) return
-    setForm((prev) => {
-      if (prev.mountMode !== 'rail' || !prev.rackId || !prev.rackUnitStart.trim()) return prev
-      const unit = Number.parseInt(prev.rackUnitStart, 10)
-      if (Number.isNaN(unit)) return { ...prev, rackUnitStart: '' }
-      const check = isFullDepth
-        ? canPlaceFullDepthAt({
-            start: unit,
-            heightU: templateHeightU,
-            rackHeightU: occupancy.heightU,
-            occupancy,
-            excludeDeviceId: id,
-          })
-        : canPlaceAt({
-            start: unit,
-            heightU: templateHeightU,
-            rackHeightU: occupancy.heightU,
-            occupied: occupiedRangesForFace(
-              occupancy,
-              prev.rackFace === 'rear' ? 'rear' : 'front',
-              id
-            ),
-          })
-      return check.ok ? prev : { ...prev, rackUnitStart: '' }
-    })
-  }, [form.mountMode, form.rackId, activeFace, occupancy, templateHeightU, id, isFullDepth])
-
-  // Force both faces when template is full-depth
-  useEffect(() => {
-    if (!isFullDepth) return
-    setForm((prev) => (prev.rackFace === 'both' ? prev : { ...prev, rackFace: 'both' }))
-  }, [isFullDepth])
 
   const manufacturerModel = isEditMode
     ? [existingDevice?.manufacturer, existingDevice?.model].filter(Boolean).join(' ') || '—'
@@ -338,6 +196,65 @@ export default function DeviceCreate() {
   const typeLabel = isEditMode
     ? existingDevice?.deviceType?.name || '—'
     : selectedTemplate?.deviceType?.name || '—'
+
+  const buildDevicePayload = (): UpdateDevicePayload => {
+    const identityFields = {
+      name: form.name.trim(),
+      hostname: form.hostname.trim() || undefined,
+      ipAddress: form.ipAddress.trim() || undefined,
+      macAddress: form.macAddress.trim() || undefined,
+      serialNumber: form.serialNumber.trim() || undefined,
+      firmwareVersion: form.firmwareVersion.trim() || undefined,
+      status: form.status,
+      notes: form.notes.trim() || undefined,
+    }
+
+    if (isEditMode && isLocationLocked) {
+      return identityFields
+    }
+
+    const locationFields = {
+      siteId: form.siteId || null,
+      areaId: form.areaId || null,
+      containerId: form.containerId || null,
+    }
+
+    if (isEditMode) {
+      return { ...identityFields, ...locationFields }
+    }
+
+    return {
+      ...identityFields,
+      ...locationFields,
+      rackUnitStart: null,
+      rackFace: null,
+      supportedByAccessoryId: null,
+      shelfSlotStart: null,
+      shelfWidthSlots: null,
+      shelfHeightU: null,
+      boardRow: null,
+      boardCol: null,
+      boardRowSpan: null,
+      boardColSpan: null,
+    }
+  }
+
+  const persistDevice = async (payload: UpdateDevicePayload, confirmDiagramRelocate = false) => {
+    const body = confirmDiagramRelocate
+      ? { ...payload, confirmDiagramRelocate: true }
+      : payload
+
+    if (id) {
+      await devicesService.update(id, body)
+    } else {
+      await devicesService.create({
+        projectId: activeProjectId || user!.projectId,
+        deviceTemplateId: form.deviceTemplateId,
+        ...body,
+      })
+    }
+    navigate('/devices')
+  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -363,223 +280,55 @@ export default function DeviceCreate() {
       return
     }
 
-    if (form.mountMode === 'rail') {
-      if (!form.rackId) {
-        setFormError('Seleccioná un rack para el montaje en rieles.')
-        return
-      }
-      if (!form.rackUnitStart.trim()) {
-        setFormError('Seleccioná la U de inicio en el rack.')
-        return
-      }
-      const unit = Number.parseInt(form.rackUnitStart, 10)
-      if (Number.isNaN(unit) || unit < 1) {
-        setFormError('La U de inicio debe ser un número ≥ 1.')
-        return
-      }
-      if (occupancy) {
-        const check = isFullDepth
-          ? canPlaceFullDepthAt({
-              start: unit,
-              heightU: templateHeightU,
-              rackHeightU: occupancy.heightU,
-              occupancy,
-              excludeDeviceId: id,
-            })
-          : canPlaceAt({
-              start: unit,
-              heightU: templateHeightU,
-              rackHeightU: occupancy.heightU,
-              occupied: occupiedRangesForFace(occupancy, activeFace, id),
-            })
-        if (!check.ok) {
-          setFormError(check.reason)
-          return
-        }
-      }
-    }
-
-    if (form.mountMode === 'shelf') {
-      if (!form.rackId) {
-        setFormError('Seleccioná el rack donde está el accesorio.')
-        return
-      }
-      if (!form.supportedByAccessoryId) {
-        setFormError('Seleccioná la bandeja o el accesorio colgante.')
-        return
-      }
-      const selectedShelf = (shelves || []).find((s) => s.id === form.supportedByAccessoryId)
-      const slotCount = selectedShelf?.deviceSlotCount ?? 3
-      const widthSlots = Number.parseInt(form.shelfWidthSlots, 10)
-      const slotStart = Number.parseInt(form.shelfSlotStart, 10)
-      if (
-        Number.isNaN(widthSlots) ||
-        widthSlots < 1 ||
-        widthSlots > slotCount ||
-        Number.isNaN(slotStart) ||
-        slotStart < 0 ||
-        slotStart + widthSlots > slotCount
-      ) {
-        setFormError(`Elegí una posición válida dentro de los ${slotCount} lugares del accesorio.`)
-        return
-      }
-      const maxHeight =
-        selectedShelf?.kind === 'hang' ? selectedShelf.heightU : 20
-      if (shelfHeightUValue < 1 || shelfHeightUValue > maxHeight) {
-        setFormError(
-          selectedShelf?.kind === 'hang'
-            ? `El alto del equipo no puede superar el accesorio (${selectedShelf.heightU}U).`
-            : 'El alto ocupado debe estar entre 1 y 20 U.'
-        )
-        return
-      }
-      if (selectedShelf && occupancy) {
-        const unitEnd = selectedShelf.unitStart + shelfHeightUValue - 1
-        if (unitEnd > occupancy.heightU) {
-          setFormError(
-            `El equipo (${shelfHeightUValue}U desde U${selectedShelf.unitStart}) no cabe en el rack de ${occupancy.heightU}U`
-          )
-          return
-        }
-        const sameShelfDeviceIds = new Set(
-          (occupancy.accessories ?? [])
-            .find((a) => a.id === selectedShelf.id)
-            ?.devices.map((d) => d.id) ?? []
-        )
-        const filterShelfSelf = (r: { kind?: string; deviceId: string }) => {
-          if ((r.kind === 'shelf' || r.kind === 'hang') && r.deviceId === selectedShelf.id)
-            return false
-          if (r.kind === 'shelf_device' && sameShelfDeviceIds.has(r.deviceId)) return false
-          return true
-        }
-        if (selectedShelf.kind === 'hang' && isFullDepth) {
-          setFormError(
-            'Los equipos full-depth no se pueden colgar en un accesorio de una sola cara.'
-          )
-          return
-        }
-        if (isFullDepth) {
-          for (const face of ['front', 'rear'] as const) {
-            const check = canPlaceAt({
-              start: selectedShelf.unitStart,
-              heightU: shelfHeightUValue,
-              rackHeightU: occupancy.heightU,
-              occupied: occupiedRangesForFace(occupancy, face, id).filter(filterShelfSelf),
-            })
-            if (!check.ok) {
-              setFormError(check.reason)
-              return
-            }
-          }
-        } else {
-          const shelfFace: RackFace =
-            selectedShelf.kind === 'hang'
-              ? selectedShelf.face === 'rear'
-                ? 'rear'
-                : 'front'
-              : selectedShelf.mountType === 'four_post' && form.rackFace === 'rear'
-                ? 'rear'
-                : 'front'
-          const check = canPlaceAt({
-            start: selectedShelf.unitStart,
-            heightU: shelfHeightUValue,
-            rackHeightU: occupancy.heightU,
-            occupied: occupiedRangesForFace(occupancy, shelfFace, id).filter(filterShelfSelf),
-          })
-          if (!check.ok) {
-            setFormError(check.reason)
-            return
-          }
-        }
-      }
+    if (form.containerId && !form.areaId) {
+      setFormError('Selecciona un área cuando asignas un contenedor.')
+      return
     }
 
     try {
       setIsSubmitting(true)
-      const unit =
-        form.mountMode === 'rail' ? Number.parseInt(form.rackUnitStart, 10) : null
+      const payload = buildDevicePayload()
 
-      const payload =
-        form.mountMode === 'shelf'
-          ? {
-              name: form.name.trim(),
-              hostname: form.hostname.trim() || undefined,
-              ipAddress: form.ipAddress.trim() || undefined,
-              macAddress: form.macAddress.trim() || undefined,
-              serialNumber: form.serialNumber.trim() || undefined,
-              firmwareVersion: form.firmwareVersion.trim() || undefined,
-              siteId: form.siteId || null,
-              areaId: form.areaId || null,
-              supportedByAccessoryId: form.supportedByAccessoryId,
-              shelfWidthSlots: Number.parseInt(form.shelfWidthSlots, 10),
-              shelfSlotStart: Number.parseInt(form.shelfSlotStart, 10),
-              shelfHeightU: shelfHeightUValue,
-              // rackId lo resuelve el backend desde el accesorio; no enviar null (limpia el montaje).
-              rackUnitStart: null,
-              rackFace: ((): DeviceRackFace => {
-                const host = (shelves || []).find((s) => s.id === form.supportedByAccessoryId)
-                if (isFullDepth) return 'both'
-                if (host?.kind === 'hang') {
-                  return host.face === 'rear' ? 'rear' : 'front'
-                }
-                return host?.mountType === 'four_post' && form.rackFace === 'rear'
-                  ? 'rear'
-                  : 'front'
-              })(),
-              status: form.status,
-              notes: form.notes.trim() || undefined,
-            }
-          : form.mountMode === 'rail'
-            ? {
-                name: form.name.trim(),
-                hostname: form.hostname.trim() || undefined,
-                ipAddress: form.ipAddress.trim() || undefined,
-                macAddress: form.macAddress.trim() || undefined,
-                serialNumber: form.serialNumber.trim() || undefined,
-                firmwareVersion: form.firmwareVersion.trim() || undefined,
-                siteId: form.siteId || null,
-                areaId: form.areaId || null,
-                rackId: form.rackId,
-                rackUnitStart: unit,
-                rackFace: mountFace,
-                supportedByAccessoryId: null,
-                shelfSlotStart: null,
-                shelfWidthSlots: null,
-                shelfHeightU: null,
-                status: form.status,
-                notes: form.notes.trim() || undefined,
-              }
-            : {
-                name: form.name.trim(),
-                hostname: form.hostname.trim() || undefined,
-                ipAddress: form.ipAddress.trim() || undefined,
-                macAddress: form.macAddress.trim() || undefined,
-                serialNumber: form.serialNumber.trim() || undefined,
-                firmwareVersion: form.firmwareVersion.trim() || undefined,
-                siteId: form.siteId || null,
-                areaId: form.areaId || null,
-                rackId: null,
-                rackUnitStart: null,
-                rackFace: null,
-                supportedByAccessoryId: null,
-                shelfSlotStart: null,
-                shelfWidthSlots: null,
-                shelfHeightU: null,
-                status: form.status,
-                notes: form.notes.trim() || undefined,
-              }
+      const locationPathChanged =
+        isEditMode &&
+        !isLocationLocked &&
+        existingDevice &&
+        (form.siteId !== (existingDevice.siteId ?? '') ||
+          form.areaId !== (existingDevice.areaId ?? '') ||
+          form.containerId !== (existingDevice.containerId ?? ''))
 
-      if (id) {
-        await devicesService.update(id, payload)
-      } else {
-        await devicesService.create({
-          projectId: activeProjectId || user!.projectId,
-          deviceTemplateId: form.deviceTemplateId,
-          ...payload,
-        })
+      if (locationPathChanged && id) {
+        const impact = await devicesService.getRelocationImpact(
+          id,
+          form.areaId || null,
+          form.containerId || null,
+        )
+        if (impact.requiresConfirmation) {
+          setRelocateConfirm({ impact, payload })
+          return
+        }
       }
-      navigate('/devices')
+
+      await persistDevice(payload)
     } catch (error: unknown) {
+      const err = error as {
+        response?: {
+          status?: number
+          data?: { code?: string; impact?: DeviceRelocationImpact; message?: string }
+        }
+        message?: string
+      }
+      if (
+        err.response?.status === 409 &&
+        err.response.data?.code === 'DIAGRAM_RELOCATION_REQUIRED' &&
+        err.response.data.impact
+      ) {
+        setRelocateConfirm({
+          impact: err.response.data.impact,
+          payload: buildDevicePayload(),
+        })
+        return
+      }
       setFormError(
         formatApiError(
           error,
@@ -590,6 +339,85 @@ export default function DeviceCreate() {
       setIsSubmitting(false)
     }
   }
+
+  const handleConfirmRelocate = async () => {
+    if (!relocateConfirm) return
+    setIsSubmitting(true)
+    try {
+      await persistDevice(relocateConfirm.payload, true)
+      setRelocateConfirm(null)
+    } catch (error: unknown) {
+      setFormError(
+        formatApiError(error, 'No se pudo mover el dispositivo')
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const relocateDescription = useMemo(() => {
+    if (!relocateConfirm) return null
+    const { impact } = relocateConfirm
+    const deviceLabel = form.name.trim() || existingDevice?.name || 'Equipo'
+    const mode = impact.mode ?? 'purge'
+    const fromPath = [impact.fromAreaName, impact.fromContainerName].filter(Boolean).join(' › ')
+    const toPath = [impact.toAreaName, impact.toContainerName].filter(Boolean).join(' › ')
+    const fromLabel = fromPath || impact.fromAreaName || 'sin ubicación'
+    const toLabel = toPath || impact.toAreaName || 'sin ubicación'
+    const placementLines = impact.placements.map(
+      (p) =>
+        `«${p.diagramName}» (${p.areaName ?? 'sin área'} · ${p.containerLabel})`,
+    )
+    const hasLinks = impact.linkCodes.length > 0
+    const codesStr =
+      impact.linkCodes.length <= 8
+        ? impact.linkCodes.map((c) => formatLinkCode(c)).join(', ')
+        : impact.linkCodes
+            .slice(0, 8)
+            .map((c) => formatLinkCode(c))
+            .join(', ') + ` y ${impact.linkCodes.length - 8} más`
+
+    if (mode === 'reparent') {
+      return (
+        <span className="block space-y-2">
+          <span className="block">
+            Se modificará la ruta de «{deviceLabel}»: <strong>{fromLabel}</strong> →{' '}
+            <strong>{toLabel}</strong>.
+          </span>
+          <span className="block">
+            El diagrama se actualizará para coincidir con la nueva ubicación
+            {placementLines.length > 0
+              ? ` (${placementLines.length === 1 ? placementLines[0] : `${placementLines.length} diagramas`})`
+              : ''}
+            . Los enlaces se conservan.
+          </span>
+          <span className="block">¿Deseás continuar?</span>
+        </span>
+      )
+    }
+
+    return (
+      <span className="block space-y-2">
+        <span className="block">
+          «{deviceLabel}» está colocado en{' '}
+          {placementLines.length === 1
+            ? placementLines[0]
+            : `${placementLines.length} diagramas (${placementLines.join('; ')})`}
+          .
+        </span>
+        <span className="block">
+          Al moverlo a <strong>{toLabel}</strong> se sacará del diagrama (cambio de área).
+        </span>
+        {hasLinks ? (
+          <span className="block font-medium text-red-600 dark:text-red-400">
+            Se eliminarán {impact.linkCodes.length} enlace(s) ({codesStr}) del{' '}
+            <strong>proyecto completo</strong>.
+          </span>
+        ) : null}
+        <span className="block">¿Deseás continuar?</span>
+      </span>
+    )
+  }, [relocateConfirm, form.name, existingDevice?.name])
 
   const backToList = () => navigate('/devices')
 
@@ -643,8 +471,6 @@ export default function DeviceCreate() {
                     setForm((prev) => ({
                       ...prev,
                       deviceTemplateId: event.target.value,
-                      // U may become invalid if height changes
-                      rackUnitStart: prev.rackId ? '' : prev.rackUnitStart,
                     }))
                   }
                   options={(templates || []).map((tpl) => ({
@@ -754,9 +580,20 @@ export default function DeviceCreate() {
 
           <FormSection
             title="Ubicación"
-            description="Sitio, área y montaje: rieles del rack, bandeja o accesorio colgante."
+            description="Sitio, área y contenedor donde se documenta el equipo."
           >
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {isLocationLocked && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                El montaje físico (U / celda / bandeja) se gestiona desde el diagrama o Racks.
+              </p>
+            )}
+            {!isLocationLocked && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Elegí el contenedor como ubicación documentada. El montaje preciso en U o celda se
+                hace desde el diagrama.
+              </p>
+            )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <Select
                 label="Sitio"
                 value={form.siteId}
@@ -765,9 +602,7 @@ export default function DeviceCreate() {
                     ...prev,
                     siteId: event.target.value,
                     areaId: '',
-                    rackId: '',
-                    rackUnitStart: '',
-                    supportedByAccessoryId: '',
+                    containerId: '',
                   }))
                 }
                 options={[
@@ -775,7 +610,7 @@ export default function DeviceCreate() {
                   ...(sites || []).map((s) => ({ value: s.id, label: s.name })),
                 ]}
                 placeholder="Selecciona un sitio"
-                disabled={form.mountMode !== 'none'}
+                disabled={isLocationLocked}
               />
               <Select
                 label="Área"
@@ -784,321 +619,29 @@ export default function DeviceCreate() {
                   setForm((prev) => ({
                     ...prev,
                     areaId: event.target.value,
-                    rackId: '',
-                    rackUnitStart: '',
-                    supportedByAccessoryId: '',
+                    containerId: '',
                   }))
                 }
                 options={[{ value: '', label: 'Sin área' }, ...areaOptions]}
                 placeholder={form.siteId ? 'Selecciona un área' : 'Primero elige un sitio'}
-                disabled={!form.siteId || form.mountMode !== 'none'}
+                disabled={isLocationLocked || !form.siteId}
               />
               <Select
-                label="Modo de montaje"
-                value={form.mountMode}
-                onChange={(event) => {
-                  const mountMode = event.target.value as MountMode
+                label="Contenedor"
+                value={form.containerId}
+                onChange={(event) =>
                   setForm((prev) => ({
                     ...prev,
-                    mountMode,
-                    rackId: mountMode === 'none' ? '' : prev.rackId,
-                    rackUnitStart: '',
-                    supportedByAccessoryId: '',
-                    shelfSlotStart: '0',
-                    shelfWidthSlots: '1',
-                    shelfHeightU:
-                      mountMode === 'shelf'
-                        ? prev.shelfHeightU || String(templateHeightU)
-                        : '',
+                    containerId: event.target.value,
                   }))
-                }}
-                options={mountModeOptions}
+                }
+                options={[{ value: '', label: 'Sin contenedor' }, ...containerOptions]}
+                placeholder={
+                  form.areaId ? 'Selecciona un contenedor' : 'Primero elige un área'
+                }
+                disabled={isLocationLocked || !form.areaId}
               />
-              {(form.mountMode === 'rail' || form.mountMode === 'shelf') && (
-                <Select
-                  label="Rack"
-                  value={form.rackId}
-                  onChange={(event) => {
-                    const rackId = event.target.value
-                    const rack = racks?.find((r) => r.id === rackId)
-                    setForm((prev) => ({
-                      ...prev,
-                      rackId,
-                      rackUnitStart: '',
-                      supportedByAccessoryId: '',
-                      rackFace: rackId ? prev.rackFace || 'front' : '',
-                      siteId: rack?.area?.siteId || rack?.area?.site?.id || prev.siteId,
-                      areaId: rack?.areaId || prev.areaId,
-                    }))
-                  }}
-                  options={[{ value: '', label: 'Seleccionar rack' }, ...rackOptions]}
-                  placeholder="Obligatorio"
-                />
-              )}
-              {form.mountMode === 'rail' && form.rackId && (
-                <>
-                  {isFullDepth ? (
-                    <div className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/80 dark:bg-violet-950/30 px-3 py-2.5">
-                      <p className="text-sm font-medium text-violet-800 dark:text-violet-200">
-                        Ambas caras (profundidad completa)
-                      </p>
-                      <p className="text-xs text-violet-700/80 dark:text-violet-300/80 mt-0.5">
-                        Este template ocupa las mismas U en frente y dorso del rack.
-                      </p>
-                    </div>
-                  ) : (
-                    <Select
-                      label="Cara"
-                      value={form.rackFace === 'both' ? 'front' : form.rackFace || 'front'}
-                      onChange={(event) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          rackFace: event.target.value as 'front' | 'rear',
-                          rackUnitStart: '',
-                        }))
-                      }
-                      options={faceOptions}
-                      hint="Frontal y trasera son caras independientes. Las bandejas integrales bloquean ambas."
-                    />
-                  )}
-                  {selectedRack && (
-                    <Input
-                      label="Capacidad rack"
-                      value={`${selectedRack.heightU}U`}
-                      disabled
-                    />
-                  )}
-                </>
-              )}
-              {form.mountMode === 'shelf' && form.rackId && (
-                <>
-                  <Select
-                    label="Bandeja / accesorio"
-                    value={form.supportedByAccessoryId}
-                    onChange={(event) => {
-                      const shelfId = event.target.value
-                      const shelf = (shelves || []).find((s) => s.id === shelfId)
-                      const slots = shelf?.deviceSlotCount ?? 3
-                      setForm((prev) => ({
-                        ...prev,
-                        supportedByAccessoryId: shelfId,
-                        shelfWidthSlots: '1',
-                        shelfSlotStart: '0',
-                        rackFace: isFullDepth
-                          ? 'both'
-                          : shelf?.kind === 'hang'
-                            ? shelf.face === 'rear'
-                              ? 'rear'
-                              : 'front'
-                            : shelf?.mountType === 'four_post'
-                              ? prev.rackFace === 'rear'
-                                ? 'rear'
-                                : 'front'
-                              : 'front',
-                        shelfHeightU:
-                          shelf?.kind === 'hang'
-                            ? String(
-                                Math.min(
-                                  Number.parseInt(prev.shelfHeightU, 10) || templateHeightU,
-                                  shelf.heightU
-                                )
-                              )
-                            : prev.shelfHeightU,
-                      }))
-                      void slots
-                    }}
-                    options={[
-                      { value: '', label: 'Seleccionar accesorio' },
-                      ...(shelves || [])
-                        .filter(
-                          (s) =>
-                            s.kind !== 'chassis' && (s.horizontalWidthSlots ?? 6) >= 6
-                        )
-                        .map((s) => ({
-                          value: s.id,
-                          label: `${s.name} · ${s.kind === 'hang' ? 'colgante' : 'bandeja'} · U${s.unitStart}–U${s.unitStart + s.heightU - 1} (${
-                            s.kind === 'hang'
-                              ? s.face === 'rear'
-                                ? 'trasera'
-                                : 'frontal'
-                              : s.mountType === 'four_post'
-                                ? 'integral'
-                                : 'frontal'
-                          } · ${s.deviceSlotCount ?? 3} slots)`,
-                        })),
-                    ]}
-                    hint={
-                      (shelves || []).filter(
-                        (s) => s.kind !== 'chassis' && (s.horizontalWidthSlots ?? 6) >= 6
-                      ).length === 0
-                        ? 'No hay accesorios de ancho completo en este rack. Los parciales (menos de 6/6) no admiten equipos.'
-                        : undefined
-                    }
-                  />
-                  {isFullDepth ? (
-                    <p className="text-xs text-violet-600 dark:text-violet-400 col-span-full">
-                      Profundidad completa: el equipo reserva frente y dorso (solo en bandejas).
-                    </p>
-                  ) : (
-                    (() => {
-                      const selectedShelf = (shelves || []).find(
-                        (s) => s.id === form.supportedByAccessoryId
-                      )
-                      if (!selectedShelf) return null
-                      if (selectedShelf.kind === 'hang') {
-                        return (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 col-span-full">
-                            Accesorio colgante en cara{' '}
-                            {selectedShelf.face === 'rear' ? 'trasera' : 'frontal'}. El equipo no
-                            puede superar {selectedShelf.heightU}U de alto.
-                          </p>
-                        )
-                      }
-                      if (selectedShelf.mountType !== 'four_post') {
-                        return (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 col-span-full">
-                            Bandeja solo frontal: el equipo queda del lado delantero.
-                          </p>
-                        )
-                      }
-                      return (
-                        <Select
-                          label="Lado de la bandeja"
-                          value={form.rackFace === 'both' ? 'front' : form.rackFace || 'front'}
-                          onChange={(event) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              rackFace: event.target.value as 'front' | 'rear',
-                            }))
-                          }
-                          options={faceOptions}
-                          hint="La bandeja integral permite equipos independientes en frente y dorso."
-                        />
-                      )
-                    })()
-                  )}
-                  {(() => {
-                    const selectedShelf = (shelves || []).find(
-                      (s) => s.id === form.supportedByAccessoryId
-                    )
-                    const slotCount = selectedShelf?.deviceSlotCount ?? 3
-                    const widthNum = Number.parseInt(form.shelfWidthSlots, 10) || 1
-                    return (
-                      <>
-                        <Select
-                          label="Ancho ocupado"
-                          value={form.shelfWidthSlots}
-                          onChange={(event) => {
-                            const w = event.target.value
-                            setForm((prev) => ({
-                              ...prev,
-                              shelfWidthSlots: w,
-                              shelfSlotStart:
-                                Number.parseInt(w, 10) >= slotCount ? '0' : prev.shelfSlotStart,
-                            }))
-                          }}
-                          options={Array.from({ length: slotCount }, (_, i) => {
-                            const w = i + 1
-                            return {
-                              value: String(w),
-                              label:
-                                w === slotCount
-                                  ? `Ancho completo (${slotCount} slots)`
-                                  : `${w} de ${slotCount} slots`,
-                            }
-                          })}
-                        />
-                        {widthNum < slotCount && (
-                          <Select
-                            label="Posición horizontal"
-                            value={form.shelfSlotStart}
-                            onChange={(event) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                shelfSlotStart: event.target.value,
-                              }))
-                            }
-                            options={Array.from(
-                              { length: slotCount - widthNum + 1 },
-                              (_, start) => ({
-                                value: String(start),
-                                label: `Slots ${start + 1}–${start + widthNum} de ${slotCount}`,
-                              })
-                            )}
-                          />
-                        )}
-                        <Input
-                          label="Alto ocupado (U)"
-                          type="number"
-                          min={1}
-                          max={
-                            selectedShelf?.kind === 'hang' ? selectedShelf.heightU : 20
-                          }
-                          value={form.shelfHeightU || String(templateHeightU)}
-                          onChange={(event) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              shelfHeightU: event.target.value,
-                            }))
-                          }
-                          hint={
-                            selectedShelf?.kind === 'hang'
-                              ? `Colgado: máximo ${selectedShelf.heightU}U (altura del accesorio).`
-                              : `Crece hacia arriba desde la bandeja. Por defecto ${templateHeightU}U del template.`
-                          }
-                        />
-                      </>
-                    )
-                  })()}
-                  {form.supportedByAccessoryId &&
-                    (() => {
-                      const selectedShelf = (shelves || []).find(
-                        (s) => s.id === form.supportedByAccessoryId
-                      )
-                      if (!selectedShelf) return null
-                      const end = selectedShelf.unitStart + shelfHeightUValue - 1
-                      return (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 col-span-full">
-                          Huella vertical: U{selectedShelf.unitStart}–U{end} (
-                          {shelfHeightUValue}U)
-                          {occupancyLoading ? ' · cargando ocupación…' : ''}
-                          {occupancyError ? ` · ${occupancyError}` : ''}
-                        </p>
-                      )
-                    })()}
-                </>
-              )}
             </div>
-
-            {form.mountMode === 'rail' && form.rackId && (
-              <div className="mt-2">
-                {occupancyLoading && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Cargando ocupación del rack…
-                  </p>
-                )}
-                {occupancyError && (
-                  <p className="text-sm text-red-500" role="alert">
-                    {occupancyError}
-                  </p>
-                )}
-                {!occupancyLoading && occupancy && (
-                  <RackUnitPicker
-                    occupancy={occupancy}
-                    face={activeFace}
-                    heightU={templateHeightU}
-                    fullDepth={isFullDepth}
-                    value={
-                      parsedUnit != null && !Number.isNaN(parsedUnit) ? parsedUnit : null
-                    }
-                    excludeDeviceId={id}
-                    onChange={(unit) =>
-                      setForm((prev) => ({ ...prev, rackUnitStart: String(unit) }))
-                    }
-                  />
-                )}
-              </div>
-            )}
           </FormSection>
 
           {formError && (
@@ -1125,6 +668,25 @@ export default function DeviceCreate() {
           </div>
         </form>
       </div>
+
+      <ConfirmDialog
+        isOpen={Boolean(relocateConfirm)}
+        onClose={() => {
+          if (!isSubmitting) setRelocateConfirm(null)
+        }}
+        onConfirm={handleConfirmRelocate}
+        title={`Mover «${form.name.trim() || existingDevice?.name || 'Equipo'}»`}
+        description={relocateDescription}
+        confirmLabel={
+          relocateConfirm?.impact.mode === 'purge' && relocateConfirm.impact.linkCodes.length
+            ? 'Mover y eliminar enlaces'
+            : relocateConfirm?.impact.mode === 'reparent'
+              ? 'Actualizar ruta'
+              : 'Mover igualmente'
+        }
+        variant={relocateConfirm?.impact.mode === 'purge' ? 'danger' : 'primary'}
+        isLoading={isSubmitting}
+      />
     </div>
   )
 }

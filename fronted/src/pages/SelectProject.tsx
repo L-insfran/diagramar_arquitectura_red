@@ -57,7 +57,7 @@ export default function SelectProject() {
                   <span className="block font-semibold text-slate-100">{project.name}</span>
                   <span className="block text-xs text-slate-400 mt-0.5">
                     {ROLE_LABELS[project.role] ?? project.role}
-                    {project.domain ? ` · ${project.domain}` : ''}
+                    {project.clientName ? ` · ${project.clientName}` : ''}
                     {typeof project.deviceCount === 'number'
                       ? ` · ${project.deviceCount} dispositivos`
                       : ''}

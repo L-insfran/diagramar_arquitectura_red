@@ -10,6 +10,7 @@ export type CreateDiagramLinkPayload = {
   sourcePortLabel: string
   targetPortLabel: string
   description?: string | null
+  cableTypeId?: string | null
 }
 
 export type UpdateDiagramLinkPayload = {
@@ -20,6 +21,7 @@ export type UpdateDiagramLinkPayload = {
   sourcePortLabel?: string
   targetPortLabel?: string
   description?: string | null
+  cableTypeId?: string | null
 }
 
 export const diagramLinksService = {
@@ -45,5 +47,14 @@ export const diagramLinksService = {
 
   async delete(id: string): Promise<void> {
     await api.delete(`/diagram-links/${id}`)
+  },
+
+  async bulkDeleteByDevices(
+    deviceIds: string[],
+  ): Promise<{ deletedCount: number; codes: number[] }> {
+    const { data } = await api.post<
+      ApiResponse<{ deletedCount: number; codes: number[] }>
+    >('/diagram-links/bulk-delete', { deviceIds })
+    return data.data
   },
 }

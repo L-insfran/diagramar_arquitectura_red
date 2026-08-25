@@ -10,7 +10,7 @@ import type {
 } from '#models/connection'
 import CableType from '#models/cable_type'
 import Device from '#models/device'
-import Rack from '#models/rack'
+import Container from '#models/container'
 import RackAccessory from '#models/rack_accessory'
 import type Port from '#models/port'
 import ConnectionRepository from '#repositories/connection_repository'
@@ -90,12 +90,12 @@ type FlowTopologyNode = {
     areaId: string | null
     siteName: string | null
     areaName: string | null
-    rackId: string | null
+    containerId: string | null
+    containerName: string | null
     rackUnitStart: number | null
     rackFace: 'front' | 'rear' | 'both' | null
     rackUnits: number
     isFullDepth: boolean
-    boardId: string | null
     boardRow: number | null
     boardCol: number | null
     boardRowSpan: number | null
@@ -127,11 +127,15 @@ type TopologyRackAccessory = {
   faces: Array<'front' | 'rear'>
 }
 
-type TopologyRackSummary = {
+type TopologyContainerSummary = {
   id: string
   name: string
   code: string | null
-  heightU: number
+  kind: string
+  heightU: number | null
+  boardKind: string | null
+  gridRows: number | null
+  gridCols: number | null
   areaId: string
   siteId: string | null
   areaName: string | null
@@ -250,16 +254,16 @@ const buildDeviceNode = (device: Device, occupancy: PortFaceOccupancy): FlowTopo
       areaId: device.areaId ?? null,
       siteName: device.site?.name ?? device.area?.site?.name ?? null,
       areaName: device.area?.name ?? null,
-      rackId: device.rackId ?? null,
+      containerId: device.containerId ?? null,
+      containerName: device.container?.name ?? null,
       rackUnitStart: device.rackUnitStart ?? null,
       rackFace,
       rackUnits,
       isFullDepth,
-      boardId: device.boardId ?? null,
       boardRow: device.boardRow ?? null,
       boardCol: device.boardCol ?? null,
-      boardRowSpan: device.boardId ? Math.max(1, device.boardRowSpan ?? 1) : null,
-      boardColSpan: device.boardId ? Math.max(1, device.boardColSpan ?? 1) : null,
+      boardRowSpan: device.boardRow != null ? Math.max(1, device.boardRowSpan ?? 1) : null,
+      boardColSpan: device.boardRow != null ? Math.max(1, device.boardColSpan ?? 1) : null,
       supportedByAccessoryId: device.supportedByAccessoryId ?? null,
       shelfSlotStart: device.shelfSlotStart ?? null,
       shelfWidthSlots: device.shelfWidthSlots ?? null,
@@ -414,6 +418,7 @@ export default class TopologyService {
       .preload('deviceTemplate')
       .preload('site')
       .preload('area', (a) => a.preload('site'))
+      .preload('container')
       .preload('ports', (p) => p.preload('vlans', (v) => v.preload('networks')))
 
     const deviceNodes = new Map<string, FlowTopologyNode>()
@@ -421,7 +426,7 @@ export default class TopologyService {
       deviceNodes.set(device.id, buildDeviceNode(device, occupancy))
     }
 
-    const allRacks = await Rack.query()
+    const allContainers = await Container.query()
       .where('project_id', projectId)
       .whereNull('deleted_at')
       .preload('area', (a) => a.preload('site'))
@@ -432,9 +437,9 @@ export default class TopologyService {
       .whereNull('deleted_at')
       .orderBy('unit_start', 'asc')
 
-    const accessoriesByRack = new Map<string, TopologyRackAccessory[]>()
+    const accessoriesByContainer = new Map<string, TopologyRackAccessory[]>()
     for (const acc of allAccessories) {
-      const list = accessoriesByRack.get(acc.rackId) ?? []
+      const list = accessoriesByContainer.get(acc.containerId) ?? []
       list.push({
         id: acc.id,
         name: acc.name,
@@ -453,19 +458,23 @@ export default class TopologyService {
           face: acc.face,
         }),
       })
-      accessoriesByRack.set(acc.rackId, list)
+      accessoriesByContainer.set(acc.containerId, list)
     }
 
-    const racks: TopologyRackSummary[] = allRacks.map((rack) => ({
-      id: rack.id,
-      name: rack.name,
-      code: rack.code,
-      heightU: rack.heightU,
-      areaId: rack.areaId,
-      siteId: rack.area?.siteId ?? null,
-      areaName: rack.area?.name ?? null,
-      siteName: rack.area?.site?.name ?? null,
-      accessories: accessoriesByRack.get(rack.id) ?? [],
+    const containers: TopologyContainerSummary[] = allContainers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      code: c.code,
+      kind: c.kind,
+      heightU: c.heightU,
+      boardKind: c.boardKind,
+      gridRows: c.gridRows,
+      gridCols: c.gridCols,
+      areaId: c.areaId,
+      siteId: c.area?.siteId ?? null,
+      areaName: c.area?.name ?? null,
+      siteName: c.area?.site?.name ?? null,
+      accessories: accessoriesByContainer.get(c.id) ?? [],
     }))
 
     const graphNodes = new Map<string, FlowTopologyNode>()
@@ -563,7 +572,7 @@ export default class TopologyService {
         edges,
       },
       inventory: inventoryNodes,
-      racks,
+      containers,
       summary,
     }
   }

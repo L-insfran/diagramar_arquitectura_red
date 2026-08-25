@@ -150,7 +150,7 @@ export default class RackAccessoryService {
 
     await this.assertPlacement({
       projectId: data.projectId,
-      rackId: data.rackId,
+      containerId: data.containerId,
       kind,
       unitStart: data.unitStart,
       heightU,
@@ -258,7 +258,7 @@ export default class RackAccessoryService {
 
       await this.assertPlacement({
         projectId: existing.projectId,
-        rackId: existing.rackId,
+        containerId: existing.containerId,
         kind,
         unitStart,
         heightU,
@@ -300,7 +300,7 @@ export default class RackAccessoryService {
    */
   async assertPlacement(params: {
     projectId: string
-    rackId: string
+    containerId: string
     kind: AccessoryKind
     unitStart: number
     heightU: number
@@ -310,17 +310,17 @@ export default class RackAccessoryService {
     horizontalWidthSlots?: number
     excludeAccessoryId?: string
   }) {
-    const rack = await this.racks.findActiveInProject(params.rackId, params.projectId)
+    const rack = await this.racks.findActiveInProject(params.containerId, params.projectId)
     if (!rack) {
-      throw new Exception('El rack no pertenece al proyecto o no existe', { status: 422 })
+      throw new Exception('El contenedor (rack) no pertenece al proyecto o no existe', { status: 422 })
     }
 
     const start = params.unitStart
     const heightU = Math.max(1, params.heightU)
     const end = start + heightU - 1
-    if (start < 1 || end > rack.heightU) {
+    if (start < 1 || end > (rack.heightU ?? 0)) {
       throw new Exception(
-        `El ${accessoryLabel(params.kind)} (${heightU}U desde U${start}) no cabe en el rack de ${rack.heightU}U`,
+        `El ${accessoryLabel(params.kind)} (${heightU}U desde U${start}) no cabe en el rack de ${rack.heightU ?? 0}U`,
         { status: 422 }
       )
     }
@@ -343,7 +343,7 @@ export default class RackAccessoryService {
       horizontalWidthSlots: horiz.widthSlots,
     })
 
-    const mounted = await this.racks.findMountedDevices(params.rackId)
+    const mounted = await this.racks.findMountedDevices(params.containerId)
     for (const other of mounted) {
       if (other.supportedByAccessoryId) continue
       if (other.rackUnitStart == null) continue
@@ -370,7 +370,7 @@ export default class RackAccessoryService {
       }
     }
 
-    const accessories = await this.accessories.findByRack(params.rackId)
+    const accessories = await this.accessories.findByRack(params.containerId)
     for (const other of accessories) {
       if (params.excludeAccessoryId && other.id === params.excludeAccessoryId) continue
       const otherFps = shelfFootprints({
@@ -396,7 +396,7 @@ export default class RackAccessoryService {
       }
     }
 
-    const shelfDevices = await this.accessories.findShelfDevicesByRack(params.rackId)
+    const shelfDevices = await this.accessories.findShelfDevicesByRack(params.containerId)
     for (const device of shelfDevices) {
       const host = device.supportedByAccessory
       if (!host) continue
@@ -458,7 +458,7 @@ export default class RackAccessoryService {
     shelfWidthSlots: number
     shelfHeightU: number
     rackFace: DeviceRackFace
-    rackId: string
+    containerId: string
     siteId: string
     areaId: string
   }> {
@@ -562,10 +562,10 @@ export default class RackAccessoryService {
 
     const unitStart = accessory.unitStart
     const unitEnd = unitStart + heightU - 1
-    const rack = accessory.rack
-    if (unitEnd > rack.heightU) {
+    const rack = accessory.container
+    if (unitEnd > (rack.heightU ?? 0)) {
       throw new Exception(
-        `El equipo (${heightU}U desde U${unitStart}) no cabe en el rack de ${rack.heightU}U`,
+        `El equipo (${heightU}U desde U${unitStart}) no cabe en el rack de ${rack.heightU ?? 0}U`,
         { status: 422 }
       )
     }
@@ -608,7 +608,7 @@ export default class RackAccessoryService {
       }
     }
 
-    const mounted = await this.racks.findMountedDevices(accessory.rackId)
+    const mounted = await this.racks.findMountedDevices(accessory.containerId)
     for (const other of mounted) {
       if (params.excludeDeviceId && other.id === params.excludeDeviceId) continue
       if (other.supportedByAccessoryId) continue
@@ -636,7 +636,7 @@ export default class RackAccessoryService {
       }
     }
 
-    const hosts = await this.accessories.findByRack(accessory.rackId)
+    const hosts = await this.accessories.findByRack(accessory.containerId)
     for (const host of hosts) {
       if (host.id === accessory.id) continue
       const hostFps = shelfFootprints({
@@ -663,7 +663,7 @@ export default class RackAccessoryService {
     }
 
     const shelfDevices = await this.accessories.findShelfDevicesByRack(
-      accessory.rackId,
+      accessory.containerId,
       params.excludeDeviceId
     )
     for (const device of shelfDevices) {
@@ -711,7 +711,7 @@ export default class RackAccessoryService {
       shelfWidthSlots: width,
       shelfHeightU: heightU,
       rackFace,
-      rackId: accessory.rackId,
+      containerId: accessory.containerId,
       siteId: rack.area.siteId,
       areaId: rack.areaId,
     }

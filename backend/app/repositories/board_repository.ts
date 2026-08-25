@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
-import Board from '#models/board'
+import Container from '#models/container'
 import Device from '#models/device'
 import Area from '#models/area'
 import type { CreateBoardInput, BoardFilters, UpdateBoardInput } from '#dtos/board_dto'
 
 export default class BoardRepository {
   async findAllByProject(projectId: string, filters?: BoardFilters) {
-    const query = Board.query()
+    const query = Container.query()
+      .where('kind', 'board')
       .where('project_id', projectId)
       .whereNull('deleted_at')
       .preload('area', (q) => q.preload('site'))
@@ -33,20 +34,22 @@ export default class BoardRepository {
   }
 
   async findByIdOrFail(id: string) {
-    return Board.query()
+    return Container.query()
       .where('id', id)
+      .where('kind', 'board')
       .whereNull('deleted_at')
       .preload('area', (q) => q.preload('site'))
       .firstOrFail()
   }
 
   async findSummaryOrFail(id: string) {
-    return Board.query().where('id', id).whereNull('deleted_at').preload('area').firstOrFail()
+    return Container.query().where('id', id).where('kind', 'board').whereNull('deleted_at').preload('area').firstOrFail()
   }
 
   async findActiveInProject(id: string, projectId: string) {
-    return Board.query()
+    return Container.query()
       .where('id', id)
+      .where('kind', 'board')
       .where('project_id', projectId)
       .whereNull('deleted_at')
       .preload('area')
@@ -54,12 +57,13 @@ export default class BoardRepository {
   }
 
   async create(data: CreateBoardInput & { createdBy: string; updatedBy: string }) {
-    return Board.create({
+    return Container.create({
       projectId: data.projectId,
       areaId: data.areaId,
+      kind: 'board',
       name: data.name,
       code: data.code ?? null,
-      kind: data.kind ?? 'generic',
+      boardKind: data.kind ?? 'generic',
       gridRows: data.gridRows ?? 6,
       gridCols: data.gridCols ?? 8,
       manufacturer: data.manufacturer ?? null,
@@ -70,31 +74,33 @@ export default class BoardRepository {
     })
   }
 
-  async update(board: Board, data: UpdateBoardInput & { updatedBy: string }) {
-    board.merge(data)
+  async update(board: Container, data: UpdateBoardInput & { updatedBy: string }) {
+    const { kind, ...rest } = data
+    board.merge(rest)
+    if (kind !== undefined) board.boardKind = kind
     await board.save()
     return board
   }
 
-  async softDelete(board: Board, deletedBy: string) {
+  async softDelete(board: Container, deletedBy: string) {
     board.deletedAt = DateTime.now()
     board.deletedBy = deletedBy
     board.updatedBy = deletedBy
     await board.save()
   }
 
-  async countActiveDevices(boardId: string) {
+  async countActiveDevices(containerId: string) {
     const row = await Device.query()
-      .where('board_id', boardId)
+      .where('container_id', containerId)
       .whereNull('deleted_at')
       .count('* as total')
       .first()
     return Number(row?.$extras?.total ?? 0)
   }
 
-  async findMountedDevices(boardId: string) {
+  async findMountedDevices(containerId: string) {
     return Device.query()
-      .where('board_id', boardId)
+      .where('container_id', containerId)
       .whereNull('deleted_at')
       .whereNotNull('board_row')
       .whereNotNull('board_col')
@@ -102,13 +108,12 @@ export default class BoardRepository {
       .orderBy('board_col', 'asc')
   }
 
-  /** Keep inventory site/area aligned when a board moves between areas. */
   async syncMountedDevicesLocation(
-    boardId: string,
+    containerId: string,
     data: { areaId: string; siteId: string; updatedBy: string }
   ) {
     await Device.query()
-      .where('board_id', boardId)
+      .where('container_id', containerId)
       .whereNull('deleted_at')
       .update({
         areaId: data.areaId,

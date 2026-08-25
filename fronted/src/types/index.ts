@@ -517,6 +517,7 @@ export interface Device {
   deviceTemplate?: DeviceTemplate
   site?: Site
   area?: Area
+  container?: Container
   rack?: Rack
   board?: Board
   supportedByAccessory?: RackAccessory
@@ -533,14 +534,21 @@ export type DiagramDevicePlacement = {
   containerLabel: string
 }
 
+export type DeviceRelocationMode = 'reparent' | 'purge'
+
 export type DeviceRelocationImpact = {
   requiresConfirmation: boolean
+  mode: DeviceRelocationMode
   placements: DiagramDevicePlacement[]
   linkCodes: number[]
   fromAreaId: string | null
   fromAreaName: string | null
   toAreaId: string | null
   toAreaName: string | null
+  fromContainerId: string | null
+  fromContainerName: string | null
+  toContainerId: string | null
+  toContainerName: string | null
 }
 
 export interface Port {
@@ -776,16 +784,34 @@ export type DiagramPrintFrame = {
   mmPerPx: number
 }
 
+export type DiagramPortDisplay = 'all' | 'connected'
+
+export type DiagramLayoutMode = 'free' | 'tree'
+
+/** Geometry bucket for one layout mode (free columns or tree_layout JSON). */
+export type DiagramLayoutState = {
+  nodePositions?: Record<string, DiagramNodePosition>
+  labelOffsets?: Record<string, DiagramPoint>
+  edgeRoutes?: Record<string, DiagramEdgeRoute>
+  handleAnchors?: Record<string, DiagramHandleAnchor>
+}
+
 export type DiagramSettings = {
   /** Vertical gap between stacked devices inside containers (px). */
   deviceGap?: number
   laneSpacing?: number
   snapToGrid?: boolean
+  /** Show all inventory ports vs only ports with diagram links. */
+  portDisplay?: DiagramPortDisplay
+  /** Swap default source/target sides (free: left/right, tree: bottom/top). */
+  portFlowInverted?: boolean
   printOrientation?: 'portrait' | 'landscape'
   paperSize?: 'a4' | 'a3'
   printFrame?: DiagramPrintFrame
   printIncludeLegend?: boolean
   printIncludeLinkTable?: boolean
+  /** Formato de la tabla de enlaces en el PDF: clásica o ruta lineal. */
+  printLinkTableFormat?: 'table' | 'path'
   /** Invierte luminancia del diagrama al exportar PDF (fondos claros, trazos oscuros). */
   printInvertColors?: boolean
 }
@@ -797,13 +823,16 @@ export interface ConnectionDiagram {
   description: string | null
   scopeSiteIds: string[]
   scopeAreaIds: string[]
-  /** Positions relative to parent container (areas/racks/boards) or canvas root. */
+  /** Positions relative to parent container (areas/racks/boards) — free mode only. */
   nodePositions: Record<string, DiagramNodePosition>
   labelOffsets: Record<string, DiagramPoint>
   edgeRoutes: Record<string, DiagramEdgeRoute>
   containers: Record<string, DiagramContainerState>
-  /** Per-device handle anchor positions (`deviceId::handleId` → anchor). */
+  /** Per-device handle anchor positions (`deviceId::handleId` → anchor) — free mode. */
   handleAnchors?: Record<string, DiagramHandleAnchor>
+  /** Tree-mode geometry (absolute canvas coords). Independent of free columns. */
+  treeLayout?: DiagramLayoutState
+  layoutMode?: DiagramLayoutMode
   settings: DiagramSettings
   sortOrder: number
   createdAt: string
@@ -832,6 +861,8 @@ export interface DiagramLink {
   sourcePortLabel: string
   targetPortLabel: string
   description: string | null
+  cableTypeId: string | null
+  cableTypeName?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -848,6 +879,8 @@ export interface DiagramLinkEdge {
   sourceLabel: string
   targetLabel: string
   description: string | null
+  cableTypeId: string | null
+  cableTypeName: string | null
 }
 
 export interface TopologyNode {
@@ -868,6 +901,7 @@ export interface TopologyNode {
     siteName?: string | null
     areaName?: string | null
     containerId?: string | null
+    containerName?: string | null
     /** @deprecated Use containerId — kept for legacy diagram data. */
     rackId?: string | null
     rackUnitStart?: number | null

@@ -1,6 +1,8 @@
 import type { RackFace, TopologyRackSummary } from '../../types'
 
-export const RACK_NODE_ID_PREFIX = 'rack:'
+/** @deprecated Use 'container:' prefix — kept for parsing legacy saved diagrams. */
+export const RACK_NODE_ID_PREFIX_LEGACY = 'rack:'
+export const RACK_NODE_ID_PREFIX = 'container:'
 
 /** Vista del rack en el canvas (incluye "ambas caras"). */
 export type RackViewFace = RackFace | 'both'
@@ -29,9 +31,15 @@ export function rackFlowNodeId(rackId: string): string {
 }
 
 export function parseRackFlowNodeId(nodeId: string): string | null {
-  if (!nodeId.startsWith(RACK_NODE_ID_PREFIX)) return null
-  const id = nodeId.slice(RACK_NODE_ID_PREFIX.length)
-  return id || null
+  if (nodeId.startsWith(RACK_NODE_ID_PREFIX)) {
+    const id = nodeId.slice(RACK_NODE_ID_PREFIX.length)
+    return id || null
+  }
+  if (nodeId.startsWith(RACK_NODE_ID_PREFIX_LEGACY)) {
+    const id = nodeId.slice(RACK_NODE_ID_PREFIX_LEGACY.length)
+    return id || null
+  }
+  return null
 }
 
 export function isRackFlowNodeId(nodeId: string): boolean {

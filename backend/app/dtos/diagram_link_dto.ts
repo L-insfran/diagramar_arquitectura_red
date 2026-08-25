@@ -7,6 +7,7 @@ export type CreateDiagramLinkInput = {
   sourcePortLabel: string
   targetPortLabel: string
   description?: string | null
+  cableTypeId?: string | null
 }
 
 export type UpdateDiagramLinkInput = {
@@ -17,6 +18,7 @@ export type UpdateDiagramLinkInput = {
   sourcePortLabel?: string
   targetPortLabel?: string
   description?: string | null
+  cableTypeId?: string | null
 }
 
 /** Edge shape returned by connection-diagram graph for simplified links. */
@@ -32,4 +34,6 @@ export type DiagramLinkEdge = {
   sourceLabel: string
   targetLabel: string
   description: string | null
+  cableTypeId: string | null
+  cableTypeName: string | null
 }

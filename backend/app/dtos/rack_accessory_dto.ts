@@ -39,14 +39,14 @@ export type UpdateRackAccessoryTemplateInput = {
 }
 
 export type RackAccessoryFilters = {
-  rackId?: string
+  containerId?: string
   kind?: AccessoryKind
   search?: string
 }
 
 export type CreateRackAccessoryInput = {
   projectId: string
-  rackId: string
+  containerId: string
   accessoryTemplateId?: string | null
   name: string
   kind?: AccessoryKind

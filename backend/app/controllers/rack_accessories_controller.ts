@@ -18,10 +18,10 @@ export default class RackAccessoriesController {
     const context = await requireProjectContext(ctx)
     if (!context) return
 
-    const rackId = ctx.request.input('rackId') as string | undefined
+    const containerId = ctx.request.input('containerId') as string | undefined
     const kind = ctx.request.input('kind') as 'shelf' | undefined
     const search = ctx.request.input('search') as string | undefined
-    const rows = await this.service.getAllByProject(context.projectId, { rackId, kind, search })
+    const rows = await this.service.getAllByProject(context.projectId, { containerId, kind, search })
     return ctx.response.ok({ success: true, data: rows })
   }
 

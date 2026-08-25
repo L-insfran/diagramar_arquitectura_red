@@ -45,6 +45,17 @@ export function parseDiagramHandlePort(handleId: string): {
       return { portId: null, portLabel: enc }
     }
   }
+  if (handleId.startsWith('port:')) {
+    return { portId: handleId.slice(5), portLabel: null }
+  }
+  if (handleId.startsWith('label:')) {
+    const enc = handleId.slice(6)
+    try {
+      return { portId: null, portLabel: decodeURIComponent(enc) }
+    } catch {
+      return { portId: null, portLabel: enc }
+    }
+  }
   return { portId: null, portLabel: null }
 }
 

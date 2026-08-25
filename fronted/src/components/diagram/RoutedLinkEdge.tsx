@@ -18,6 +18,7 @@ import {
   type DiagramPoint,
 } from '../../utils/diagram/orthogonalPath'
 import { formatLinkCode } from '../../utils/diagram/linkLabel'
+import { DIAGRAM_LINK_REF } from '../../utils/diagram/diagramTypography'
 import {
   dragOrthogonalCorner,
   dragOrthogonalSegment,
@@ -36,6 +37,8 @@ export type RoutedLinkEdgeData = {
   targetPortId?: string | null
   sourceLabel?: string
   targetLabel?: string
+  cableTypeId?: string | null
+  cableTypeName?: string | null
   medium?: MediumInfo
   connectionType?: 'physical' | 'logical'
   routePoints?: DiagramPoint[]
@@ -77,13 +80,17 @@ function RoutedLinkEdgeComponent({
   const pointsRef = useRef<DiagramPoint[]>([])
 
   const points = useMemo(() => {
-    const source = { x: sourceX, y: sourceY }
-    const target = { x: targetX, y: targetY }
+    const rfSource = { x: sourceX, y: sourceY }
+    const rfTarget = { x: targetX, y: targetY }
     if (data?.routePoints && data.routePoints.length >= 2) {
+      const source = rfSource
+      const target = rfTarget
       return data.routeManual
         ? repairManualRoute(data.routePoints, source, target)
         : reattachOrthogonalEnds(data.routePoints, source, target)
     }
+    const source = rfSource
+    const target = rfTarget
     const midY = (sourceY + targetY) / 2
     return [
       source,
@@ -122,7 +129,9 @@ function RoutedLinkEdgeComponent({
     sourceText && targetText
       ? `${sourceText} A ${targetText}`
       : sourceText || targetText || null
-  const label = data?.code != null ? formatLinkCode(data.code) : fullLabel
+  const codeLabel = data?.code != null ? formatLinkCode(data.code) : null
+  /** En el canvas solo el código (E1…); el tipo de cable vive en la tabla de referencia. */
+  const label = codeLabel ?? fullLabel
 
   const stale = data?.routeStale === true
   const editable = Boolean(selected && !data?.readOnly)
@@ -250,7 +259,7 @@ function RoutedLinkEdgeComponent({
       {label ? (
         <EdgeLabelRenderer>
           <div
-            className={`nodrag nopan absolute z-[5000] select-none rounded-md border px-1.5 py-0.5 text-[10px] font-bold leading-none shadow-lg ${
+            className={`nodrag nopan absolute z-[5000] select-none rounded-md border px-2 py-1 ${DIAGRAM_LINK_REF} shadow-lg ${
               stale
                 ? 'border-amber-400/90 bg-amber-950/95 text-amber-50 ring-1 ring-amber-500/40'
                 : 'border-sky-300/80 bg-slate-950/95 text-sky-50 ring-1 ring-sky-500/30 dark:border-sky-600/80'

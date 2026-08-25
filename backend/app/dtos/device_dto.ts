@@ -11,8 +11,7 @@ export type DeviceFilters = {
   deviceTemplateId?: string
   siteId?: string
   areaId?: string
-  rackId?: string
-  boardId?: string
+  containerId?: string
   search?: string
 }
 
@@ -29,10 +28,9 @@ export type CreateDeviceInput = {
   location?: string | null
   siteId?: string | null
   areaId?: string | null
-  rackId?: string | null
+  containerId?: string | null
   rackUnitStart?: number | null
   rackFace?: DeviceRackFace | null
-  boardId?: string | null
   boardRow?: number | null
   boardCol?: number | null
   boardRowSpan?: number | null
@@ -58,10 +56,9 @@ export type UpdateDeviceInput = {
   location?: string | null
   siteId?: string | null
   areaId?: string | null
-  rackId?: string | null
+  containerId?: string | null
   rackUnitStart?: number | null
   rackFace?: DeviceRackFace | null
-  boardId?: string | null
   boardRow?: number | null
   boardCol?: number | null
   boardRowSpan?: number | null
@@ -73,4 +70,33 @@ export type UpdateDeviceInput = {
   shelfHeightU?: number | null
   status?: DeviceStatus
   notes?: string | null
+  /** Confirms diagram sync (reparent or purge) when changing location path. */
+  confirmDiagramRelocate?: boolean
+}
+
+export type DiagramDevicePlacement = {
+  diagramId: string
+  diagramName: string
+  containerKey: string
+  areaId: string | null
+  areaName: string | null
+  containerLabel: string
+}
+
+/** purge = other area (remove from diagrams + links); reparent = same area, move in layout. */
+export type DeviceRelocationMode = 'reparent' | 'purge'
+
+export type DeviceRelocationImpact = {
+  requiresConfirmation: boolean
+  mode: DeviceRelocationMode
+  placements: DiagramDevicePlacement[]
+  linkCodes: number[]
+  fromAreaId: string | null
+  fromAreaName: string | null
+  toAreaId: string | null
+  toAreaName: string | null
+  fromContainerId: string | null
+  fromContainerName: string | null
+  toContainerId: string | null
+  toContainerName: string | null
 }

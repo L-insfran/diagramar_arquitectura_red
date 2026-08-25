@@ -30,7 +30,7 @@ export default function Vlans() {
     },
     {
       key: 'name',
-      header: 'Name',
+      header: 'Nombre',
       sortable: true,
       render: (v) => (
         <span className="font-medium text-gray-900 dark:text-white">{v.name}</span>
@@ -38,14 +38,14 @@ export default function Vlans() {
     },
     {
       key: 'description',
-      header: 'Description',
+      header: 'Descripción',
       render: (v) => (
         <span className="text-sm text-gray-500 dark:text-gray-400">{v.description || '—'}</span>
       ),
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: 'Acciones',
       render: (v) => (
         <div className="flex items-center gap-1">
           <Button
@@ -72,9 +72,9 @@ export default function Vlans() {
                 event.stopPropagation()
                 navigate(`/vlans/${v.id}/edit`)
               }}
-              aria-label={`Edit ${v.name}`}
+              aria-label={`Editar ${v.name}`}
             >
-              Edit
+              Editar
             </Button>
           )}
         </div>
@@ -86,11 +86,11 @@ export default function Vlans() {
     <div className="space-y-6">
       <PageHeader
         title="VLANs"
-        subtitle={`${vlans?.length || 0} VLANs configured`}
+        subtitle={`${vlans?.length || 0} VLANs configuradas`}
         actions={
           canMutate ? (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => navigate('/vlans/new')}>
-              Add VLAN
+              Agregar VLAN
             </Button>
           ) : undefined
         }
@@ -99,7 +99,7 @@ export default function Vlans() {
         columns={columns}
         data={vlans || []}
         isLoading={isLoading}
-        emptyMessage="No VLANs configured yet"
+        emptyMessage="No hay VLANs configuradas"
         onRowClick={canMutate ? (vlan) => navigate(`/vlans/${vlan.id}/edit`) : undefined}
       />
 

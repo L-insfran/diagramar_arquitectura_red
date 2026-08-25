@@ -3,9 +3,8 @@ import type { ApiResponse, AccessibleProject, Project, ProjectMembershipSummary 
 
 export type CreateProjectPayload = {
   name: string
-  domain?: string | null
+  clientName?: string | null
   address?: string | null
-  phone?: string | null
 }
 
 export type UpdateProjectPayload = Partial<CreateProjectPayload> & {

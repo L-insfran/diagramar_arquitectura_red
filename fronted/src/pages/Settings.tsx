@@ -260,7 +260,7 @@ export default function SettingsPage() {
         )}
 
         {canMutate && (
-          <Card title="Racks">
+          <Card title="Contenedores">
             <div className="mt-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
@@ -268,17 +268,17 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">
-                    Gabinetes y ocupación U
+                    Contenedores
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Visor de ocupación U y montaje de equipos
+                    Racks, tableros y otros contenedores de equipos
                   </p>
                 </div>
               </div>
               <Button
                 variant="secondary"
                 icon={<ChevronRight className="w-4 h-4" />}
-                onClick={() => navigate('/racks')}
+                onClick={() => navigate('/containers')}
               >
                 Administrar
               </Button>

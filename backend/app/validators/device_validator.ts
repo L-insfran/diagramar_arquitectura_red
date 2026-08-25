@@ -17,10 +17,9 @@ export const createDeviceValidator = vine.compile(
     location: vine.string().trim().maxLength(255).optional(),
     siteId: vine.string().uuid().nullable().optional(),
     areaId: vine.string().uuid().nullable().optional(),
-    rackId: vine.string().uuid().nullable().optional(),
+    containerId: vine.string().uuid().nullable().optional(),
     rackUnitStart: vine.number().min(1).max(60).nullable().optional(),
     rackFace: rackFace.nullable().optional(),
-    boardId: vine.string().uuid().nullable().optional(),
     boardRow: vine.number().min(0).max(39).nullable().optional(),
     boardCol: vine.number().min(0).max(39).nullable().optional(),
     boardRowSpan: vine.number().min(1).max(40).nullable().optional(),
@@ -31,6 +30,13 @@ export const createDeviceValidator = vine.compile(
     shelfHeightU: vine.number().min(1).max(20).nullable().optional(),
     status: deviceStatus.optional(),
     notes: vine.string().trim().optional(),
+  })
+)
+
+export const assignContainerValidator = vine.compile(
+  vine.object({
+    containerId: vine.string().uuid().nullable().optional(),
+    areaId: vine.string().uuid().nullable().optional(),
   })
 )
 
@@ -46,10 +52,9 @@ export const updateDeviceValidator = vine.compile(
     location: vine.string().trim().maxLength(255).optional(),
     siteId: vine.string().uuid().nullable().optional(),
     areaId: vine.string().uuid().nullable().optional(),
-    rackId: vine.string().uuid().nullable().optional(),
+    containerId: vine.string().uuid().nullable().optional(),
     rackUnitStart: vine.number().min(1).max(60).nullable().optional(),
     rackFace: rackFace.nullable().optional(),
-    boardId: vine.string().uuid().nullable().optional(),
     boardRow: vine.number().min(0).max(39).nullable().optional(),
     boardCol: vine.number().min(0).max(39).nullable().optional(),
     boardRowSpan: vine.number().min(1).max(40).nullable().optional(),
@@ -60,5 +65,6 @@ export const updateDeviceValidator = vine.compile(
     shelfHeightU: vine.number().min(1).max(20).nullable().optional(),
     status: deviceStatus.optional(),
     notes: vine.string().trim().optional(),
+    confirmDiagramRelocate: vine.boolean().optional(),
   })
 )

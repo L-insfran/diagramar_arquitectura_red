@@ -50,7 +50,7 @@ export default function Networks() {
   const columns: Column<Network>[] = [
     {
       key: 'name',
-      header: 'Name',
+      header: 'Nombre',
       sortable: true,
       render: (n) => (
         <span className="font-medium text-gray-900 dark:text-white">{n.name}</span>
@@ -58,13 +58,13 @@ export default function Networks() {
     },
     {
       key: 'subnet',
-      header: 'Subnet',
+      header: 'Subred',
       sortable: true,
       render: (n) => <span className="font-mono text-sm">{n.subnet}</span>,
     },
     {
       key: 'gateway',
-      header: 'Gateway',
+      header: 'Puerta de enlace',
       render: (n) => (
         <span className="font-mono text-sm text-gray-500 dark:text-gray-400">
           {n.gateway || '—'}
@@ -88,7 +88,7 @@ export default function Networks() {
       header: 'DHCP',
       render: (n) => (
         <StatusBadge status={n.dhcpEnabled ? 'online' : 'disabled'}>
-          {n.dhcpEnabled ? 'Enabled' : 'Disabled'}
+          {n.dhcpEnabled ? 'Habilitado' : 'Deshabilitado'}
         </StatusBadge>
       ),
     },
@@ -104,7 +104,7 @@ export default function Networks() {
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: 'Acciones',
       render: (n) => (
         <div className="flex items-center gap-1">
           <Button
@@ -162,8 +162,8 @@ export default function Networks() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Networks"
-        subtitle={`${networks?.length || 0} networks configured`}
+        title="Redes"
+        subtitle={`${networks?.length || 0} redes configuradas`}
         actions={
           canMutate ? (
             <Button
@@ -179,7 +179,7 @@ export default function Networks() {
         columns={columns}
         data={networks || []}
         isLoading={isLoading}
-        emptyMessage="No networks configured yet"
+        emptyMessage="No hay redes configuradas"
         onRowClick={
           canMutate ? (network) => navigate(`/networks/${network.id}/edit`) : undefined
         }

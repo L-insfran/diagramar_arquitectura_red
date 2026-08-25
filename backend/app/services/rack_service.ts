@@ -340,19 +340,19 @@ export default class RackService {
 
     const agg = aggregateUsedUnitsByFace(footprints)
     const usedU = agg.usedU
-    const capacity = rack.heightU * 2
+    const capacity = (rack.heightU ?? 0) * 2
     const freeU = Math.max(0, capacity - usedU)
 
     return {
       rackId: rack.id,
-      heightU: rack.heightU,
+      heightU: rack.heightU ?? 0,
       usedU,
       freeU,
       percentUsed: capacity === 0 ? 0 : Math.round((usedU / capacity) * 1000) / 10,
       devices,
       accessories,
-      slotsFront: this.buildSlots(rack.heightU, railOccupants, 'front'),
-      slotsRear: this.buildSlots(rack.heightU, railOccupants, 'rear'),
+      slotsFront: this.buildSlots(rack.heightU ?? 0, railOccupants, 'front'),
+      slotsRear: this.buildSlots(rack.heightU ?? 0, railOccupants, 'rear'),
     }
   }
 
@@ -457,9 +457,9 @@ export default class RackService {
 
     const heightU = Math.max(1, params.heightU)
     const end = start + heightU - 1
-    if (end > rack.heightU) {
+    if (end > (rack.heightU ?? 0)) {
       throw new Exception(
-        `El equipo (${heightU}U desde U${start}) no cabe en el rack de ${rack.heightU}U`,
+        `El equipo (${heightU}U desde U${start}) no cabe en el rack de ${rack.heightU ?? 0}U`,
         { status: 422 }
       )
     }

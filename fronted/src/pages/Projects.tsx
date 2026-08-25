@@ -17,9 +17,8 @@ import type { Project, SystemUser } from '../types'
 
 const emptyForm = {
   name: '',
-  domain: '',
+  clientName: '',
   address: '',
-  phone: '',
 }
 
 type MembershipDraft = {
@@ -58,9 +57,8 @@ export default function Projects() {
     setEditing(project)
     setForm({
       name: project.name ?? '',
-      domain: project.domain ?? '',
+      clientName: project.clientName ?? '',
       address: project.address ?? '',
-      phone: project.phone ?? '',
     })
     setFormError(null)
     setModalOpen(true)
@@ -77,9 +75,8 @@ export default function Projects() {
       setSubmitting(true)
       const payload = {
         name: form.name.trim(),
-        domain: form.domain.trim() || null,
+        clientName: form.clientName.trim() || null,
         address: form.address.trim() || null,
-        phone: form.phone.trim() || null,
       }
       if (editing) {
         await projectsService.update(editing.id, payload)
@@ -207,15 +204,8 @@ export default function Projects() {
         render: (row) => (
           <div className="min-w-0">
             <p className="font-medium text-gray-900 dark:text-white truncate">{row.name}</p>
-            {row.domain && <p className="text-xs text-gray-500 truncate">{row.domain}</p>}
+            {row.clientName && <p className="text-xs text-gray-500 truncate">{row.clientName}</p>}
           </div>
-        ),
-      },
-      {
-        key: 'phone',
-        header: 'Contacto',
-        render: (row) => (
-          <span className="text-sm text-gray-600 dark:text-gray-300">{row.phone || '—'}</span>
         ),
       },
       {
@@ -333,27 +323,22 @@ export default function Projects() {
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Nombre"
+            label="Cliente"
+            value={form.clientName}
+            onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))}
+            placeholder="ej. Unilever"
+          />
+          <Input
+            label="Nombre del proyecto"
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             required
-            placeholder="ej. Acme Corp"
-          />
-          <Input
-            label="Dominio"
-            value={form.domain}
-            onChange={(e) => setForm((f) => ({ ...f, domain: e.target.value }))}
-            placeholder="ej. acme.local"
+            placeholder="ej. Sunlight Betaina"
           />
           <Input
             label="Dirección"
             value={form.address}
             onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-          />
-          <Input
-            label="Teléfono"
-            value={form.phone}
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
           />
           {formError && <p className="text-sm text-red-500">{formError}</p>}
           <div className="flex justify-end gap-2">

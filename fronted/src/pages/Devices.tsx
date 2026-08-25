@@ -1,17 +1,22 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Eye, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Search, Eye, Pencil, Trash2, Layers } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
 import { Button } from '../components/Button'
 import { Select } from '../components/Select'
+import { Modal } from '../components/Modal'
+import { DeviceInventoryPanel } from '../components/DeviceInventoryPanel'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
+import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { useToast } from '../contexts/ToastContext'
 import { devicesService } from '../services/devices.service'
 import { deviceTypesService } from '../services/device-types.service'
+import { containersService } from '../services/containers.service'
+import { UNSET_TEMPLATE_ID } from '../utils/deviceInventory'
 import type { Device } from '../types'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
@@ -19,11 +24,15 @@ const NOTEBOOK_NAMES = ['notebook', 'notebock']
 export default function Devices() {
   const navigate = useNavigate()
   const { canMutate, isViewer } = usePermissions()
-  const { activeProjectId } = useProject()
+  const { user } = useAuth()
+  const { activeProjectId, activeProject } = useProject()
   const toast = useToast()
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [areaFilter, setAreaFilter] = useState('')
+  const [containerFilter, setContainerFilter] = useState('')
   const [deviceTypeFilter, setDeviceTypeFilter] = useState('')
+  const [deviceTemplateFilter, setDeviceTemplateFilter] = useState('')
+  const [inventoryOpen, setInventoryOpen] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const { data: deviceTypes } = useApi(() => deviceTypesService.getAll(), [activeProjectId])
@@ -33,15 +42,64 @@ export default function Devices() {
     [deviceTypes]
   )
 
+  const { data: containers } = useApi(
+    () => containersService.getAll({ areaId: areaFilter || undefined }),
+    [activeProjectId, areaFilter]
+  )
+
   const { data: devices, isLoading, refetch } = useApi(
     () =>
       devicesService.getAll({
         search,
-        status: statusFilter || undefined,
+        areaId: areaFilter || undefined,
+        containerId: containerFilter || undefined,
         deviceTypeId: deviceTypeFilter || undefined,
+        deviceTemplateId: deviceTemplateFilter || undefined,
       }),
-    [search, statusFilter, deviceTypeFilter, activeProjectId]
+    [search, areaFilter, containerFilter, deviceTypeFilter, deviceTemplateFilter, activeProjectId]
   )
+
+  const knownTemplatesRef = useRef<{ projectId: string; map: Map<string, string> }>({
+    projectId: '',
+    map: new Map(),
+  })
+
+  const templateOptions = useMemo(() => {
+    if (knownTemplatesRef.current.projectId !== activeProjectId) {
+      knownTemplatesRef.current = { projectId: activeProjectId, map: new Map() }
+    }
+    const map = knownTemplatesRef.current.map
+    for (const device of devices || []) {
+      if (device.deviceTemplateId) {
+        map.set(device.deviceTemplateId, device.deviceTemplate?.name || device.deviceTemplateId)
+      }
+    }
+    if (deviceTemplateFilter && !map.has(deviceTemplateFilter)) {
+      map.set(deviceTemplateFilter, 'Template seleccionado')
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
+      .map(([value, label]) => ({ value, label }))
+  }, [devices, deviceTemplateFilter, activeProjectId])
+
+  const areaOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const d of devices || []) {
+      if (d.areaId && d.area) map.set(d.areaId, d.area.name)
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
+      .map(([value, label]) => ({ value, label }))
+  }, [devices])
+
+  const containerOptions = useMemo(() => {
+    return (containers || [])
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+      .map((c) => ({ value: c.id, label: c.name }))
+  }, [containers])
+
+  const filtersActive = Boolean(search || areaFilter || containerFilter || deviceTypeFilter || deviceTemplateFilter)
+  const authorName = user?.firstName ? `${user.firstName} ${user.lastName}` : undefined
 
   const isNotebook = (d: Device) =>
     d.deviceType?.name ? NOTEBOOK_NAMES.includes(d.deviceType.name.toLowerCase()) : false
@@ -71,7 +129,7 @@ export default function Devices() {
   const columns: Column<Device>[] = [
     {
       key: 'name',
-      header: 'Name',
+      header: 'Nombre',
       sortable: true,
       render: (d) => (
         <div>
@@ -82,34 +140,36 @@ export default function Devices() {
     },
     {
       key: 'ipAddress',
-      header: 'IP Address',
+      header: 'Dirección IP',
       sortable: true,
       render: (d) => <span className="font-mono text-sm">{d.ipAddress || '—'}</span>,
     },
     {
       key: 'deviceType',
-      header: 'Type',
+      header: 'Tipo',
       render: (d) => (
         <span className="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs font-medium">
           {d.deviceType?.name || '—'}
         </span>
       ),
     },
-    { key: 'status', header: 'Status', render: (d) => <StatusBadge status={d.status} /> },
+    { key: 'status', header: 'Estado', render: (d) => <StatusBadge status={d.status} /> },
     {
       key: 'location',
-      header: 'Location',
+      header: 'Ubicación',
       sortable: true,
       render: (d) => (
         <span className="text-gray-500 dark:text-gray-400">
-          {[d.site?.name, d.area?.name].filter(Boolean).join(' › ') || d.location || '—'}
+          {[d.site?.name, d.area?.name, d.container?.name].filter(Boolean).join(' › ') ||
+            d.location ||
+            '—'}
         </span>
       ),
     },
-    { key: 'manufacturer', header: 'Manufacturer', render: (d) => d.manufacturer || '—' },
+    { key: 'manufacturer', header: 'Fabricante', render: (d) => d.manufacturer || '—' },
     {
       key: 'template',
-      header: 'Template',
+      header: 'Plantilla',
       render: (d) => (
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {d.deviceTemplate?.name || '—'}
@@ -118,7 +178,7 @@ export default function Devices() {
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: 'Acciones',
       render: (d) => (
         <div className="flex items-center gap-1">
           <Button
@@ -131,9 +191,9 @@ export default function Devices() {
               e.stopPropagation()
               navigate(`/devices/${d.id}`)
             }}
-            aria-label={`View ${d.name}`}
+            aria-label={`Ver ${d.name}`}
           >
-            View
+            Ver
           </Button>
           {canEditDevice(d) && (
             <Button
@@ -146,9 +206,9 @@ export default function Devices() {
                 e.stopPropagation()
                 navigate(`/devices/${d.id}/edit`)
               }}
-              aria-label={`Edit ${d.name}`}
+              aria-label={`Editar ${d.name}`}
             >
-              Edit
+              Editar
             </Button>
           )}
           {canMutate && (
@@ -163,9 +223,9 @@ export default function Devices() {
                 e.stopPropagation()
                 void handleDelete(d)
               }}
-              aria-label={`Delete ${d.name}`}
+              aria-label={`Eliminar ${d.name}`}
             >
-              Delete
+              Eliminar
             </Button>
           )}
         </div>
@@ -180,12 +240,22 @@ export default function Devices() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Devices"
-        subtitle={`${devices?.length || 0} devices in your network`}
+        title="Dispositivos"
+        subtitle={`${devices?.length || 0} equipos en el inventario`}
         actions={
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => navigate(addButtonTarget)}>
-            {isViewer ? 'Add Notebook' : 'Add Device'}
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              icon={<Layers className="w-4 h-4" />}
+              onClick={() => setInventoryOpen(true)}
+            >
+              Inventario por modelo
+            </Button>
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => navigate(addButtonTarget)}>
+              {isViewer ? 'Agregar notebook' : 'Agregar dispositivo'}
+            </Button>
+          </>
         }
       />
 
@@ -194,30 +264,42 @@ export default function Devices() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search devices..."
+            placeholder="Buscar dispositivos..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
           />
         </div>
         <Select
-          options={[
-            { value: 'online', label: 'Online' },
-            { value: 'offline', label: 'Offline' },
-            { value: 'maintenance', label: 'Maintenance' },
-            { value: 'unknown', label: 'Unknown' },
-          ]}
-          placeholder="All Status"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          options={areaOptions}
+          placeholder="Todas las áreas"
+          value={areaFilter}
+          onChange={(e) => {
+            setAreaFilter(e.target.value)
+            setContainerFilter('')
+          }}
           className="w-full sm:w-48"
         />
         <Select
+          options={containerOptions}
+          placeholder="Todos los contenedores"
+          value={containerFilter}
+          onChange={(e) => setContainerFilter(e.target.value)}
+          className="w-full sm:w-52"
+        />
+        <Select
           options={(deviceTypes || []).map((t) => ({ value: t.id, label: t.name }))}
-          placeholder="All Types"
+          placeholder="Todos los tipos"
           value={deviceTypeFilter}
           onChange={(e) => setDeviceTypeFilter(e.target.value)}
           className="w-full sm:w-52"
+        />
+        <Select
+          options={templateOptions}
+          placeholder="Todas las plantillas"
+          value={deviceTemplateFilter}
+          onChange={(e) => setDeviceTemplateFilter(e.target.value)}
+          className="w-full sm:w-56"
         />
       </div>
 
@@ -226,8 +308,29 @@ export default function Devices() {
         data={devices || []}
         isLoading={isLoading}
         onRowClick={(device) => navigate(`/devices/${device.id}`)}
-        emptyMessage="No devices found. Add your first device to get started."
+        emptyMessage="No se encontraron dispositivos. Agrega tu primer dispositivo para comenzar."
       />
+
+      <Modal
+        isOpen={inventoryOpen}
+        onClose={() => setInventoryOpen(false)}
+        title="Inventario por modelo"
+        size="xl"
+      >
+        <DeviceInventoryPanel
+          devices={devices || []}
+          filtersActive={filtersActive}
+          projectName={activeProject?.name}
+          clientName={activeProject?.clientName ?? undefined}
+          authorName={authorName}
+          onSelectTemplate={(templateId) => {
+            if (templateId !== UNSET_TEMPLATE_ID) {
+              setDeviceTemplateFilter(templateId)
+            }
+            setInventoryOpen(false)
+          }}
+        />
+      </Modal>
     </div>
   )
 }

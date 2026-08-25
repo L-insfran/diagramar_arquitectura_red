@@ -3,6 +3,14 @@ import vine from '@vinejs/vine'
 const pointSchema = vine.object({
   x: vine.number(),
   y: vine.number(),
+  t: vine.number().min(0).max(1).optional(),
+  width: vine.number().min(120).optional(),
+  height: vine.number().min(40).optional(),
+})
+
+const handleAnchorSchema = vine.object({
+  side: vine.enum(['top', 'bottom', 'left', 'right'] as const),
+  t: vine.number().min(0).max(1),
 })
 
 const labelOffsetSchema = vine.object({
@@ -41,11 +49,20 @@ const settingsSchema = vine.object({
   deviceGap: vine.number().min(8).max(72).optional(),
   laneSpacing: vine.number().optional(),
   snapToGrid: vine.boolean().optional(),
+  portDisplay: vine.enum(['all', 'connected'] as const).optional(),
+  portFlowInverted: vine.boolean().optional(),
   printOrientation: vine.enum(['portrait', 'landscape'] as const).optional(),
   paperSize: vine.enum(['a4', 'a3'] as const).optional(),
   printFrame: printFrameSchema.clone().optional(),
   printIncludeLegend: vine.boolean().optional(),
   printIncludeLinkTable: vine.boolean().optional(),
+})
+
+const treeLayoutSchema = vine.object({
+  nodePositions: vine.record(pointSchema.clone()).optional(),
+  labelOffsets: vine.record(labelOffsetSchema.clone()).optional(),
+  edgeRoutes: vine.record(edgeRouteSchema.clone()).optional(),
+  handleAnchors: vine.record(handleAnchorSchema.clone()).optional(),
 })
 
 export const createConnectionDiagramValidator = vine.compile(
@@ -56,6 +73,7 @@ export const createConnectionDiagramValidator = vine.compile(
     scopeSiteIds: vine.array(vine.string().uuid()).optional(),
     scopeAreaIds: vine.array(vine.string().uuid()).optional(),
     sortOrder: vine.number().optional(),
+    layoutMode: vine.enum(['free', 'tree'] as const).optional(),
     settings: settingsSchema.clone().optional(),
   })
 )
@@ -70,6 +88,9 @@ export const updateConnectionDiagramValidator = vine.compile(
     labelOffsets: vine.record(labelOffsetSchema.clone()).optional(),
     edgeRoutes: vine.record(edgeRouteSchema.clone()).optional(),
     containers: vine.record(containerSchema.clone()).optional(),
+    handleAnchors: vine.record(handleAnchorSchema.clone()).optional(),
+    treeLayout: treeLayoutSchema.clone().optional(),
+    layoutMode: vine.enum(['free', 'tree'] as const).optional(),
     settings: settingsSchema.clone().optional(),
     sortOrder: vine.number().optional(),
   })

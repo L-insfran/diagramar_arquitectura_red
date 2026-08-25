@@ -6,8 +6,7 @@ import DeviceType from './device_type.js'
 import DeviceTemplate from './device_template.js'
 import Site from './site.js'
 import Area from './area.js'
-import Rack from './rack.js'
-import Board from './board.js'
+import Container from './container.js'
 import RackAccessory from './rack_accessory.js'
 import Port from './port.js'
 import DeviceCredential from './device_credential.js'
@@ -33,17 +32,13 @@ export default class Device extends BaseModel {
   declare areaId: string | null
 
   @column()
-  declare rackId: string | null
+  declare containerId: string | null
 
   @column()
   declare rackUnitStart: number | null
 
   @column()
   declare rackFace: 'front' | 'rear' | 'both' | null
-
-  /** Device mounted on a board (electrical/comms panel). Mutually exclusive with rack. */
-  @column()
-  declare boardId: string | null
 
   @column()
   declare boardRow: number | null
@@ -142,11 +137,8 @@ export default class Device extends BaseModel {
   @belongsTo(() => Area)
   declare area: BelongsTo<typeof Area>
 
-  @belongsTo(() => Rack)
-  declare rack: BelongsTo<typeof Rack>
-
-  @belongsTo(() => Board)
-  declare board: BelongsTo<typeof Board>
+  @belongsTo(() => Container)
+  declare container: BelongsTo<typeof Container>
 
   @belongsTo(() => RackAccessory, { foreignKey: 'supportedByAccessoryId' })
   declare supportedByAccessory: BelongsTo<typeof RackAccessory>

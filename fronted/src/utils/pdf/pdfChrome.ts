@@ -6,6 +6,54 @@ export type PdfHeaderBranding = {
   reportTagline?: string
 }
 
+type HeaderPalette = {
+  fill: [number, number, number]
+  text: [number, number, number]
+  muted: [number, number, number]
+  accent: [number, number, number]
+}
+
+function headerPalette(invertColors?: boolean): HeaderPalette {
+  if (invertColors) {
+    return {
+      fill: [255, 255, 255],
+      text: [15, 23, 42],
+      muted: [71, 85, 105],
+      accent: [15, 23, 42],
+    }
+  }
+  return {
+    fill: [15, 23, 42],
+    text: [255, 255, 255],
+    muted: [180, 190, 210],
+    accent: [59, 130, 246],
+  }
+}
+
+/** Invierte el logo (sin relleno) para que un isotipo claro sea visible sobre encabezado blanco. */
+export async function invertLogoForPrint(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      if (!ctx || w < 1 || h < 1) {
+        resolve(dataUrl)
+        return
+      }
+      ctx.filter = 'invert(1) hue-rotate(180deg)'
+      ctx.drawImage(img, 0, 0)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+
 export function drawHeader(
   pdf: jsPDF,
   pageW: number,
@@ -15,8 +63,11 @@ export function drawHeader(
   authorName: string | undefined,
   dateStr: string,
   branding?: PdfHeaderBranding,
+  invertColors?: boolean,
+  clientName?: string,
 ) {
-  pdf.setFillColor(15, 23, 42)
+  const pal = headerPalette(invertColors)
+  pdf.setFillColor(pal.fill[0], pal.fill[1], pal.fill[2])
   pdf.rect(0, 0, pageW, HEADER_H - 4, 'F')
 
   const logoMaxH = 12
@@ -24,7 +75,9 @@ export function drawHeader(
   const logoY = 4.5
   const hasLogo = Boolean(branding?.logoDataUrl)
   const tagline = branding?.reportTagline?.trim() || undefined
-  const rightReserved = 52
+  const client = clientName?.trim() || undefined
+  const project = projectName?.trim() || undefined
+  const rightReserved = 58
   let brandBottom = logoY
 
   if (hasLogo && branding?.logoDataUrl) {
@@ -47,24 +100,24 @@ export function drawHeader(
     if (tagline) {
       pdf.setFontSize(6.5)
       pdf.setFont('helvetica', 'normal')
-      pdf.setTextColor(180, 190, 210)
+      pdf.setTextColor(pal.muted[0], pal.muted[1], pal.muted[2])
       pdf.text(tagline, MARGIN, brandBottom + 3.5, {
         maxWidth: pageW - MARGIN * 2 - rightReserved,
       })
       brandBottom += 5
     }
-  } else if (projectName) {
+  } else if (project) {
     // Sin logo: el nombre del proyecto actúa como marca (comportamiento legacy)
-    pdf.setTextColor(255, 255, 255)
+    pdf.setTextColor(pal.text[0], pal.text[1], pal.text[2])
     pdf.setFontSize(14)
     pdf.setFont('helvetica', 'bold')
-    pdf.text(projectName, MARGIN, 13)
+    pdf.text(project, MARGIN, 13)
     brandBottom = 13
 
     if (tagline) {
       pdf.setFontSize(6.5)
       pdf.setFont('helvetica', 'normal')
-      pdf.setTextColor(180, 190, 210)
+      pdf.setTextColor(pal.muted[0], pal.muted[1], pal.muted[2])
       pdf.text(tagline, MARGIN, 18, {
         maxWidth: pageW - MARGIN * 2 - rightReserved,
       })
@@ -72,32 +125,50 @@ export function drawHeader(
     }
   }
 
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFontSize(hasLogo || projectName ? 10 : 14)
-  pdf.setFont('helvetica', hasLogo || projectName ? 'normal' : 'bold')
-  const titleY = hasLogo || projectName ? Math.max(24, brandBottom + 6) : 15
+  pdf.setTextColor(pal.text[0], pal.text[1], pal.text[2])
+  pdf.setFontSize(hasLogo || project ? 10 : 14)
+  pdf.setFont('helvetica', hasLogo || project ? 'normal' : 'bold')
+  const titleY = hasLogo || project ? Math.max(24, brandBottom + 6) : 15
   pdf.text(title, MARGIN, titleY)
 
   if (subtitle) {
     pdf.setFontSize(8)
     pdf.setFont('helvetica', 'normal')
-    pdf.setTextColor(200, 200, 200)
+    pdf.setTextColor(pal.muted[0], pal.muted[1], pal.muted[2])
     pdf.text(subtitle, MARGIN, titleY + 8, {
       maxWidth: pageW - MARGIN * 2 - rightReserved,
     })
   }
 
-  pdf.setTextColor(255, 255, 255)
+  pdf.setTextColor(pal.text[0], pal.text[1], pal.text[2])
   pdf.setFontSize(8)
   pdf.setFont('helvetica', 'normal')
   pdf.text(dateStr, pageW - MARGIN, 13, { align: 'right' })
 
+  let rightY = 13
   if (authorName) {
+    rightY = 20
     pdf.setFontSize(7)
-    pdf.text(`Generado por: ${authorName}`, pageW - MARGIN, 20, { align: 'right' })
+    pdf.text(`Generado por: ${authorName}`, pageW - MARGIN, rightY, { align: 'right' })
   }
 
-  pdf.setDrawColor(59, 130, 246)
+  // Cliente / proyecto a la derecha (bajo fecha y autor) para no desplazar el título.
+  // Sin logo el proyecto ya es marca a la izquierda: solo añadimos el cliente.
+  const rightScope: string[] = []
+  if (client) rightScope.push(`Cliente: ${client}`)
+  if (hasLogo && project) rightScope.push(`Proyecto: ${project}`)
+
+  if (rightScope.length > 0) {
+    pdf.setFontSize(7)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(pal.muted[0], pal.muted[1], pal.muted[2])
+    for (const line of rightScope) {
+      rightY += 5
+      pdf.text(line, pageW - MARGIN, rightY, { align: 'right' })
+    }
+  }
+
+  pdf.setDrawColor(pal.accent[0], pal.accent[1], pal.accent[2])
   pdf.setLineWidth(0.6)
   pdf.line(0, HEADER_H - 4, pageW, HEADER_H - 4)
 }
@@ -108,21 +179,24 @@ export function drawSectorHeader(
   title: string,
   projectName: string | undefined,
   sectorLabel: string,
+  invertColors?: boolean,
 ) {
-  pdf.setFillColor(30, 41, 59)
+  const pal = headerPalette(invertColors)
+  const sectorFill = invertColors ? pal.fill : ([30, 41, 59] as [number, number, number])
+  pdf.setFillColor(sectorFill[0], sectorFill[1], sectorFill[2])
   pdf.rect(0, 0, pageW, SECTOR_HEADER_H, 'F')
 
-  pdf.setTextColor(255, 255, 255)
+  pdf.setTextColor(pal.text[0], pal.text[1], pal.text[2])
   pdf.setFontSize(9)
   pdf.setFont('helvetica', 'bold')
   pdf.text(projectName ? `${projectName} — ${title}` : title, MARGIN, 10)
 
   pdf.setFontSize(7)
   pdf.setFont('helvetica', 'normal')
-  pdf.setTextColor(180, 190, 210)
+  pdf.setTextColor(pal.muted[0], pal.muted[1], pal.muted[2])
   pdf.text(sectorLabel, MARGIN, 17)
 
-  pdf.setDrawColor(59, 130, 246)
+  pdf.setDrawColor(pal.accent[0], pal.accent[1], pal.accent[2])
   pdf.setLineWidth(0.4)
   pdf.line(0, SECTOR_HEADER_H, pageW, SECTOR_HEADER_H)
 }
@@ -156,12 +230,16 @@ export function drawGridIndicator(
   }
 }
 
-export function drawLegend(pdf: jsPDF, _pageW: number, pageH: number) {
-  const legendY = pageH - FOOTER_H - 6
+/**
+ * Dibuja la leyenda de medios/estados.
+ * @param legendY baseline Y en mm; por defecto justo encima del footer.
+ */
+export function drawLegend(pdf: jsPDF, _pageW: number, pageH: number, legendY?: number) {
+  const y = legendY ?? pageH - FOOTER_H - 6
   pdf.setFontSize(6)
   pdf.setFont('helvetica', 'bold')
   pdf.setTextColor(100, 100, 100)
-  pdf.text('LEYENDA:', MARGIN, legendY)
+  pdf.text('LEYENDA:', MARGIN, y)
 
   const items = [
     { color: [59, 130, 246] as [number, number, number], label: 'Cable UTP', dash: false },
@@ -176,18 +254,18 @@ export function drawLegend(pdf: jsPDF, _pageW: number, pageH: number) {
     pdf.setDrawColor(item.color[0], item.color[1], item.color[2])
     pdf.setLineWidth(0.8)
     if (item.dash) {
-      for (let dx = 0; dx < 8; dx += 3) pdf.line(x + dx, legendY - 1.2, x + dx + 1.5, legendY - 1.2)
+      for (let dx = 0; dx < 8; dx += 3) pdf.line(x + dx, y - 1.2, x + dx + 1.5, y - 1.2)
     } else {
-      pdf.line(x, legendY - 1.2, x + 8, legendY - 1.2)
+      pdf.line(x, y - 1.2, x + 8, y - 1.2)
     }
     pdf.setTextColor(80, 80, 80)
-    pdf.text(item.label, x + 11, legendY)
+    pdf.text(item.label, x + 11, y)
     x += 32
   }
 
   x += 2
   pdf.setTextColor(80, 80, 80)
-  pdf.text('Trunk / Access', x, legendY)
+  pdf.text('Trunk / Access', x, y)
   x += 28
 
   const statusItems = [
@@ -197,9 +275,9 @@ export function drawLegend(pdf: jsPDF, _pageW: number, pageH: number) {
   ]
   for (const item of statusItems) {
     pdf.setFillColor(item.color[0], item.color[1], item.color[2])
-    pdf.circle(x + 1, legendY - 1.2, 1, 'F')
+    pdf.circle(x + 1, y - 1.2, 1, 'F')
     pdf.setTextColor(80, 80, 80)
-    pdf.text(item.label, x + 4, legendY)
+    pdf.text(item.label, x + 4, y)
     x += 24
   }
 }

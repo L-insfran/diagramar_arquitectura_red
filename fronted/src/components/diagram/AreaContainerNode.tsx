@@ -13,6 +13,12 @@ import {
   simpleDeviceHeight,
   type DeviceStackLayoutOpts,
 } from './SimpleDeviceNode'
+import {
+  DIAGRAM_CONTAINER_BADGE,
+  DIAGRAM_CONTAINER_SUBTITLE,
+  DIAGRAM_CONTAINER_TITLE,
+  DIAGRAM_EMPTY_HINT,
+} from '../../utils/diagram/diagramTypography'
 
 export type AreaContainerData = {
   area: TopologyAreaSummary
@@ -21,7 +27,7 @@ export type AreaContainerData = {
   deviceOptions: ContainerDeviceOption[]
   /** True when racks/boards are nested inside this area. */
   hasSubContainers?: boolean
-  /** Minimum size to fit packed children (NodeResizer floor). */
+  /** Packed-content size used for auto-layout / persist; not the resize floor. */
   contentMinWidth?: number
   contentMinHeight?: number
   readOnly?: boolean
@@ -57,9 +63,21 @@ export function areaLooseContentTop(opts?: { hidePicker?: boolean }): number {
   return areaChromeHeight(opts) + AREA_BODY_PAD
 }
 
+/** Smallest area the user can drag the resizer to (header + picker still fit). */
+export function areaResizeFloor(opts?: { hidePicker?: boolean }): {
+  width: number
+  height: number
+} {
+  return {
+    width: 160,
+    height: areaChromeHeight(opts) + AREA_BODY_PAD + 8,
+  }
+}
+
 /**
- * Keep user extra padding on a resized area, but drop leftover space from
- * devices/racks that no longer exist. Legacy layouts without contentMin snap to content.
+ * Restore a saved container size relative to the content floor at save time.
+ * Extra padding and user shrinks both persist; legacy layouts without contentMin
+ * snap to packed content.
  */
 export function applySavedAreaExtent(
   contentMin: number,
@@ -71,7 +89,7 @@ export function applySavedAreaExtent(
   if (savedContentMin == null || !Number.isFinite(savedContentMin) || savedContentMin <= 0) {
     return contentMin
   }
-  return contentMin + Math.max(0, savedSize - savedContentMin)
+  return Math.max(0, contentMin + (savedSize - savedContentMin))
 }
 
 /**
@@ -215,8 +233,9 @@ function AreaContainerNodeComponent({
   const showPicker = !data.readOnly && !data.hidePicker
   const showEmpty = data.deviceIds.length === 0 && !data.hasSubContainers
   const chromeH = areaChromeHeight({ hidePicker: data.hidePicker })
-  const minW = Math.max(200, data.contentMinWidth ?? 240)
-  const minH = Math.max(140, data.contentMinHeight ?? 160)
+  const floor = areaResizeFloor({ hidePicker: data.hidePicker })
+  const minW = floor.width
+  const minH = floor.height
 
   return (
     <div
@@ -253,16 +272,16 @@ function AreaContainerNodeComponent({
           title="Arrastrá el área desde aquí · redimensioná desde los bordes"
         >
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold leading-tight tracking-tight text-sky-950 dark:text-sky-50">
+            <div className={`truncate ${DIAGRAM_CONTAINER_TITLE} text-sky-950 dark:text-sky-50`}>
               {data.label ?? area.name}
             </div>
             {area.siteName ? (
-              <div className="mt-0.5 truncate text-[10px] leading-snug text-sky-800/75 dark:text-sky-200/65">
+              <div className={`mt-0.5 truncate ${DIAGRAM_CONTAINER_SUBTITLE} text-sky-800/75 dark:text-sky-200/65`}>
                 {area.siteName}
               </div>
             ) : null}
           </div>
-          <span className="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-800 ring-1 ring-sky-500/50 dark:text-sky-200 dark:ring-sky-500/50">
+          <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 ${DIAGRAM_CONTAINER_BADGE} text-sky-800 ring-1 ring-sky-500/50 dark:text-sky-200 dark:ring-sky-500/50`}>
             Área
           </span>
         </div>
@@ -297,13 +316,16 @@ function AreaContainerNodeComponent({
       ) : null}
 
       {showEmpty ? (
-        <div className="flex flex-1 items-center justify-center px-4 text-center text-[11px] text-sky-700/65 dark:text-sky-300/55">
+        <div className={`flex flex-1 items-center justify-center px-4 text-center ${DIAGRAM_EMPTY_HINT} text-sky-700/65 dark:text-sky-300/55`}>
           {data.hidePicker
             ? 'Vacío'
             : 'Agregá racks, tableros o equipos sueltos'}
         </div>
       ) : (
-        <div className="pointer-events-none flex-1" aria-hidden />
+        <div
+          className="pointer-events-none min-h-0 flex-1 bg-[radial-gradient(circle,_rgb(14_165_233/0.18)_1px,_transparent_1px)] [background-size:16px_16px] dark:bg-[radial-gradient(circle,_rgb(56_189_248/0.22)_1px,_transparent_1px)]"
+          aria-hidden
+        />
       )}
     </div>
   )

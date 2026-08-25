@@ -4,12 +4,14 @@ import {
   countDiagramPdfPages,
   type CapturedDiagram,
 } from './pdf/diagramCapturePdf'
-import { safePdfFilename, type PdfHeaderBranding } from './pdf/pdfChrome'
+import { safePdfFilename, invertLogoForPrint, type PdfHeaderBranding } from './pdf/pdfChrome'
 import type { PaperFormat, PrintOrientation } from './pdf/a4Geometry'
 import {
   countLinkReferencePages,
   drawLinkReferencePages,
+  type LinkPathReferenceRow,
   type LinkReferenceRow,
+  type LinkTableFormat,
 } from './pdf/linkReferencePdf'
 
 export type CaptureConnectionDiagramFn = (
@@ -21,6 +23,7 @@ export type ExportConnectionDiagramOptions = {
   title: string
   subtitle?: string
   projectName?: string
+  clientName?: string
   authorName?: string
   date?: string
   branding?: PdfHeaderBranding
@@ -30,8 +33,14 @@ export type ExportConnectionDiagramOptions = {
   includeLegend?: boolean
   /** Si es false, el PDF no incluye la tabla de referencia de enlaces. Default true. */
   includeLinkTable?: boolean
-  /** Filas de la lista de referencia (ID + descripción completa). */
+  /** Formato de la tabla de enlaces. Default `table`. */
+  linkTableFormat?: LinkTableFormat
+  /** Encabezado y diagrama claros para impresión B/N. */
+  invertColors?: boolean
+  /** Filas clásicas (ID + origen/destino en path). */
   linkReferences?: LinkReferenceRow[]
+  /** Filas de ruta lineal (segmentos por columna). */
+  linkPathReferences?: LinkPathReferenceRow[]
   captureDiagram: CaptureConnectionDiagramFn
 }
 
@@ -45,19 +54,31 @@ export async function exportConnectionDiagramPdf(
     title,
     subtitle,
     projectName,
+    clientName,
     authorName,
     branding,
     orientation,
     format,
     includeLegend = true,
     includeLinkTable = true,
+    linkTableFormat = 'table',
+    invertColors = false,
     linkReferences = [],
+    linkPathReferences = [],
     captureDiagram,
   } = options
 
   const dateStr =
     options.date ??
     new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })
+
+  let printBranding = branding
+  if (invertColors && branding?.logoDataUrl) {
+    printBranding = {
+      ...branding,
+      logoDataUrl: await invertLogoForPrint(branding.logoDataUrl),
+    }
+  }
 
   const captured = await captureDiagram(format, orientation)
   if (!captured) {
@@ -66,7 +87,14 @@ export async function exportConnectionDiagramPdf(
 
   const probe = new jsPDF({ orientation, unit: 'mm', format })
   const referencePages = includeLinkTable
-    ? countLinkReferencePages(probe, format, orientation, linkReferences)
+    ? countLinkReferencePages(
+        probe,
+        format,
+        orientation,
+        linkReferences,
+        linkTableFormat,
+        linkPathReferences,
+      )
     : 0
   const totalPages =
     countDiagramPdfPages(captured.plan.cols, captured.plan.rows) + referencePages
@@ -79,27 +107,33 @@ export async function exportConnectionDiagramPdf(
     title,
     subtitle,
     projectName,
+    clientName,
     authorName,
     dateStr,
     startingPageNumber: 1,
     totalPages,
     firstPageExists: true,
-    branding,
+    branding: printBranding,
     includeLegend,
+    invertColors,
   })
 
   if (includeLinkTable) {
     drawLinkReferencePages(pdf, {
       rows: linkReferences,
+      pathRows: linkPathReferences,
+      linkFormat: linkTableFormat,
       format,
       orientation,
       title,
       projectName,
+      clientName,
       authorName,
       dateStr,
-      branding,
+      branding: printBranding,
       startingPageNumber: pagesAdded + 1,
       totalPages,
+      invertColors,
     })
   }
 
@@ -107,3 +141,5 @@ export async function exportConnectionDiagramPdf(
   const orientLabel = orientation === 'landscape' ? 'horizontal' : 'vertical'
   pdf.save(`${base}_${format.toUpperCase()}_${orientLabel}.pdf`)
 }
+
+export type { LinkTableFormat, LinkPathReferenceRow, LinkReferenceRow }

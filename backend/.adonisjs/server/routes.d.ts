@@ -22,7 +22,9 @@ export type ScannedRoutes = {
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.assign_container': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.bulk_update_ports_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.bulk_update_ports_passthrough': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -87,6 +89,13 @@ export type ScannedRoutes = {
     'boards.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'boards.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'boards.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.index': { paramsTuple?: []; params?: {} }
+    'containers.store': { paramsTuple?: []; params?: {} }
+    'containers.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.move_devices': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.index': { paramsTuple?: []; params?: {} }
     'connection_diagrams.store': { paramsTuple?: []; params?: {} }
     'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -96,6 +105,7 @@ export type ScannedRoutes = {
     'connection_diagrams.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.index': { paramsTuple?: []; params?: {} }
     'diagram_links.store': { paramsTuple?: []; params?: {} }
+    'diagram_links.bulk_delete': { paramsTuple?: []; params?: {} }
     'diagram_links.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -159,6 +169,7 @@ export type ScannedRoutes = {
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
     'ports.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vlans.index': { paramsTuple?: []; params?: {} }
@@ -183,6 +194,9 @@ export type ScannedRoutes = {
     'boards.index': { paramsTuple?: []; params?: {} }
     'boards.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'boards.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.index': { paramsTuple?: []; params?: {} }
+    'containers.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.index': { paramsTuple?: []; params?: {} }
     'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -220,6 +234,7 @@ export type ScannedRoutes = {
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
     'ports.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vlans.index': { paramsTuple?: []; params?: {} }
@@ -244,6 +259,9 @@ export type ScannedRoutes = {
     'boards.index': { paramsTuple?: []; params?: {} }
     'boards.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'boards.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.index': { paramsTuple?: []; params?: {} }
+    'containers.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.occupancy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.index': { paramsTuple?: []; params?: {} }
     'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -277,6 +295,7 @@ export type ScannedRoutes = {
     'auth.logout': { paramsTuple?: []; params?: {} }
     'projects.store': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
+    'devices.assign_container': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.store': { paramsTuple?: []; params?: {} }
     'vlans.store': { paramsTuple?: []; params?: {} }
     'networks.store': { paramsTuple?: []; params?: {} }
@@ -289,9 +308,12 @@ export type ScannedRoutes = {
     'sites.areas_store': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'racks.store': { paramsTuple?: []; params?: {} }
     'boards.store': { paramsTuple?: []; params?: {} }
+    'containers.store': { paramsTuple?: []; params?: {} }
+    'containers.move_devices': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.store': { paramsTuple?: []; params?: {} }
     'connection_diagrams.duplicate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.store': { paramsTuple?: []; params?: {} }
+    'diagram_links.bulk_delete': { paramsTuple?: []; params?: {} }
     'rack_accessory_templates.store': { paramsTuple?: []; params?: {} }
     'rack_accessories.store': { paramsTuple?: []; params?: {} }
     'port_types.store': { paramsTuple?: []; params?: {} }
@@ -321,6 +343,7 @@ export type ScannedRoutes = {
     'sites.areas_update': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
     'racks.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'boards.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -350,6 +373,7 @@ export type ScannedRoutes = {
     'sites.areas_destroy': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'areaId': ParamValue} }
     'racks.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'boards.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'containers.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }

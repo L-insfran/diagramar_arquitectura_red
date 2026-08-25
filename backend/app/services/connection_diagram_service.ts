@@ -2,31 +2,84 @@ import { Exception } from '@adonisjs/core/exceptions'
 import ConnectionDiagramRepository from '#repositories/connection_diagram_repository'
 import TopologyService from '#services/topology_service'
 import DiagramLinkService from '#services/diagram_link_service'
-import Board from '#models/board'
 import Area from '#models/area'
 import type {
   CreateConnectionDiagramInput,
+  DiagramContainerState,
+  DiagramEdgeRoute,
+  DiagramHandleAnchor,
+  DiagramLayoutState,
+  DiagramPoint,
   UpdateConnectionDiagramInput,
 } from '#dtos/connection_diagram_dto'
-
-type TopologyBoardSummary = {
-  id: string
-  name: string
-  code: string | null
-  kind: string
-  gridRows: number
-  gridCols: number
-  areaId: string
-  siteId: string | null
-  areaName: string | null
-  siteName: string | null
-}
 
 type TopologyAreaSummary = {
   id: string
   name: string
   siteId: string
   siteName: string | null
+}
+
+/**
+ * Remove a device (and optional link ids) from a layout geometry bucket.
+ * Returns whether anything changed and the pruned state.
+ */
+function pruneDeviceFromLayoutState(
+  state: DiagramLayoutState | null | undefined,
+  deviceId: string,
+  linkIds: Set<string> = new Set(),
+  options: {
+    clearNodePosition?: boolean
+    clearHandleAnchors?: boolean
+  } = {},
+): { changed: boolean; state: DiagramLayoutState } {
+  const clearNodePosition = options.clearNodePosition !== false
+  const clearHandleAnchors = options.clearHandleAnchors !== false
+  const nodePositions: Record<string, DiagramPoint> = {
+    ...(state?.nodePositions ?? {}),
+  }
+  const handleAnchors: Record<string, DiagramHandleAnchor> = {
+    ...(state?.handleAnchors ?? {}),
+  }
+  const edgeRoutes: Record<string, DiagramEdgeRoute> = {
+    ...(state?.edgeRoutes ?? {}),
+  }
+  const labelOffsets: Record<string, DiagramPoint> = {
+    ...(state?.labelOffsets ?? {}),
+  }
+  let changed = false
+
+  if (clearNodePosition && nodePositions[deviceId]) {
+    delete nodePositions[deviceId]
+    changed = true
+  }
+
+  if (clearHandleAnchors) {
+    for (const key of Object.keys(handleAnchors)) {
+      if (key.startsWith(`${deviceId}::`)) {
+        delete handleAnchors[key]
+        changed = true
+      }
+    }
+  }
+
+  if (linkIds.size > 0) {
+    for (const linkId of linkIds) {
+      if (edgeRoutes[linkId]) {
+        delete edgeRoutes[linkId]
+        changed = true
+      }
+      if (labelOffsets[linkId]) {
+        delete labelOffsets[linkId]
+        changed = true
+      }
+    }
+  }
+
+  return {
+    changed,
+    state: { nodePositions, handleAnchors, edgeRoutes, labelOffsets },
+  }
 }
 
 export default class ConnectionDiagramService {
@@ -87,6 +140,7 @@ export default class ConnectionDiagramService {
       description: source.description,
       scopeSiteIds: [...(source.scopeSiteIds ?? [])],
       scopeAreaIds: [...(source.scopeAreaIds ?? [])],
+      layoutMode: source.layoutMode ?? 'free',
       settings: { ...(source.settings ?? {}) },
       sortOrder: (source.sortOrder ?? 0) + 1,
       createdBy: actorId,
@@ -98,6 +152,13 @@ export default class ConnectionDiagramService {
       labelOffsets: { ...(source.labelOffsets ?? {}) },
       edgeRoutes: { ...(source.edgeRoutes ?? {}) },
       containers: { ...(source.containers ?? {}) },
+      handleAnchors: { ...(source.handleAnchors ?? {}) },
+      treeLayout: {
+        nodePositions: { ...(source.treeLayout?.nodePositions ?? {}) },
+        labelOffsets: { ...(source.treeLayout?.labelOffsets ?? {}) },
+        edgeRoutes: { ...(source.treeLayout?.edgeRoutes ?? {}) },
+        handleAnchors: { ...(source.treeLayout?.handleAnchors ?? {}) },
+      },
       updatedBy: actorId,
     })
 
@@ -136,42 +197,14 @@ export default class ConnectionDiagramService {
       (e) => inventoryIds.has(e.source) && inventoryIds.has(e.target)
     )
 
-    const racks = topology.racks.filter((rack) => {
+    const containers = topology.containers.filter((c) => {
       if (!hasSiteFilter && !hasAreaFilter) return true
-      const siteOk = !hasSiteFilter || (rack.siteId != null && siteFilter.has(rack.siteId))
-      const areaOk = !hasAreaFilter || areaFilter.has(rack.areaId)
+      const siteOk = !hasSiteFilter || (c.siteId != null && siteFilter.has(c.siteId))
+      const areaOk = !hasAreaFilter || areaFilter.has(c.areaId)
       if (hasSiteFilter && hasAreaFilter) return siteOk && areaOk
       if (hasSiteFilter) return siteOk
       return areaOk
     })
-
-    const allBoards = await Board.query()
-      .where('project_id', diagram.projectId)
-      .whereNull('deleted_at')
-      .preload('area', (a) => a.preload('site'))
-      .orderBy('name', 'asc')
-
-    const boards: TopologyBoardSummary[] = allBoards
-      .map((board) => ({
-        id: board.id,
-        name: board.name,
-        code: board.code,
-        kind: board.kind,
-        gridRows: board.gridRows,
-        gridCols: board.gridCols,
-        areaId: board.areaId,
-        siteId: board.area?.siteId ?? null,
-        areaName: board.area?.name ?? null,
-        siteName: board.area?.site?.name ?? null,
-      }))
-      .filter((board) => {
-        if (!hasSiteFilter && !hasAreaFilter) return true
-        const siteOk = !hasSiteFilter || (board.siteId != null && siteFilter.has(board.siteId))
-        const areaOk = !hasAreaFilter || areaFilter.has(board.areaId)
-        if (hasSiteFilter && hasAreaFilter) return siteOk && areaOk
-        if (hasSiteFilter) return siteOk
-        return areaOk
-      })
 
     const allAreas = await Area.query()
       .whereNull('deleted_at')
@@ -201,8 +234,7 @@ export default class ConnectionDiagramService {
       diagram,
       graph: { nodes: graphNodes, edges },
       inventory,
-      racks,
-      boards,
+      containers,
       areas,
       summary: {
         ...topology.summary,
@@ -210,5 +242,169 @@ export default class ConnectionDiagramService {
         linkCount: edges.length,
       },
     }
+  }
+
+  /**
+   * Candidate flow keys for a physical container / area in diagram `containers` JSON.
+   * Prefer kind-specific prefixes; include legacy `container:` and `rack:`/`board:`.
+   */
+  private resolveTargetFlowKeys(target: {
+    containerId: string | null
+    areaId: string | null
+    containerKind?: 'default' | 'rack' | 'board' | null
+  }): string[] {
+    const { containerId, areaId, containerKind } = target
+    if (containerId && containerKind === 'board') {
+      return [`board:${containerId}`, `container:${containerId}`]
+    }
+    if (containerId && containerKind === 'rack') {
+      return [`rack:${containerId}`, `container:${containerId}`]
+    }
+    // Default container (or no container): devices appear loose under the area node.
+    if (areaId) {
+      return [`area:${areaId}`]
+    }
+    return []
+  }
+
+  /**
+   * Move a device's visual membership to match inventory location across all diagrams.
+   * Removes from every `deviceIds` list; if the destination flow key exists on a diagram,
+   * appends there. Clears saved node position so the canvas restacks under the new parent.
+   * Does not touch diagram_links.
+   */
+  async reparentDeviceInDiagrams(
+    projectId: string,
+    deviceId: string,
+    target: {
+      containerId: string | null
+      areaId: string | null
+      containerKind?: 'default' | 'rack' | 'board' | null
+    },
+    actorId: string,
+  ) {
+    const diagrams = await this.diagrams.findAllByProject(projectId)
+    const targetKeys = this.resolveTargetFlowKeys(target)
+    const modifiedDiagramIds: string[] = []
+
+    for (const diagram of diagrams) {
+      let changed = false
+      const containers: Record<string, DiagramContainerState> = {}
+
+      for (const [key, state] of Object.entries(diagram.containers ?? {})) {
+        if (!state.deviceIds?.includes(deviceId)) {
+          containers[key] = state
+          continue
+        }
+        changed = true
+        containers[key] = {
+          ...state,
+          deviceIds: state.deviceIds.filter((id) => id !== deviceId),
+        }
+      }
+
+      for (const targetKey of targetKeys) {
+        const dest = containers[targetKey]
+        if (!dest) continue
+        const ids = dest.deviceIds ?? []
+        if (!ids.includes(deviceId)) {
+          containers[targetKey] = { ...dest, deviceIds: [...ids, deviceId] }
+          changed = true
+        }
+        break
+      }
+
+      const freePruned = pruneDeviceFromLayoutState(
+        {
+          nodePositions: diagram.nodePositions,
+          labelOffsets: diagram.labelOffsets,
+          edgeRoutes: diagram.edgeRoutes,
+          handleAnchors: diagram.handleAnchors,
+        },
+        deviceId,
+        new Set(),
+        { clearNodePosition: true, clearHandleAnchors: false },
+      )
+      const treePruned = pruneDeviceFromLayoutState(
+        diagram.treeLayout,
+        deviceId,
+        new Set(),
+        { clearNodePosition: true, clearHandleAnchors: false },
+      )
+      if (freePruned.changed || treePruned.changed) changed = true
+
+      if (!changed) continue
+
+      await this.diagrams.update(diagram, {
+        containers,
+        nodePositions: freePruned.state.nodePositions ?? {},
+        treeLayout: {
+          ...(diagram.treeLayout ?? {}),
+          nodePositions: treePruned.state.nodePositions ?? {},
+        },
+        updatedBy: actorId,
+      })
+      modifiedDiagramIds.push(diagram.id)
+    }
+
+    return modifiedDiagramIds
+  }
+
+  /**
+   * Remove a device from every connection diagram in the project (layout JSON only).
+   * Optionally prune edgeRoutes/labelOffsets for deleted link ids.
+   */
+  async removeDeviceFromAllDiagrams(
+    projectId: string,
+    deviceId: string,
+    actorId: string,
+    linkIdsToPrune: string[] = [],
+  ) {
+    const diagrams = await this.diagrams.findAllByProject(projectId)
+    const linkIdSet = new Set(linkIdsToPrune)
+    const modifiedDiagramIds: string[] = []
+
+    for (const diagram of diagrams) {
+      let changed = false
+
+      const containers: Record<string, DiagramContainerState> = {}
+      for (const [key, state] of Object.entries(diagram.containers ?? {})) {
+        const deviceIds = state.deviceIds?.filter((id) => id !== deviceId)
+        if (deviceIds?.length !== state.deviceIds?.length) {
+          changed = true
+          containers[key] = { ...state, deviceIds: deviceIds ?? [] }
+        } else {
+          containers[key] = state
+        }
+      }
+
+      const freePruned = pruneDeviceFromLayoutState(
+        {
+          nodePositions: diagram.nodePositions,
+          labelOffsets: diagram.labelOffsets,
+          edgeRoutes: diagram.edgeRoutes,
+          handleAnchors: diagram.handleAnchors,
+        },
+        deviceId,
+        linkIdSet,
+      )
+      const treePruned = pruneDeviceFromLayoutState(diagram.treeLayout, deviceId, linkIdSet)
+      if (freePruned.changed || treePruned.changed) changed = true
+
+      if (!changed) continue
+
+      await this.diagrams.update(diagram, {
+        containers,
+        nodePositions: freePruned.state.nodePositions ?? {},
+        handleAnchors: freePruned.state.handleAnchors ?? {},
+        edgeRoutes: freePruned.state.edgeRoutes ?? {},
+        labelOffsets: freePruned.state.labelOffsets ?? {},
+        treeLayout: treePruned.state,
+        updatedBy: actorId,
+      })
+      modifiedDiagramIds.push(diagram.id)
+    }
+
+    return modifiedDiagramIds
   }
 }

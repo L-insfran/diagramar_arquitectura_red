@@ -166,7 +166,7 @@ export default function DeviceDetail() {
 
     const num = Number.parseInt(portForm.portNumber, 10)
     if (!portForm.name.trim() || Number.isNaN(num) || num < 1) {
-      setPortFormError('Name and a valid port number (≥ 1) are required')
+      setPortFormError('Nombre y número de puerto válido (≥ 1) son obligatorios')
       return
     }
 
@@ -212,7 +212,7 @@ export default function DeviceDetail() {
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
           : undefined
-      setPortFormError(message || (editingPortId ? 'Could not update port' : 'Could not create port'))
+      setPortFormError(message || (editingPortId ? 'No se pudo actualizar el puerto' : 'No se pudo crear el puerto'))
     } finally {
       setPortSubmitting(false)
     }
@@ -246,11 +246,11 @@ export default function DeviceDetail() {
   }
 
   const portColumns: Column<Port>[] = [
-    { key: 'name', header: 'Port', sortable: true },
+    { key: 'name', header: 'Puerto', sortable: true },
     { key: 'portNumber', header: '#', sortable: true },
     {
       key: 'portType',
-      header: 'Type',
+      header: 'Tipo',
       render: (p) => (
         <span className="inline-flex flex-wrap items-center gap-1">
           <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
@@ -268,7 +268,7 @@ export default function DeviceDetail() {
         </span>
       ),
     },
-    { key: 'speed', header: 'Speed', render: (p) => p.speed || '—' },
+    { key: 'speed', header: 'Velocidad', render: (p) => p.speed || '—' },
     {
       key: 'vlans',
       header: 'VLANs',
@@ -279,7 +279,7 @@ export default function DeviceDetail() {
               <span
                 key={vlan.id}
                 className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300"
-                title={vlan.isTagged ? 'Tagged (trunk)' : 'Untagged (access)'}
+                title={vlan.isTagged ? 'Etiquetada (trunk)' : 'Sin etiquetar (access)'}
               >
                 {vlan.name} · {vlan.vlanId}
                 {vlan.isTagged ? ' T' : ''}
@@ -292,7 +292,7 @@ export default function DeviceDetail() {
     },
     {
       key: 'description',
-      header: 'Description',
+      header: 'Descripción',
       render: (p) => (
         <span className="text-gray-500 dark:text-gray-400 text-sm">{p.description || '—'}</span>
       ),
@@ -313,9 +313,9 @@ export default function DeviceDetail() {
                   e.stopPropagation()
                   openEditPortModal(p)
                 }}
-                aria-label={`Edit port ${p.name}`}
+                aria-label={`Editar puerto ${p.name}`}
               >
-                Edit
+                Editar
               </Button>
             ),
           },
@@ -334,30 +334,30 @@ export default function DeviceDetail() {
   if (!device) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500 dark:text-gray-400">Device not found</p>
+        <p className="text-gray-500 dark:text-gray-400">Dispositivo no encontrado</p>
         <Button variant="ghost" onClick={() => navigate('/devices')} className="mt-4">
-          Go back
+          Volver
         </Button>
       </div>
     )
   }
 
   const infoItems: { icon: LucideIcon; label: string; value: string | null | undefined }[] = [
-    { icon: Server, label: 'Type', value: device.deviceType?.name },
+    { icon: Server, label: 'Tipo', value: device.deviceType?.name },
     {
       icon: Cpu,
-      label: 'Template',
+      label: 'Plantilla',
       value: device.deviceTemplate?.name || undefined,
     },
-    { icon: Hash, label: 'IP Address', value: device.ipAddress },
+    { icon: Hash, label: 'Dirección IP', value: device.ipAddress },
     {
       icon: Cpu,
-      label: 'Model',
+      label: 'Modelo',
       value: `${device.manufacturer || ''} ${device.model || ''}`.trim() || undefined,
     },
     {
       icon: Hash,
-      label: 'Rack units',
+      label: 'Unidades rack',
       value:
         device.deviceTemplate?.rackUnits != null
           ? `${device.deviceTemplate.rackUnits}U`
@@ -365,9 +365,11 @@ export default function DeviceDetail() {
     },
     {
       icon: MapPin,
-      label: 'Sitio / Área',
+      label: 'Sitio / Área / Contenedor',
       value:
-        [device.site?.name, device.area?.name].filter(Boolean).join(' › ') ||
+        [device.site?.name, device.area?.name, device.container?.name]
+          .filter(Boolean)
+          .join(' › ') ||
         device.location ||
         undefined,
     },
@@ -416,8 +418,8 @@ export default function DeviceDetail() {
             })`
           : undefined,
     },
-    { icon: Hash, label: 'MAC Address', value: device.macAddress },
-    { icon: Hash, label: 'Serial', value: device.serialNumber },
+    { icon: Hash, label: 'Dirección MAC', value: device.macAddress },
+    { icon: Hash, label: 'Serie', value: device.serialNumber },
     { icon: Clock, label: 'Firmware', value: device.firmwareVersion },
   ]
 
@@ -429,7 +431,7 @@ export default function DeviceDetail() {
           onClick={() => navigate('/devices')}
           icon={<ArrowLeft className="w-4 h-4" />}
         >
-          Back
+          Volver
         </Button>
         {(canMutate || (isViewer && NOTEBOOK_NAMES.includes(device.deviceType?.name?.toLowerCase?.() ?? ''))) && (
           <Button
@@ -437,7 +439,7 @@ export default function DeviceDetail() {
             onClick={() => navigate(`/devices/${device.id}/edit`)}
             icon={<Pencil className="w-4 h-4" />}
           >
-            Edit
+            Editar
           </Button>
         )}
       </div>
@@ -451,7 +453,7 @@ export default function DeviceDetail() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{device.name}</h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {device.hostname || 'No hostname'}
+                {device.hostname || 'Sin hostname'}
               </p>
             </div>
           </div>
@@ -479,7 +481,7 @@ export default function DeviceDetail() {
       </div>
 
       {device.notes && (
-        <Card title="Notes">
+        <Card title="Notas">
           <p className="text-sm text-gray-600 dark:text-gray-300">{device.notes}</p>
         </Card>
       )}
@@ -493,7 +495,7 @@ export default function DeviceDetail() {
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Ports ({portsSorted.length})
+            Puertos ({portsSorted.length})
           </h2>
           {canMutate && (
             <div className="flex flex-wrap items-center gap-2">
@@ -516,7 +518,7 @@ export default function DeviceDetail() {
                 icon={<Plus className="w-4 h-4" />}
                 onClick={openAddPortModal}
               >
-                Add port
+                Agregar puerto
               </Button>
             </div>
           )}
@@ -524,14 +526,14 @@ export default function DeviceDetail() {
         <DataTable
           columns={portColumns}
           data={portsSorted}
-          emptyMessage="No ports configured for this device"
+          emptyMessage="No hay puertos configurados para este dispositivo"
         />
       </div>
 
       <Modal
         isOpen={portModalOpen}
         onClose={closePortModal}
-        title={editingPortId ? 'Edit port' : 'Add port'}
+        title={editingPortId ? 'Editar puerto' : 'Agregar puerto'}
         size="md"
       >
         <form className="space-y-4 max-h-[75vh] overflow-y-auto pr-1" onSubmit={handlePortSubmit}>
@@ -542,14 +544,14 @@ export default function DeviceDetail() {
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="Port name / label"
+              label="Nombre / etiqueta del puerto"
               value={portForm.name}
               onChange={(e) => setPortForm((p) => ({ ...p, name: e.target.value }))}
               placeholder="e.g. Gi0/1"
               required
             />
             <Input
-              label="Port #"
+              label="Puerto #"
               type="number"
               min={1}
               value={portForm.portNumber}
@@ -557,7 +559,7 @@ export default function DeviceDetail() {
               required
             />
             <Select
-              label="Type"
+              label="Tipo"
               value={portForm.portType}
               onChange={(e) =>
                 setPortForm((p) => ({ ...p, portType: e.target.value }))
@@ -565,7 +567,7 @@ export default function DeviceDetail() {
               options={portTypeOptions.map((o) => ({ value: o.value, label: o.label }))}
             />
             <Input
-              label="Speed"
+              label="Velocidad"
               value={portForm.speed}
               onChange={(e) => setPortForm((p) => ({ ...p, speed: e.target.value }))}
               placeholder="e.g. 1 Gbps"
@@ -611,14 +613,14 @@ export default function DeviceDetail() {
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Description
+              Descripción
             </label>
             <textarea
               value={portForm.description}
               onChange={(e) => setPortForm((p) => ({ ...p, description: e.target.value }))}
               rows={3}
               className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors resize-y min-h-[80px]"
-              placeholder="Optional"
+              placeholder="Opcional"
             />
           </div>
 
@@ -683,10 +685,10 @@ export default function DeviceDetail() {
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={closePortModal} disabled={portSubmitting}>
-              Cancel
+              Cancelar
             </Button>
             <Button type="submit" isLoading={portSubmitting}>
-              {editingPortId ? 'Save changes' : 'Create port'}
+              {editingPortId ? 'Guardar cambios' : 'Crear puerto'}
             </Button>
           </div>
         </form>
@@ -695,7 +697,7 @@ export default function DeviceDetail() {
       {device.employees && device.employees.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Assigned Employees
+            Empleados asignados
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {device.employees.map((emp) => (

@@ -10,6 +10,13 @@ export const createDiagramLinkValidator = vine.compile(
     sourcePortLabel: vine.string().trim().minLength(1).maxLength(255),
     targetPortLabel: vine.string().trim().minLength(1).maxLength(255),
     description: vine.string().trim().nullable().optional(),
+    cableTypeId: vine.string().uuid().nullable().optional(),
+  })
+)
+
+export const bulkDeleteDiagramLinksValidator = vine.compile(
+  vine.object({
+    deviceIds: vine.array(vine.string().uuid()).minLength(1),
   })
 )
 
@@ -22,5 +29,6 @@ export const updateDiagramLinkValidator = vine.compile(
     sourcePortLabel: vine.string().trim().minLength(1).maxLength(255).optional(),
     targetPortLabel: vine.string().trim().minLength(1).maxLength(255).optional(),
     description: vine.string().trim().nullable().optional(),
+    cableTypeId: vine.string().uuid().nullable().optional(),
   })
 )
