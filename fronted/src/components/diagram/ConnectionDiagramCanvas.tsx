@@ -140,6 +140,8 @@ export type ConnectionDiagramCanvasHandle = {
   getContentBounds: () => { x: number; y: number; width: number; height: number } | null
   getStaleLinkIds: () => string[]
   autorouteLinks: (edgeIds: string[]) => void
+  /** Ajusta la cámara al contenido visible (p. ej. tras cambiar libre ↔ árbol). */
+  fitView: () => void
   getPersistPayload: (
     printSettings?: Pick<
       DiagramSettings,
@@ -148,6 +150,7 @@ export type ConnectionDiagramCanvasHandle = {
       | 'printFrame'
       | 'printIncludeLegend'
       | 'printIncludeLinkTable'
+      | 'printLinkTableFormat'
       | 'printInvertColors'
     >,
   ) => {
@@ -193,6 +196,10 @@ type Props = {
   printInvertColors?: boolean
   printFrame?: DiagramPrintFrame | null
   printFrameLocked?: boolean
+  /** Columna 0-based del sector resaltado en el overlay (solo visual). */
+  highlightedPrintCol?: number
+  /** Fila 0-based del sector resaltado en el overlay (solo visual). */
+  highlightedPrintRow?: number
   onPrintFrameChange?: (frame: DiagramPrintFrame) => void
   onPrintFrameChangeEnd?: (frame: DiagramPrintFrame) => void
   onPrintDiagnostics?: (info: { outsideCount: number; cutCount: number }) => void
@@ -1417,6 +1424,8 @@ function buildGraph(params: {
           targetPortId: e.targetPortId,
           sourceLabel,
           targetLabel,
+          cableTypeId: e.cableTypeId,
+          cableTypeName: e.cableTypeName,
           routePoints: route?.points,
           routeManual: route?.manual === true,
           labelOffsetX: labelOff?.x,
@@ -1437,18 +1446,28 @@ function resolveNodeHandleEndpoint(
   absPos: { x: number; y: number }
 ) {
   const neutralId = legacyToNeutralHandleId(handleId.replace(/::in$/, ''))
-  const w = Number(node.width ?? node.style?.width ?? SIMPLE_DEVICE_WIDTH)
-  const h = Number(node.height ?? node.style?.height ?? 36)
+  const measured = node.measured as { width?: number; height?: number } | undefined
+  const styleW = Number(node.width ?? node.style?.width ?? 0)
+  const styleH = Number(node.height ?? node.style?.height ?? 0)
+  const w =
+    Number(measured?.width ?? styleW) > 0
+      ? Number(measured?.width ?? styleW)
+      : SIMPLE_DEVICE_WIDTH
   const slots = (node.data?.slots as DiagramPortSlot[] | undefined) ?? []
+  const label = (node.data?.label as string) ?? ''
+  const portCount = (node.data?.portCount as number) ?? 0
+  const rows = portSlotsVerticalRows(slots)
+  const hasCompact = slots.some((s) => !s.connected)
+  const compact = hasCompact && slots.every((s) => !s.connected)
+  const contentMinH = simpleDeviceHeight(rows, label, w, compact)
+  const rawH = Number(measured?.height ?? styleH)
+  const h = rawH > 0 ? Math.max(rawH, contentMinH) : contentMinH
   const slot = slots.find((s) => s.id === neutralId)
 
   if (slot?.anchor) {
     return anchorToEndpoint(slot.anchor, absPos.x, absPos.y, w, h)
   }
 
-  const label = (node.data?.label as string) ?? ''
-  const portCount = (node.data?.portCount as number) ?? 0
-  const rows = portSlotsVerticalRows(slots)
   const portAreaTop = devicePortAreaTop(label, rows, portCount, w)
   const nodeAnchors =
     (node.data?.handleAnchors as Record<string, DiagramHandleAnchor> | undefined) ?? {}
@@ -1482,6 +1501,8 @@ function ConnectionDiagramCanvasInner(
     printInvertColors = false,
     printFrame = null,
     printFrameLocked = false,
+    highlightedPrintCol = 0,
+    highlightedPrintRow = 0,
     onPrintFrameChange,
     onPrintFrameChangeEnd,
     onPrintDiagnostics,
@@ -1536,6 +1557,7 @@ function ConnectionDiagramCanvasInner(
   const didFitRef = useRef(false)
   const shellElRef = useRef<HTMLDivElement | null>(null)
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
+  const prevLayoutModeRef = useRef(diagram.layoutMode ?? 'free')
   const focusedLinkIdRef = useRef(focusedLinkId)
   focusedLinkIdRef.current = focusedLinkId
   const deviceGap = resolveDeviceGap({ deviceGap: diagram.settings?.deviceGap })
@@ -1636,7 +1658,7 @@ function ConnectionDiagramCanvasInner(
 
   useEffect(() => {
     didFitRef.current = false
-  }, [diagram.id])
+  }, [diagram.id, diagram.layoutMode])
 
   const handlePickerOpenChange = useCallback(
     (containerId: string, open: boolean) => {
@@ -1695,11 +1717,21 @@ function ConnectionDiagramCanvasInner(
   )
 
   useEffect(() => {
+    const mode = diagram.layoutMode ?? 'free'
+    const modeChanged = prevLayoutModeRef.current !== mode
+    prevLayoutModeRef.current = mode
+
     setNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]))
       return built.nodes.map((n) => {
         const existing = prevById.get(n.id)
-        if (n.type === 'simpleDevice' && existing && existing.parentId === n.parentId) {
+        // Across free ↔ tree, always take built positions (coord systems differ).
+        if (
+          n.type === 'simpleDevice' &&
+          existing &&
+          existing.parentId === n.parentId &&
+          !modeChanged
+        ) {
           const { width, height } = preserveDeviceExtent(n, existing)
           return {
             ...n,
@@ -1730,7 +1762,7 @@ function ConnectionDiagramCanvasInner(
           // Roots: keep drag position. Containers keep unsaved manual resize,
           // but shrink when content (devices/racks) got smaller.
           // Nested racks/boards: keep manual drag position inside the area.
-          if (existing && existing.parentId === n.parentId) {
+          if (existing && existing.parentId === n.parentId && !modeChanged) {
             const { width, height } = preserveContainerExtent(n, existing)
             return {
               ...n,
@@ -1797,7 +1829,7 @@ function ConnectionDiagramCanvasInner(
         return withReadOnly
       })
     })
-  }, [built, readOnly, setNodes, setEdges])
+  }, [built, readOnly, diagram.layoutMode, setNodes, setEdges])
 
   useEffect(() => {
     setEdges((eds) =>
@@ -2139,6 +2171,12 @@ function ConnectionDiagramCanvasInner(
         setEdges(next)
         rerouteCables()
       },
+      fitView: () => {
+        didFitRef.current = true
+        requestAnimationFrame(() =>
+          rfInstanceRef.current?.fitView({ padding: 0.15 })
+        )
+      },
       getPersistPayload: (printSettings) => {
         const nodePositions: Record<string, DiagramNodePosition> = {}
         const containers: Record<
@@ -2238,6 +2276,9 @@ function ConnectionDiagramCanvasInner(
             : {}),
           ...(printSettings?.printIncludeLinkTable != null
             ? { printIncludeLinkTable: printSettings.printIncludeLinkTable }
+            : {}),
+          ...(printSettings?.printLinkTableFormat != null
+            ? { printLinkTableFormat: printSettings.printLinkTableFormat }
             : {}),
           ...(printSettings?.printInvertColors != null
             ? { printInvertColors: printSettings.printInvertColors }
@@ -2529,6 +2570,8 @@ function ConnectionDiagramCanvasInner(
           format={paperSize}
           locked={printFrameLocked}
           readOnly={readOnly}
+          highlightedCol={highlightedPrintCol}
+          highlightedRow={highlightedPrintRow}
           onFrameChange={onPrintFrameChange}
           onFrameChangeEnd={onPrintFrameChangeEnd}
           onDiagnostics={onPrintDiagnostics}

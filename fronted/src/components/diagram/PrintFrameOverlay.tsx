@@ -18,13 +18,17 @@ type PrintFrameOverlayProps = {
   format?: PaperFormat
   locked?: boolean
   readOnly?: boolean
+  /** Columna 0-based del sector resaltado (solo visual; selección en el sidebar). */
+  highlightedCol?: number
+  /** Fila 0-based del sector resaltado (solo visual; selección en el sidebar). */
+  highlightedRow?: number
   onFrameChange?: (frame: DiagramPrintFrame) => void
   onFrameChangeEnd?: (frame: DiagramPrintFrame) => void
   onDiagnostics?: (info: { outsideCount: number; cutCount: number }) => void
 }
 
-const STROKE_PAGE1 = 'rgba(234, 88, 12, 0.95)'
-const FILL_PAGE1 = 'rgba(234, 88, 12, 0.06)'
+const STROKE_ACTIVE = 'rgba(234, 88, 12, 0.95)'
+const FILL_ACTIVE = 'rgba(234, 88, 12, 0.06)'
 const STROKE_EXTRA = 'rgba(234, 88, 12, 0.35)'
 const STROKE_FRAME = 'rgba(234, 88, 12, 0.55)'
 const FILL_OUTSIDE = 'rgba(220, 38, 38, 0.12)'
@@ -45,6 +49,8 @@ export function PrintFrameOverlay({
   format = 'a4',
   locked = false,
   readOnly = false,
+  highlightedCol = 0,
+  highlightedRow = 0,
   onFrameChange,
   onFrameChangeEnd,
   onDiagnostics,
@@ -94,6 +100,8 @@ export function PrintFrameOverlay({
   const pageH = height / rows
   const pages = cols * rows
   const scalePct = scalePercentFromMmPerPx(frame.mmPerPx)
+  const activeCol = Math.min(Math.max(0, highlightedCol), cols - 1)
+  const activeRow = Math.min(Math.max(0, highlightedRow), rows - 1)
 
   const verticals: ReactElement[] = []
   for (let i = 1; i < cols; i++) {
@@ -131,18 +139,19 @@ export function PrintFrameOverlay({
     )
   }
 
-  const extraLabels: ReactElement[] = []
+  const pageLabels: ReactElement[] = []
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (r === 0 && c === 0) continue
       const pageIndex = r * cols + c + 1
-      extraLabels.push(
+      const isActive = r === activeRow && c === activeCol
+      pageLabels.push(
         <text
           key={`label-${pageIndex}`}
           x={x + c * pageW + 8}
           y={y + r * pageH + 18}
-          fill={STROKE_EXTRA}
-          fontSize={12}
+          fill={isActive ? STROKE_ACTIVE : STROKE_EXTRA}
+          fontSize={isActive ? 13 : 12}
+          fontWeight={isActive ? 700 : 400}
           fontFamily="system-ui, sans-serif"
           style={{ pointerEvents: 'none' }}
         >
@@ -278,17 +287,17 @@ export function PrintFrameOverlay({
           {verticals}
           {horizontals}
           <rect
-            x={x}
-            y={y}
+            x={x + activeCol * pageW}
+            y={y + activeRow * pageH}
             width={pageW}
             height={pageH}
-            fill={FILL_PAGE1}
-            stroke={STROKE_PAGE1}
+            fill={FILL_ACTIVE}
+            stroke={STROKE_ACTIVE}
             strokeWidth={3}
             vectorEffect="non-scaling-stroke"
           />
           {highlightRects}
-          {extraLabels}
+          {pageLabels}
         </svg>
 
         <div
@@ -296,7 +305,7 @@ export function PrintFrameOverlay({
           style={{ left: x, top: y, width, height }}
         >
           <div
-            className="pointer-events-none absolute left-2 top-2 max-w-[calc(100%-1rem)] rounded-md border border-orange-400/80 bg-slate-950/90 px-2 py-1 text-[11px] font-semibold leading-tight text-orange-100 shadow-md"
+            className="pointer-events-none absolute left-2 top-2 z-20 max-w-[calc(100%-1rem)] rounded-md border border-orange-400/80 bg-slate-950/90 px-2 py-1 text-[11px] font-semibold leading-tight text-orange-100 shadow-md"
             style={{ pointerEvents: 'none' }}
           >
             {`${cols} × ${rows} ${format.toUpperCase()} ${orientationLabel(orientation)} · ${pages} pág${pages === 1 ? '' : 's'} · escala ${scalePct}%`}
@@ -306,25 +315,25 @@ export function PrintFrameOverlay({
           {interactive ? (
             <>
               <div
-                className="nodrag nopan absolute left-0 top-0 h-7 w-full cursor-move"
+                className="nodrag nopan absolute left-0 top-0 z-10 h-7 w-full cursor-move"
                 style={{ pointerEvents: 'auto' }}
                 title="Arrastrar área de impresión"
                 onPointerDown={(e) => startDrag(e, 'move')}
               />
               <div
-                className="nodrag nopan absolute top-1/2 right-0 h-10 w-3 -translate-y-1/2 cursor-ew-resize rounded-sm bg-orange-500/80"
+                className="nodrag nopan absolute top-1/2 right-0 z-10 h-10 w-3 -translate-y-1/2 cursor-ew-resize rounded-sm bg-orange-500/80"
                 style={{ pointerEvents: 'auto' }}
                 title="Agregar o quitar columnas (páginas)"
                 onPointerDown={(e) => startDrag(e, 'cols')}
               />
               <div
-                className="nodrag nopan absolute bottom-0 left-1/2 h-3 w-10 -translate-x-1/2 cursor-ns-resize rounded-sm bg-orange-500/80"
+                className="nodrag nopan absolute bottom-0 left-1/2 z-10 h-3 w-10 -translate-x-1/2 cursor-ns-resize rounded-sm bg-orange-500/80"
                 style={{ pointerEvents: 'auto' }}
                 title="Agregar o quitar filas (páginas)"
                 onPointerDown={(e) => startDrag(e, 'rows')}
               />
               <div
-                className="nodrag nopan absolute bottom-0 right-0 h-3.5 w-3.5 cursor-nwse-resize rounded-sm bg-orange-600"
+                className="nodrag nopan absolute bottom-0 right-0 z-10 h-3.5 w-3.5 cursor-nwse-resize rounded-sm bg-orange-600"
                 style={{ pointerEvents: 'auto' }}
                 title="Cambiar columnas y filas"
                 onPointerDown={(e) => startDrag(e, 'corner')}

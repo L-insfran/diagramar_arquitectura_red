@@ -16,11 +16,18 @@ import { Input } from '../components/Input'
 import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { TruncatedText } from '../components/Tooltip'
 import { SimpleLinkModal } from '../components/diagram/SimpleLinkModal'
 import { DiagramLinkReferenceList } from '../components/diagram/DiagramLinkReferenceList'
 import { PrintModePanel } from '../components/diagram/PrintModePanel'
 import { DiagramCanvasOptionsMenu } from '../components/diagram/DiagramCanvasOptionsMenu'
-import { SIMPLE_DEVICE_GAP } from '../components/diagram/SimpleDeviceNode'
+import { SIMPLE_DEVICE_GAP, simpleDeviceHeight, resolveDeviceGap, resolveDeviceNodeSize, SIMPLE_DEVICE_WIDTH, CONTAINER_PAD } from '../components/diagram/SimpleDeviceNode'
+import { AREA_BODY_PAD } from '../components/diagram/AreaContainerNode'
+import {
+  areaLooseOrigin,
+  initialDevicePositionForNew,
+  rackBoardContentTop,
+} from '../utils/diagram/containerLayout'
 import {
   ConnectionDiagramCanvas,
   type ConnectionDiagramCanvasHandle,
@@ -32,11 +39,13 @@ import { usePermissions } from '../hooks/usePermissions'
 import { useToast } from '../contexts/ToastContext'
 import { connectionDiagramsService } from '../services/connection-diagrams.service'
 import { diagramLinksService } from '../services/diagram-links.service'
+import { devicesService } from '../services/devices.service'
 import { boardsService } from '../services/boards.service'
 import { racksService } from '../services/racks.service'
 import { sitesService } from '../services/sites.service'
 import { systemBrandingService } from '../services/systemBranding.service'
 import { exportConnectionDiagramPdf } from '../utils/exportConnectionDiagramPdf'
+import type { LinkTableFormat } from '../utils/pdf/linkReferencePdf'
 import type { PaperFormat, PrintOrientation } from '../utils/pdf/a4Geometry'
 import {
   centerFrameOnBounds,
@@ -45,46 +54,115 @@ import {
   parsePrintFrame,
 } from '../utils/pdf/printFrame'
 import {
+  buildLinkEndpointPath,
+  formatEndpointPathText,
   formatLinkCode,
   formatLinkReference,
   occupancyEdgesFromDiagramLinks,
 } from '../utils/diagram/linkLabel'
+import { buildLinkPathRows } from '../utils/diagram/linkPathRows'
 import { boardFlowNodeId } from '../utils/boardPlacement'
 import { areaFlowNodeId } from '../utils/areaPlacement'
 import { rackFlowNodeId } from '../utils/diagram/rackLayout'
 import { parseDiagramHandlePort } from '../utils/diagram/diagramPortHandles'
+import {
+  collectContainerSubtree,
+  collectRemovedDeviceIds,
+  pruneDiagramState,
+} from '../utils/diagram/diagramRemoval'
+import {
+  RemoveFromDiagramDialog,
+  type RemoveFromDiagramInfo,
+} from '../components/diagram/RemoveFromDiagramDialog'
+import {
+  resolvePhysicalContainerAssignment,
+  deviceNeedsPhysicalAssign,
+} from '../utils/diagram/diagramContainerAssignment'
 import type {
   Area,
   Board,
   BoardKind,
   ConnectionDiagram,
   DiagramContainerState,
+  DiagramLayoutMode,
   DiagramLink,
   DiagramLinkEdge,
+  DiagramNodePosition,
+  DiagramPortDisplay,
   DiagramPrintFrame,
   DiagramSettings,
   Rack,
   TopologyNode,
 } from '../types'
+import { computeTreeLayout, collectVisibleDeviceIds } from '../utils/diagram/treeLayout'
+import {
+  buildLayoutUpdate,
+  hasTreeLayoutPositions,
+  resolveActiveLayoutState,
+  resolveFreeLayoutState,
+  resolveTreeLayoutState,
+} from '../utils/diagram/layoutState'
+import {
+  portSlotsVerticalRows,
+  resolveDevicePortSlots,
+} from '../utils/diagram/devicePortSlots'
 
 function patchContainerDeviceIds(
   prev: DiagramContainerState,
   deviceIds: string[],
-  containerId: string
 ): DiagramContainerState {
-  const next: DiagramContainerState = {
+  return {
     ...prev,
     x: prev.x,
     y: prev.y,
     deviceIds,
   }
-  if (containerId.startsWith('area:')) {
-    delete next.width
-    delete next.height
-    delete next.contentMinWidth
-    delete next.contentMinHeight
+}
+
+function computeInitialPositionForAddedDevice(
+  containerId: string,
+  existingIds: string[],
+  nodePositions: Record<string, DiagramNodePosition>,
+  inventory: TopologyNode[],
+  deviceGap: number,
+  containers: Record<string, DiagramContainerState>,
+): { x: number; y: number } {
+  const heightById: Record<string, number> = {}
+  for (const id of existingIds) {
+    const savedH = nodePositions[id]?.height
+    if (savedH != null && Number.isFinite(savedH) && savedH > 0) {
+      heightById[id] = savedH
+      continue
+    }
+    const dev = inventory.find((d) => d.id === id)
+    heightById[id] = simpleDeviceHeight(0, dev?.label ?? '')
   }
-  return next
+  const gap = resolveDeviceGap({ deviceGap })
+
+  if (containerId.startsWith('area:')) {
+    const hasSubContainers = Object.values(containers).some(
+      (c) => c.parentId === containerId
+    )
+    const origin = areaLooseOrigin(hasSubContainers, {})
+    return initialDevicePositionForNew(
+      existingIds,
+      nodePositions,
+      heightById,
+      origin.y,
+      AREA_BODY_PAD,
+      gap
+    )
+  }
+
+  const contentTop = rackBoardContentTop({})
+  return initialDevicePositionForNew(
+    existingIds,
+    nodePositions,
+    heightById,
+    contentTop,
+    CONTAINER_PAD,
+    gap
+  )
 }
 
 const BOARD_KIND_OPTIONS = [
@@ -114,13 +192,28 @@ export default function ConnectionDiagramPage() {
   const [showPrintMargins, setShowPrintMargins] = useState(false)
   const [includeLegend, setIncludeLegend] = useState(true)
   const [includeLinkTable, setIncludeLinkTable] = useState(true)
+  const [linkTableFormat, setLinkTableFormat] = useState<LinkTableFormat>(() => {
+    try {
+      const raw = localStorage.getItem('nm.diagram.linkReferenceView')
+      if (raw === 'path' || raw === 'table') return raw
+    } catch {
+      /* ignore */
+    }
+    return 'path'
+  })
+  const [invertColors, setInvertColors] = useState(false)
   const [printFrame, setPrintFrame] = useState<DiagramPrintFrame | null>(null)
   const [printFrameLocked, setPrintFrameLocked] = useState(false)
   const [printModeOpen, setPrintModeOpen] = useState(false)
+  const [highlightedPrintSector, setHighlightedPrintSector] = useState({ col: 0, row: 0 })
   const [printDiagnostics, setPrintDiagnostics] = useState({ outsideCount: 0, cutCount: 0 })
   const [staleLinkIds, setStaleLinkIds] = useState<string[]>([])
   const [referenceListCollapsed, setReferenceListCollapsed] = useState(false)
   const [deviceGap, setDeviceGap] = useState(SIMPLE_DEVICE_GAP)
+  const [portDisplay, setPortDisplay] = useState<DiagramPortDisplay>('all')
+  const [portFlowInverted, setPortFlowInverted] = useState(false)
+  const [layoutMode, setLayoutMode] = useState<DiagramLayoutMode>('free')
+  const [newLayoutMode, setNewLayoutMode] = useState<DiagramLayoutMode>('free')
   const [focusedLinkId, setFocusedLinkId] = useState<string | null>(null)
   const printSaveTimer = useRef<number | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -150,6 +243,15 @@ export default function ConnectionDiagramPage() {
   const [scopeSiteId, setScopeSiteId] = useState('')
   const [rackSearch, setRackSearch] = useState('')
 
+  const [rackModalOpen, setRackModalOpen] = useState(false)
+  const [rackForm, setRackForm] = useState({ name: '', areaId: '', heightU: 42 })
+
+  const [siteModalOpen, setSiteModalOpen] = useState(false)
+  const [siteForm, setSiteForm] = useState({ name: '', address: '' })
+
+  const [areaModalOpen, setAreaModalOpen] = useState(false)
+  const [areaForm, setAreaForm] = useState({ name: '' })
+
   const [boardModalOpen, setBoardModalOpen] = useState(false)
   const [editingBoard, setEditingBoard] = useState<Board | null>(null)
   const [boardForm, setBoardForm] = useState({
@@ -166,6 +268,8 @@ export default function ConnectionDiagramPage() {
     targetDeviceId?: string
     sourcePortId?: string | null
     sourcePortLabel?: string
+    targetPortId?: string | null
+    targetPortLabel?: string
     edgeId?: string
   }>({ open: false })
   const [linkDeleteConfirm, setLinkDeleteConfirm] = useState<{
@@ -174,6 +278,21 @@ export default function ConnectionDiagramPage() {
     reference: string
   } | null>(null)
   const [deletingLink, setDeletingLink] = useState(false)
+
+  const [removeFromDiagram, setRemoveFromDiagram] = useState<{
+    info: RemoveFromDiagramInfo
+    onConfirm: () => Promise<void>
+  } | null>(null)
+  const [removingFromDiagram, setRemovingFromDiagram] = useState(false)
+
+  const [assignDeviceConfirm, setAssignDeviceConfirm] = useState<{
+    deviceLabel: string
+    fromPath: string
+    toPath: string
+    areaChanged: boolean
+    onConfirm: () => Promise<void>
+  } | null>(null)
+  const [assigningDevice, setAssigningDevice] = useState(false)
 
   useEffect(() => {
     if (!diagrams?.length) {
@@ -190,9 +309,22 @@ export default function ConnectionDiagramPage() {
     setPrintModeOpen(false)
     setShowPrintMargins(false)
     setPrintFrameLocked(false)
+    setHighlightedPrintSector({ col: 0, row: 0 })
     setStaleLinkIds([])
     setPrintDiagnostics({ outsideCount: 0, cutCount: 0 })
   }, [selectedId])
+
+  useEffect(() => {
+    if (!printFrame) return
+    const maxCol = Math.max(0, printFrame.cols - 1)
+    const maxRow = Math.max(0, printFrame.rows - 1)
+    setHighlightedPrintSector((prev) => {
+      const col = Math.min(Math.max(0, prev.col), maxCol)
+      const row = Math.min(Math.max(0, prev.row), maxRow)
+      if (col === prev.col && row === prev.row) return prev
+      return { col, row }
+    })
+  }, [printFrame?.cols, printFrame?.rows])
 
   const {
     data: graphPayload,
@@ -211,7 +343,7 @@ export default function ConnectionDiagramPage() {
     [projectId]
   )
 
-  const { data: sites } = useApi(
+  const { data: sites, refetch: refetchSites } = useApi(
     () => sitesService.getAll(),
     [projectId]
   )
@@ -253,7 +385,24 @@ export default function ConnectionDiagramPage() {
     setPrintFrame(parsePrintFrame(d.settings?.printFrame) ?? null)
     setIncludeLegend(d.settings?.printIncludeLegend !== false)
     setIncludeLinkTable(d.settings?.printIncludeLinkTable !== false)
+    setLinkTableFormat(
+      d.settings?.printLinkTableFormat === 'table' || d.settings?.printLinkTableFormat === 'path'
+        ? d.settings.printLinkTableFormat
+        : (() => {
+            try {
+              const raw = localStorage.getItem('nm.diagram.linkReferenceView')
+              if (raw === 'path' || raw === 'table') return raw
+            } catch {
+              /* ignore */
+            }
+            return 'path'
+          })(),
+    )
+    setInvertColors(d.settings?.printInvertColors === true)
     setDeviceGap(d.settings?.deviceGap ?? SIMPLE_DEVICE_GAP)
+    setPortDisplay(d.settings?.portDisplay ?? 'all')
+    setPortFlowInverted(d.settings?.portFlowInverted ?? false)
+    setLayoutMode(d.layoutMode ?? 'free')
   }, [
     graphPayload?.diagram?.id,
     graphPayload?.diagram?.settings?.paperSize,
@@ -261,7 +410,12 @@ export default function ConnectionDiagramPage() {
     graphPayload?.diagram?.settings?.printFrame,
     graphPayload?.diagram?.settings?.printIncludeLegend,
     graphPayload?.diagram?.settings?.printIncludeLinkTable,
+    graphPayload?.diagram?.settings?.printLinkTableFormat,
+    graphPayload?.diagram?.settings?.printInvertColors,
     graphPayload?.diagram?.settings?.deviceGap,
+    graphPayload?.diagram?.settings?.portDisplay,
+    graphPayload?.diagram?.settings?.portFlowInverted,
+    graphPayload?.diagram?.layoutMode,
   ])
 
   useEffect(() => {
@@ -270,7 +424,7 @@ export default function ConnectionDiagramPage() {
     }
   }, [])
 
-  const { data: siteRacks } = useApi(
+  const { data: siteRacks, refetch: refetchRacks } = useApi(
     () =>
       scopeSiteId
         ? racksService.getAll({ siteId: scopeSiteId, search: rackSearch || undefined })
@@ -290,19 +444,33 @@ export default function ConnectionDiagramPage() {
 
   const diagramForCanvas = useMemo((): ConnectionDiagram | null => {
     if (!diagram) return null
+    const active = resolveActiveLayoutState({ ...diagram, layoutMode })
     return {
       ...diagram,
+      layoutMode,
+      nodePositions: active.nodePositions ?? {},
+      labelOffsets: active.labelOffsets ?? {},
+      edgeRoutes: active.edgeRoutes ?? {},
+      handleAnchors: active.handleAnchors ?? {},
       settings: {
         ...(diagram.settings ?? {}),
         deviceGap,
+        portDisplay,
+        portFlowInverted,
       },
     }
-  }, [diagram, deviceGap])
+  }, [diagram, deviceGap, portDisplay, portFlowInverted, layoutMode])
 
   const visibleContainerIds = useMemo(() => {
     const keys = Object.keys(diagram?.containers ?? {})
     return keys.filter(
-      (k) => k.startsWith('area:') || k.startsWith('rack:') || k.startsWith('board:')
+      // area: es la raíz; racks/tableros usan el id unificado container:${id}
+      // (mantenemos legacy rack:/board: por compatibilidad de diagramas guardados).
+      (k) =>
+        k.startsWith('area:') ||
+        k.startsWith('container:') ||
+        k.startsWith('rack:') ||
+        k.startsWith('board:')
     )
   }, [diagram?.containers])
 
@@ -404,33 +572,100 @@ export default function ConnectionDiagramPage() {
     }
   }
 
-  /** Quita un contenedor del canvas. Si es un área, desanida sus hijos (quedan sueltos). */
-  const handleRemoveContainerFromCanvas = async (
+  /** Quita un contenedor y todo su subárbol del canvas, con confirmación si hay equipos/enlaces. */
+  const handleRemoveContainerFromCanvas = (
     containerId: string,
-    label: string
+    label: string,
   ) => {
     if (!selectedId || !diagram) return
-    let next = { ...liveContainers() }
-    const { [containerId]: _removed, ...rest } = next
-    next = rest
-    if (containerId.startsWith('area:')) {
-      const areaPos = diagram.containers?.[containerId]
-      next = Object.fromEntries(
-        Object.entries(next).map(([key, state]) => {
-          if (state.parentId !== containerId) return [key, state]
-          return [
-            key,
-            {
-              ...state,
-              parentId: null,
-              x: (areaPos?.x ?? 40) + (state.x ?? 0),
-              y: (areaPos?.y ?? 40) + (state.y ?? 0),
-            },
-          ]
+    const live = liveContainers()
+    const subtreeIds = collectContainerSubtree(live, containerId)
+    const deviceIds = collectRemovedDeviceIds(live, subtreeIds, resolveContainerDeviceIds)
+    const allLinks = projectDiagramLinks ?? []
+    const affectedLinks = allLinks.filter(
+      (l) => deviceIds.has(l.sourceDeviceId) || deviceIds.has(l.targetDeviceId),
+    )
+
+    const doRemove = async () => {
+      setRemovingFromDiagram(true)
+      try {
+        if (affectedLinks.length > 0) {
+          await diagramLinksService.bulkDeleteByDevices([...deviceIds])
+        }
+        const livePayload = canvasRef.current?.getPersistPayload()
+        const freeBase =
+          layoutMode === 'free'
+            ? {
+                nodePositions: livePayload?.nodePositions ?? diagram.nodePositions ?? {},
+                edgeRoutes: livePayload?.edgeRoutes ?? diagram.edgeRoutes ?? {},
+                labelOffsets: livePayload?.labelOffsets ?? diagram.labelOffsets ?? {},
+                handleAnchors: livePayload?.handleAnchors ?? diagram.handleAnchors ?? {},
+              }
+            : resolveFreeLayoutState(diagram)
+        const treeBase =
+          layoutMode === 'tree'
+            ? {
+                nodePositions: livePayload?.nodePositions ?? {},
+                edgeRoutes: livePayload?.edgeRoutes ?? {},
+                labelOffsets: livePayload?.labelOffsets ?? {},
+                handleAnchors: livePayload?.handleAnchors ?? {},
+              }
+            : resolveTreeLayoutState(diagram)
+        const containersBase = livePayload?.containers ?? live
+        const freePruned = pruneDiagramState(
+          { containers: containersBase, ...freeBase },
+          subtreeIds,
+          deviceIds,
+          new Set(affectedLinks.map((l) => l.id)),
+        )
+        const treePruned = pruneDiagramState(
+          { containers: containersBase, ...treeBase },
+          subtreeIds,
+          deviceIds,
+          new Set(affectedLinks.map((l) => l.id)),
+        )
+        await connectionDiagramsService.update(selectedId, {
+          containers: freePruned.containers,
+          ...buildLayoutUpdate('free', {
+            nodePositions: freePruned.nodePositions,
+            edgeRoutes: freePruned.edgeRoutes,
+            labelOffsets: freePruned.labelOffsets,
+            handleAnchors: freePruned.handleAnchors,
+          }),
+          ...buildLayoutUpdate('tree', {
+            nodePositions: treePruned.nodePositions,
+            edgeRoutes: treePruned.edgeRoutes,
+            labelOffsets: treePruned.labelOffsets,
+            handleAnchors: treePruned.handleAnchors,
+          }),
         })
-      )
+        toast.success(`«${label}» quitado del diagrama`)
+        refetchProjectLinks()
+        await refetchGraph()
+        window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'No se pudo quitar el contenedor')
+      } finally {
+        setRemovingFromDiagram(false)
+        setRemoveFromDiagram(null)
+      }
     }
-    await persistContainers(next, `«${label}» sacado del diagrama`)
+
+    if (deviceIds.size === 0 && affectedLinks.length === 0 && subtreeIds.size <= 1) {
+      void doRemove()
+      return
+    }
+
+    setRemoveFromDiagram({
+      info: {
+        label,
+        kind: 'container',
+        childContainerCount: subtreeIds.size - 1,
+        deviceCount: deviceIds.size,
+        linkCodes: affectedLinks.map((l) => l.code).sort((a, b) => a - b),
+      },
+      onConfirm: doRemove,
+    })
   }
 
   const handleAddArea = async (area: Area) => {
@@ -547,24 +782,22 @@ export default function ConnectionDiagramPage() {
       if (saved?.deviceIds != null) {
         return saved.deviceIds.filter((id) => inventoryIds.has(id))
       }
-      if (containerId.startsWith('rack:')) {
-        const rackId = containerId.slice(5)
+      if (containerId.startsWith('container:') || containerId.startsWith('rack:') || containerId.startsWith('board:')) {
+        const prefix = containerId.startsWith('container:') ? 'container:' : containerId.startsWith('rack:') ? 'rack:' : 'board:'
+        const unifiedId = containerId.slice(prefix.length)
         return graphPayload.inventory
-          .filter((d) => d.data.rackId === rackId)
-          .map((d) => d.id)
-      }
-      if (containerId.startsWith('board:')) {
-        const boardId = containerId.slice(6)
-        return graphPayload.inventory
-          .filter((d) => d.data.boardId === boardId)
+          .filter((d) => d.data.containerId === unifiedId)
           .map((d) => d.id)
       }
       if (containerId.startsWith('area:')) {
         const areaId = containerId.slice(5)
+        const rackIds = new Set((graphPayload.racks ?? []).map((r) => r.id))
+        const boardIds = new Set((graphPayload.boards ?? []).map((b) => b.id))
         return graphPayload.inventory
           .filter(
             (d) =>
-              d.data.areaId === areaId && !d.data.rackId && !d.data.boardId
+              d.data.areaId === areaId &&
+              (!d.data.containerId || (!rackIds.has(d.data.containerId) && !boardIds.has(d.data.containerId)))
           )
           .map((d) => d.id)
       }
@@ -573,51 +806,259 @@ export default function ConnectionDiagramPage() {
     [diagram, graphPayload]
   )
 
-  const handleAddDeviceToContainer = useCallback(
+  const persistDeviceToDiagramLayout = useCallback(
     async (containerId: string, deviceId: string) => {
-      if (!selectedId || !diagram || !canMutate) return
-      const live = canvasRef.current?.getPersistPayload().containers ?? diagram.containers ?? {}
-      const prev = live[containerId] ?? diagram.containers?.[containerId] ?? { x: 40, y: 40 }
-      const current = resolveContainerDeviceIds(containerId)
-      const deviceIds = [...new Set([...current, deviceId])]
-      try {
-        await connectionDiagramsService.update(selectedId, {
-          containers: {
-            ...live,
-            [containerId]: patchContainerDeviceIds(prev, deviceIds, containerId),
-          },
-        })
-        await refetchGraph()
-        window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
-      } catch (e: any) {
-        toast.error(e?.response?.data?.message ?? 'No se pudo agregar el dispositivo')
+      if (!selectedId || !diagram || !graphPayload) return
+      const livePayload = canvasRef.current?.getPersistPayload()
+      // Containers are shared; free-mode positions are container-relative.
+      const live = livePayload?.containers ?? diagram.containers ?? {}
+      const freeBase = resolveFreeLayoutState(diagram)
+      const freePositions = {
+        ...(layoutMode === 'free'
+          ? (livePayload?.nodePositions ?? freeBase.nodePositions ?? {})
+          : (freeBase.nodePositions ?? {})),
       }
+      // Strip device from every other container so membership matches the destination only.
+      const stripped: typeof live = {}
+      for (const [key, state] of Object.entries(live)) {
+        if (key === containerId || !state.deviceIds?.includes(deviceId)) {
+          stripped[key] = state
+          continue
+        }
+        stripped[key] = {
+          ...state,
+          deviceIds: state.deviceIds.filter((id) => id !== deviceId),
+        }
+      }
+      const prev = stripped[containerId] ?? diagram.containers?.[containerId] ?? { x: 40, y: 40 }
+      const current = resolveContainerDeviceIds(containerId).filter((id) => id !== deviceId)
+      const deviceIds = [...new Set([...current, deviceId])]
+      delete freePositions[deviceId]
+      const initialPos = computeInitialPositionForAddedDevice(
+        containerId,
+        current,
+        freePositions,
+        graphPayload.inventory,
+        deviceGap,
+        stripped,
+      )
+      const treeState = resolveTreeLayoutState(diagram)
+      const treePositions = { ...(treeState.nodePositions ?? {}) }
+      delete treePositions[deviceId]
+      const freeOffsets =
+        layoutMode === 'free' && livePayload
+          ? {
+              labelOffsets: livePayload.labelOffsets ?? freeBase.labelOffsets ?? {},
+              edgeRoutes: livePayload.edgeRoutes ?? freeBase.edgeRoutes ?? {},
+              handleAnchors: livePayload.handleAnchors ?? freeBase.handleAnchors ?? {},
+            }
+          : {
+              labelOffsets: freeBase.labelOffsets ?? {},
+              edgeRoutes: freeBase.edgeRoutes ?? {},
+              handleAnchors: freeBase.handleAnchors ?? {},
+            }
+      await connectionDiagramsService.update(selectedId, {
+        containers: {
+          ...stripped,
+          [containerId]: patchContainerDeviceIds(prev, deviceIds),
+        },
+        ...buildLayoutUpdate('free', {
+          nodePositions: {
+            ...freePositions,
+            [deviceId]: initialPos,
+          },
+          ...freeOffsets,
+        }),
+        ...buildLayoutUpdate('tree', {
+          ...treeState,
+          nodePositions: treePositions,
+        }),
+      })
+      await refetchGraph()
+      window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
     },
-    [selectedId, diagram, canMutate, refetchGraph, toast, resolveContainerDeviceIds]
+    [
+      selectedId,
+      diagram,
+      graphPayload,
+      deviceGap,
+      layoutMode,
+      refetchGraph,
+      resolveContainerDeviceIds,
+    ],
+  )
+
+  const handleAddDeviceToContainer = useCallback(
+    (containerId: string, deviceId: string) => {
+      if (!selectedId || !diagram || !canMutate || !graphPayload) return
+
+      const assignment = resolvePhysicalContainerAssignment(containerId, graphPayload)
+      if (!assignment) {
+        toast.error('No se pudo resolver el contenedor destino')
+        return
+      }
+
+      const device = graphPayload.inventory.find((d) => d.id === deviceId)
+      if (!device) return
+
+      const runAssignAndLayout = async () => {
+        await devicesService.assignContainer(deviceId, {
+          containerId: assignment.containerId,
+          ...(assignment.containerId ? {} : { areaId: assignment.areaId }),
+        })
+        await persistDeviceToDiagramLayout(containerId, deviceId)
+      }
+
+      if (!deviceNeedsPhysicalAssign(device, assignment, graphPayload)) {
+        void persistDeviceToDiagramLayout(containerId, deviceId).catch((e: any) => {
+          toast.error(e?.response?.data?.message ?? 'No se pudo agregar el dispositivo')
+        })
+        return
+      }
+
+      const fromAreaName = device.data.areaName ?? 'sin área'
+      const fromContainerName = device.data.containerName ?? null
+      const toAreaName =
+        graphPayload.areas?.find((a) => a.id === assignment.areaId)?.name ??
+        graphPayload.racks?.find((r) => r.id === assignment.containerId)?.areaName ??
+        graphPayload.boards?.find((b) => b.id === assignment.containerId)?.areaName ??
+        'otra área'
+      const fromPath = [fromAreaName, fromContainerName].filter(Boolean).join(' › ')
+      const toPath = [toAreaName, assignment.label].filter(Boolean).join(' › ')
+      const areaChanged = Boolean(device.data.areaId && device.data.areaId !== assignment.areaId)
+
+      const finishAssign = async () => {
+        setAssigningDevice(true)
+        try {
+          await runAssignAndLayout()
+          toast.success(`«${device.label}» asignado a ${assignment.label}`)
+          setAssignDeviceConfirm(null)
+        } catch (e: any) {
+          toast.error(e?.response?.data?.message ?? 'No se pudo mover el dispositivo')
+        } finally {
+          setAssigningDevice(false)
+        }
+      }
+
+      setAssignDeviceConfirm({
+        deviceLabel: device.label,
+        fromPath,
+        toPath,
+        areaChanged,
+        onConfirm: finishAssign,
+      })
+    },
+    [
+      selectedId,
+      diagram,
+      canMutate,
+      graphPayload,
+      persistDeviceToDiagramLayout,
+      toast,
+    ],
   )
 
   const handleRemoveDeviceFromContainer = useCallback(
-    async (containerId: string, deviceId: string) => {
+    (containerId: string, deviceId: string) => {
       if (!selectedId || !diagram || !canMutate) return
-      const live = canvasRef.current?.getPersistPayload().containers ?? diagram.containers ?? {}
-      const prev = live[containerId] ?? diagram.containers?.[containerId] ?? { x: 40, y: 40 }
-      const current = resolveContainerDeviceIds(containerId)
-      const deviceIds = current.filter((id) => id !== deviceId)
-      try {
-        await connectionDiagramsService.update(selectedId, {
-          containers: {
+      const deviceLabel =
+        graphPayload?.inventory.find((d) => d.id === deviceId)?.label ?? 'Equipo'
+      const allLinks = projectDiagramLinks ?? []
+      const affectedLinks = allLinks.filter(
+        (l) => l.sourceDeviceId === deviceId || l.targetDeviceId === deviceId,
+      )
+
+      const doRemove = async () => {
+        setRemovingFromDiagram(true)
+        try {
+          if (affectedLinks.length > 0) {
+            await diagramLinksService.bulkDeleteByDevices([deviceId])
+          }
+          const livePayload = canvasRef.current?.getPersistPayload()
+          const live = livePayload?.containers ?? diagram.containers ?? {}
+          const prev = live[containerId] ?? diagram.containers?.[containerId] ?? { x: 40, y: 40 }
+          const current = resolveContainerDeviceIds(containerId)
+          const deviceIds = current.filter((id) => id !== deviceId)
+          const removedDeviceIds = new Set([deviceId])
+          const removedLinkIds = new Set(affectedLinks.map((l) => l.id))
+          const freeBase =
+            layoutMode === 'free'
+              ? {
+                  nodePositions: livePayload?.nodePositions ?? diagram.nodePositions ?? {},
+                  edgeRoutes: livePayload?.edgeRoutes ?? diagram.edgeRoutes ?? {},
+                  labelOffsets: livePayload?.labelOffsets ?? diagram.labelOffsets ?? {},
+                  handleAnchors: livePayload?.handleAnchors ?? diagram.handleAnchors ?? {},
+                }
+              : resolveFreeLayoutState(diagram)
+          const treeBase =
+            layoutMode === 'tree'
+              ? {
+                  nodePositions: livePayload?.nodePositions ?? {},
+                  edgeRoutes: livePayload?.edgeRoutes ?? {},
+                  labelOffsets: livePayload?.labelOffsets ?? {},
+                  handleAnchors: livePayload?.handleAnchors ?? {},
+                }
+              : resolveTreeLayoutState(diagram)
+          const containersNext = {
             ...live,
-            [containerId]: patchContainerDeviceIds(prev, deviceIds, containerId),
-          },
-        })
-        toast.success('Equipo sacado del diagrama')
-        await refetchGraph()
-        window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
-      } catch (e: any) {
-        toast.error(e?.response?.data?.message ?? 'No se pudo sacar el dispositivo')
+            [containerId]: patchContainerDeviceIds(prev, deviceIds),
+          }
+          const freePruned = pruneDiagramState(
+            { containers: containersNext, ...freeBase },
+            new Set<string>(),
+            removedDeviceIds,
+            removedLinkIds,
+          )
+          const treePruned = pruneDiagramState(
+            { containers: containersNext, ...treeBase },
+            new Set<string>(),
+            removedDeviceIds,
+            removedLinkIds,
+          )
+          await connectionDiagramsService.update(selectedId, {
+            containers: freePruned.containers,
+            ...buildLayoutUpdate('free', {
+              nodePositions: freePruned.nodePositions,
+              edgeRoutes: freePruned.edgeRoutes,
+              labelOffsets: freePruned.labelOffsets,
+              handleAnchors: freePruned.handleAnchors,
+            }),
+            ...buildLayoutUpdate('tree', {
+              nodePositions: treePruned.nodePositions,
+              edgeRoutes: treePruned.edgeRoutes,
+              labelOffsets: treePruned.labelOffsets,
+              handleAnchors: treePruned.handleAnchors,
+            }),
+          })
+          toast.success('Equipo sacado del diagrama')
+          refetchProjectLinks()
+          await refetchGraph()
+          window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
+        } catch (e: any) {
+          toast.error(e?.response?.data?.message ?? 'No se pudo sacar el dispositivo')
+        } finally {
+          setRemovingFromDiagram(false)
+          setRemoveFromDiagram(null)
+        }
       }
+
+      if (affectedLinks.length === 0) {
+        void doRemove()
+        return
+      }
+
+      setRemoveFromDiagram({
+        info: {
+          label: deviceLabel,
+          kind: 'device',
+          childContainerCount: 0,
+          deviceCount: 1,
+          linkCodes: affectedLinks.map((l) => l.code).sort((a, b) => a - b),
+        },
+        onConfirm: doRemove,
+      })
     },
-    [selectedId, diagram, canMutate, refetchGraph, toast, resolveContainerDeviceIds]
+    [selectedId, diagram, canMutate, graphPayload?.inventory, projectDiagramLinks, refetchGraph, refetchProjectLinks, toast, resolveContainerDeviceIds, layoutMode]
   )
 
   const handleReorderDevicesInContainer = useCallback(
@@ -636,7 +1077,7 @@ export default function ConnectionDiagramPage() {
         await connectionDiagramsService.update(selectedId, {
           containers: {
             ...live,
-            [containerId]: patchContainerDeviceIds(prev, deviceIds, containerId),
+            [containerId]: patchContainerDeviceIds(prev, deviceIds),
           },
         })
         await refetchGraph()
@@ -656,10 +1097,16 @@ export default function ConnectionDiagramPage() {
         name: newName.trim(),
         scopeSiteIds: scopeSiteId ? [scopeSiteId] : [],
         scopeAreaIds: [],
+        layoutMode: newLayoutMode,
+        settings: {
+          portDisplay: 'all',
+          deviceGap: SIMPLE_DEVICE_GAP,
+        },
       })
       toast.success('Diagrama creado')
       setCreateOpen(false)
       setNewName('')
+      setNewLayoutMode('free')
       await refetchList()
       setSelectedId(created.id)
     } catch (e: any) {
@@ -719,20 +1166,28 @@ export default function ConnectionDiagramPage() {
     return {
       ...(diagram?.settings ?? {}),
       deviceGap,
+      portDisplay,
+      portFlowInverted,
       paperSize,
       printOrientation,
       ...(printFrame ? { printFrame } : {}),
       printIncludeLegend: includeLegend,
       printIncludeLinkTable: includeLinkTable,
+      printLinkTableFormat: linkTableFormat,
+      printInvertColors: invertColors,
     }
   }, [
     diagram?.settings,
     deviceGap,
+    portDisplay,
+    portFlowInverted,
     paperSize,
     printOrientation,
     printFrame,
     includeLegend,
     includeLinkTable,
+    linkTableFormat,
+    invertColors,
   ])
 
   const persistSettingsSoon = useCallback(
@@ -748,19 +1203,167 @@ export default function ConnectionDiagramPage() {
     [selectedId, canMutate, buildPrintSettings],
   )
 
-  const persistDeviceGapSoon = useCallback(
-    (gap: number) => {
-      persistSettingsSoon({ ...buildPrintSettings(), deviceGap: gap })
+  const measureDeviceForTree = useCallback(
+    (deviceId: string): { width: number; height: number } => {
+      const dev = graphPayload?.inventory.find((d) => d.id === deviceId)
+      const treePositions = resolveTreeLayoutState(diagram ?? { treeLayout: {} }).nodePositions
+      const saved = treePositions?.[deviceId]
+      const nodeWidth =
+        saved?.width && saved.width > 0 ? saved.width : SIMPLE_DEVICE_WIDTH
+      const preliminary = dev
+        ? resolveDevicePortSlots({
+            deviceId,
+            ports: dev.data.ports ?? [],
+            edges: graphPayload?.graph.edges ?? [],
+            layoutMode: 'tree',
+            portDisplay,
+            portFlowInverted,
+            savedAnchors: {},
+          })
+        : []
+      const rows = portSlotsVerticalRows(preliminary)
+      const autoH = simpleDeviceHeight(
+        rows,
+        dev?.label ?? '',
+        nodeWidth,
+        preliminary.length > 0 && preliminary.every((s) => !s.connected)
+      )
+      return resolveDeviceNodeSize(autoH, saved)
     },
-    [buildPrintSettings, persistSettingsSoon],
+    [diagram?.treeLayout, graphPayload, portDisplay, portFlowInverted]
   )
 
-  const handleDeviceGapChange = useCallback(
-    (gap: number) => {
-      setDeviceGap(gap)
-      persistDeviceGapSoon(gap)
+  const computeTreePositions = useCallback((): Record<string, DiagramNodePosition> => {
+    if (!diagram || !graphPayload) return {}
+    const deviceIds = collectVisibleDeviceIds({
+      diagram,
+      inventory: graphPayload.inventory,
+      racks: graphPayload.racks,
+      boards: graphPayload.boards,
+      visibleContainerIds,
+    })
+    const sizes = new Map<string, { width: number; height: number }>()
+    for (const id of deviceIds) {
+      sizes.set(id, measureDeviceForTree(id))
+    }
+    return computeTreeLayout(
+      deviceIds,
+      graphPayload.graph.edges,
+      sizes,
+      resolveDeviceGap({ deviceGap })
+    )
+  }, [diagram, graphPayload, visibleContainerIds, measureDeviceForTree, deviceGap])
+
+  const applyLayoutModeChange = useCallback(
+    async (next: DiagramLayoutMode) => {
+      if (!selectedId || !canMutate) return
+      try {
+        const live = canvasRef.current?.getPersistPayload()
+        const savedOutgoing =
+          layoutMode === 'tree'
+            ? resolveTreeLayoutState(diagram ?? { treeLayout: {} })
+            : resolveFreeLayoutState(diagram ?? {})
+        const outgoingGeometry = {
+          nodePositions: live?.nodePositions ?? savedOutgoing.nodePositions ?? {},
+          labelOffsets: live?.labelOffsets ?? savedOutgoing.labelOffsets ?? {},
+          edgeRoutes: live?.edgeRoutes ?? savedOutgoing.edgeRoutes ?? {},
+          handleAnchors: live?.handleAnchors ?? savedOutgoing.handleAnchors ?? {},
+        }
+        // Snapshot the mode we leave so unsaved drags survive the switch.
+        const updates: Parameters<typeof connectionDiagramsService.update>[1] = {
+          layoutMode: next,
+          settings: live?.settings ?? buildPrintSettings(),
+          ...(live?.containers ? { containers: live.containers } : {}),
+          ...buildLayoutUpdate(layoutMode, outgoingGeometry),
+        }
+        // First time entering tree with no saved tree layout → compute dagre once.
+        if (next === 'tree' && !hasTreeLayoutPositions(diagram?.treeLayout)) {
+          updates.treeLayout = {
+            nodePositions: computeTreePositions(),
+            edgeRoutes: {},
+            labelOffsets: {},
+            handleAnchors: {},
+          }
+        }
+        await connectionDiagramsService.update(selectedId, updates)
+        await refetchGraph()
+        setLayoutMode(next)
+        toast.success(next === 'tree' ? 'Modo árbol activado' : 'Modo libre activado')
+        window.setTimeout(() => {
+          canvasRef.current?.fitView()
+          canvasRef.current?.rerouteCables()
+        }, 120)
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'No se pudo cambiar el modo')
+      }
     },
-    [persistDeviceGapSoon],
+    [
+      selectedId,
+      canMutate,
+      layoutMode,
+      diagram,
+      buildPrintSettings,
+      computeTreePositions,
+      refetchGraph,
+      toast,
+    ]
+  )
+
+  const handleLayoutModeChange = useCallback(
+    (next: DiagramLayoutMode) => {
+      if (next === layoutMode) return
+      void applyLayoutModeChange(next)
+    },
+    [layoutMode, applyLayoutModeChange]
+  )
+
+  const handleReorganizeTree = useCallback(async () => {
+    if (!selectedId || !canMutate || layoutMode !== 'tree') return
+    try {
+      const treeState = resolveTreeLayoutState(diagram ?? { treeLayout: {} })
+      await connectionDiagramsService.update(selectedId, {
+        ...buildLayoutUpdate('tree', {
+          nodePositions: computeTreePositions(),
+          edgeRoutes: {},
+          labelOffsets: treeState.labelOffsets ?? {},
+          handleAnchors: treeState.handleAnchors ?? {},
+        }),
+      })
+      toast.success('Árbol reorganizado')
+      await refetchGraph()
+      window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'No se pudo reorganizar')
+    }
+  }, [selectedId, canMutate, layoutMode, computeTreePositions, diagram, refetchGraph, toast])
+
+  const persistPortSettingsSoon = useCallback(
+    (patch: Partial<Pick<DiagramSettings, 'portDisplay' | 'portFlowInverted'>>) => {
+      if (!selectedId || !canMutate) return
+      if (printSaveTimer.current != null) window.clearTimeout(printSaveTimer.current)
+      printSaveTimer.current = window.setTimeout(() => {
+        void connectionDiagramsService
+          .update(selectedId, { settings: { ...buildPrintSettings(), ...patch } })
+          .catch(() => undefined)
+      }, 400)
+    },
+    [selectedId, canMutate, buildPrintSettings]
+  )
+
+  const handlePortDisplayChange = useCallback(
+    (mode: DiagramPortDisplay) => {
+      setPortDisplay(mode)
+      persistPortSettingsSoon({ portDisplay: mode })
+    },
+    [persistPortSettingsSoon]
+  )
+
+  const handlePortFlowInvertedChange = useCallback(
+    (inverted: boolean) => {
+      setPortFlowInverted(inverted)
+      persistPortSettingsSoon({ portFlowInverted: inverted })
+    },
+    [persistPortSettingsSoon]
   )
 
   const applyPrintFrame = useCallback(
@@ -785,6 +1388,7 @@ export default function ConnectionDiagramPage() {
   const openPrintMode = () => {
     setPrintModeOpen(true)
     setShowPrintMargins(true)
+    setHighlightedPrintSector({ col: 0, row: 0 })
     const frame = ensurePrintFrame()
     if (frame) {
       persistSettingsSoon({ ...buildPrintSettings(), printFrame: frame })
@@ -836,11 +1440,23 @@ export default function ConnectionDiagramPage() {
         printFrame: printFrame ?? undefined,
         printIncludeLegend: includeLegend,
         printIncludeLinkTable: includeLinkTable,
+        printLinkTableFormat: linkTableFormat,
+        printInvertColors: invertColors,
       })
+      const { nodePositions, labelOffsets, edgeRoutes, handleAnchors, containers, settings } =
+        payload
       await connectionDiagramsService.update(selectedId, {
-        ...payload,
+        containers,
+        settings,
+        layoutMode,
         scopeSiteIds: scopeSiteId ? [scopeSiteId] : [],
         scopeAreaIds: [],
+        ...buildLayoutUpdate(layoutMode, {
+          nodePositions,
+          labelOffsets,
+          edgeRoutes,
+          handleAnchors,
+        }),
       })
       toast.success('Layout guardado')
       await refetchGraph()
@@ -873,34 +1489,58 @@ export default function ConnectionDiagramPage() {
         branding = undefined
       }
 
-      const edgeCount = visibleLinkEdges.length
-      const containerCount = visibleContainerIds.length
       const inventory = graphPayload?.inventory ?? []
       const linkReferences = visibleLinkEdges
         .slice()
         .sort((a, b) => (a.code ?? 0) - (b.code ?? 0) || a.id.localeCompare(b.id))
         .map((e) => ({
           code: formatLinkCode(e.code),
-          reference: formatLinkReference(e, inventory, containerByDeviceId),
+          origin: formatEndpointPathText(
+            buildLinkEndpointPath(e.source, e.sourcePort, inventory, containerByDeviceId)
+          ),
+          destination: formatEndpointPathText(
+            buildLinkEndpointPath(e.target, e.targetPort, inventory, containerByDeviceId),
+            { mirrored: true }
+          ),
           description: e.description?.trim() || '',
         }))
+      const linkPathReferences = buildLinkPathRows(
+        visibleLinkEdges,
+        inventory,
+        containerByDeviceId,
+      ).map((row) => ({
+        code: row.code,
+        originSite: row.origin.site ?? '',
+        originArea: row.origin.area ?? '',
+        originContainer: row.origin.container ?? '',
+        originDevice: row.origin.device ?? '',
+        originPort: row.origin.port ?? '',
+        cable: row.cable ?? '',
+        destinationPort: row.destination.port ?? '',
+        destinationDevice: row.destination.device ?? '',
+        destinationContainer: row.destination.container ?? '',
+        destinationArea: row.destination.area ?? '',
+        destinationSite: row.destination.site ?? '',
+        description: row.edge.description?.trim() || '',
+      }))
 
       // Captura el layout actual (sin reempaquetar contenedores).
       await exportConnectionDiagramPdf({
         title: diagram.name || 'Diagrama de conexión',
-        subtitle: `${containerCount} contenedor(es) · ${edgeCount} enlace(s) · ${paperSize.toUpperCase()} ${
-          printOrientation === 'landscape' ? 'horizontal' : 'vertical'
-        }`,
         projectName: activeProject?.name,
+        clientName: activeProject?.clientName ?? undefined,
         authorName,
         branding,
         orientation: printOrientation,
         format: paperSize,
         includeLegend,
         includeLinkTable,
+        linkTableFormat,
+        invertColors,
         linkReferences,
+        linkPathReferences,
         captureDiagram: (format, orientation) =>
-          canvasRef.current!.captureDiagramPng(format, orientation),
+          canvasRef.current!.captureDiagramPng(format, orientation, invertColors),
       })
       toast.success('PDF exportado')
     } catch (e: any) {
@@ -986,6 +1626,63 @@ export default function ConnectionDiagramPage() {
     }
   }
 
+  const handleCreateRack = async () => {
+    if (!rackForm.name.trim() || !rackForm.areaId || !projectId) return
+    try {
+      const rack = await racksService.create({
+        projectId,
+        areaId: rackForm.areaId,
+        name: rackForm.name.trim(),
+        heightU: rackForm.heightU,
+      })
+      toast.success('Rack creado')
+      setRackModalOpen(false)
+      setRackForm({ name: '', areaId: '', heightU: 42 })
+      await refetchRacks()
+      await refetchGraph()
+      await handleAddOrNestRack(rack)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'No se pudo crear el rack')
+    }
+  }
+
+  const handleCreateSite = async () => {
+    if (!siteForm.name.trim() || !projectId) return
+    try {
+      const site = await sitesService.create({
+        projectId,
+        name: siteForm.name.trim(),
+        address: siteForm.address.trim() || null,
+      })
+      toast.success('Sitio creado')
+      setSiteModalOpen(false)
+      setSiteForm({ name: '', address: '' })
+      await refetchSites()
+      setScopeSiteId(site.id)
+      await persistScope(site.id)
+      await refetchGraph()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'No se pudo crear el sitio')
+    }
+  }
+
+  const handleCreateArea = async () => {
+    if (!areaForm.name.trim() || !scopeSiteId) return
+    try {
+      const area = await sitesService.createArea(scopeSiteId, {
+        name: areaForm.name.trim(),
+      })
+      toast.success('Área creada')
+      setAreaModalOpen(false)
+      setAreaForm({ name: '' })
+      await loadAreas(scopeSiteId)
+      await refetchGraph()
+      await handleAddArea(area)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'No se pudo crear el área')
+    }
+  }
+
   const handleDeleteBoard = async (board: Board) => {
     if (
       !window.confirm(
@@ -1010,11 +1707,26 @@ export default function ConnectionDiagramPage() {
   }
 
   const handleConnectDevices = useCallback(
-    (params: { sourceDeviceId: string; targetDeviceId: string }) => {
+    (params: {
+      sourceDeviceId: string
+      targetDeviceId: string
+      sourceHandle?: string | null
+      targetHandle?: string | null
+    }) => {
+      const sourceParsed = params.sourceHandle
+        ? parseDiagramHandlePort(params.sourceHandle)
+        : { portId: null, portLabel: null }
+      const targetParsed = params.targetHandle
+        ? parseDiagramHandlePort(params.targetHandle)
+        : { portId: null, portLabel: null }
       setLinkModal({
         open: true,
         sourceDeviceId: params.sourceDeviceId,
         targetDeviceId: params.targetDeviceId,
+        sourcePortId: sourceParsed.portId,
+        sourcePortLabel: sourceParsed.portLabel ?? undefined,
+        targetPortId: targetParsed.portId,
+        targetPortLabel: targetParsed.portLabel ?? undefined,
       })
     },
     []
@@ -1028,6 +1740,15 @@ export default function ConnectionDiagramPage() {
       side: 'source' | 'target'
     }) => {
       const parsed = parseDiagramHandlePort(params.handleId)
+      if (params.side === 'target') {
+        setLinkModal({
+          open: true,
+          targetDeviceId: params.deviceId,
+          targetPortId: parsed.portId,
+          targetPortLabel: parsed.portLabel ?? params.label,
+        })
+        return
+      }
       setLinkModal({
         open: true,
         sourceDeviceId: params.deviceId,
@@ -1197,17 +1918,13 @@ export default function ConnectionDiagramPage() {
   }, [visibleContainerIds, graphPayload?.areas, areas])
 
   const racksOnCanvas = useMemo(() => {
-    const ids = new Set(
-      visibleContainerIds.filter((k) => k.startsWith('rack:')).map((k) => k.slice(5))
-    )
-    return (graphPayload?.racks ?? []).filter((r) => ids.has(r.id))
+    const visible = new Set(visibleContainerIds)
+    return (graphPayload?.racks ?? []).filter((r) => visible.has(rackFlowNodeId(r.id)))
   }, [visibleContainerIds, graphPayload?.racks])
 
   const boardsOnCanvas = useMemo(() => {
-    const ids = new Set(
-      visibleContainerIds.filter((k) => k.startsWith('board:')).map((k) => k.slice(6))
-    )
-    return (graphPayload?.boards ?? []).filter((b) => ids.has(b.id))
+    const visible = new Set(visibleContainerIds)
+    return (graphPayload?.boards ?? []).filter((b) => visible.has(boardFlowNodeId(b.id)))
   }, [visibleContainerIds, graphPayload?.boards])
 
   return (
@@ -1299,20 +2016,54 @@ export default function ConnectionDiagramPage() {
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Alcance del diagrama
           </div>
+          {layoutMode === 'tree' ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs leading-snug text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+              Modo árbol: agregá equipos desde áreas/racks como siempre; en el canvas se
+              muestran sin contenedores físicos.
+            </p>
+          ) : null}
 
-          <Select
-            label="Sitio"
-            value={scopeSiteId}
-            onChange={(e) => void handleSiteChange(e.target.value)}
-            options={siteOptions}
-            disabled={!selectedId}
-          />
+          <div className="flex items-end gap-1">
+            <div className="min-w-0 flex-1">
+              <Select
+                label="Sitio"
+                value={scopeSiteId}
+                onChange={(e) => void handleSiteChange(e.target.value)}
+                options={siteOptions}
+                disabled={!selectedId}
+              />
+            </div>
+            {canMutate && selectedId ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Plus className="h-3.5 w-3.5" />}
+                onClick={() => setSiteModalOpen(true)}
+                title="Crear sitio"
+              />
+            ) : null}
+          </div>
 
           {scopeSiteId ? (
             <>
               <div className="mt-1 border-t border-slate-200 pt-3 dark:border-slate-700">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Áreas del sitio
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Áreas del sitio
+                  </div>
+                  {canMutate ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<Plus className="h-3.5 w-3.5" />}
+                      onClick={() => {
+                        setAreaForm({ name: '' })
+                        setAreaModalOpen(true)
+                      }}
+                    >
+                      Nueva
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="max-h-40 space-y-1 overflow-auto">
                   {areas.length === 0 ? (
@@ -1327,9 +2078,10 @@ export default function ConnectionDiagramPage() {
                           className="flex items-center justify-between gap-2 rounded-md border border-sky-200/80 px-2 py-1.5 dark:border-sky-800/50"
                         >
                           <div className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium text-sky-900 dark:text-sky-100">
-                              {area.name}
-                            </span>
+                            <TruncatedText
+                              text={area.name}
+                              className="text-xs font-medium text-sky-900 dark:text-sky-100"
+                            />
                           </div>
                           {canMutate ? (
                             onCanvas ? (
@@ -1367,8 +2119,23 @@ export default function ConnectionDiagramPage() {
               </div>
 
               <div className="mt-1 border-t border-slate-200 pt-3 dark:border-slate-700">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Racks del sitio
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Racks del sitio
+                  </div>
+                  {canMutate ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<Plus className="h-3.5 w-3.5" />}
+                      onClick={() => {
+                        setRackForm({ name: '', areaId: areas[0]?.id ?? '', heightU: 42 })
+                        setRackModalOpen(true)
+                      }}
+                    >
+                      Nuevo
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="relative mb-2">
                   <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -1388,20 +2155,24 @@ export default function ConnectionDiagramPage() {
                       const onCanvas = visibleContainerIds.includes(rackKey)
                       const nested = isNestedInArea(rackKey, rack.areaId)
                       const areaLabel = rack.area?.name ?? areaNameById.get(rack.areaId)
+                      const rackSubtitle = areaLabel
+                        ? `${areaLabel}${nested ? ' · en área' : onCanvas ? ' · suelto' : ''}`
+                        : ''
                       return (
                         <div
                           key={rack.id}
                           className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5 dark:border-slate-700"
                         >
                           <div className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium text-slate-800 dark:text-slate-100">
-                              {rack.name}
-                            </span>
-                            {areaLabel ? (
-                              <span className="block truncate text-[10px] text-slate-400">
-                                {areaLabel}
-                                {nested ? ' · en área' : onCanvas ? ' · suelto' : ''}
-                              </span>
+                            <TruncatedText
+                              text={rack.name}
+                              className="text-xs font-medium text-slate-800 dark:text-slate-100"
+                            />
+                            {rackSubtitle ? (
+                              <TruncatedText
+                                text={rackSubtitle}
+                                className="text-[10px] text-slate-400"
+                              />
                             ) : null}
                           </div>
                           {canMutate ? (
@@ -1493,20 +2264,24 @@ export default function ConnectionDiagramPage() {
                       const onCanvas = visibleContainerIds.includes(boardKey)
                       const nested = isNestedInArea(boardKey, board.areaId)
                       const areaLabel = board.area?.name ?? areaNameById.get(board.areaId)
+                      const boardSubtitle = areaLabel
+                        ? `${areaLabel}${nested ? ' · en área' : onCanvas ? ' · suelto' : ''}`
+                        : ''
                       return (
                         <div
                           key={board.id}
                           className="flex items-center justify-between gap-2 rounded-md border border-amber-200/80 px-2 py-1.5 dark:border-amber-800/50"
                         >
                           <div className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium text-amber-900 dark:text-amber-100">
-                              {board.name}
-                            </span>
-                            {areaLabel ? (
-                              <span className="block truncate text-[10px] text-amber-700/70 dark:text-amber-300/70">
-                                {areaLabel}
-                                {nested ? ' · en área' : onCanvas ? ' · suelto' : ''}
-                              </span>
+                            <TruncatedText
+                              text={board.name}
+                              className="text-xs font-medium text-amber-900 dark:text-amber-100"
+                            />
+                            {boardSubtitle ? (
+                              <TruncatedText
+                                text={boardSubtitle}
+                                className="text-[10px] text-amber-700/70 dark:text-amber-300/70"
+                              />
                             ) : null}
                           </div>
                           {canMutate ? (
@@ -1630,10 +2405,18 @@ export default function ConnectionDiagramPage() {
             ) : null}
             {selectedId ? (
               <DiagramCanvasOptionsMenu
-                showDeviceGap={Boolean(scopeSiteId && diagramForCanvas && graphPayload)}
-                deviceGap={deviceGap}
-                onDeviceGapChange={handleDeviceGapChange}
-                deviceGapDisabled={!canMutate}
+                layoutMode={layoutMode}
+                onLayoutModeChange={canMutate ? handleLayoutModeChange : undefined}
+                portDisplay={portDisplay}
+                onPortDisplayChange={canMutate ? handlePortDisplayChange : undefined}
+                portFlowInverted={portFlowInverted}
+                onPortFlowInvertedChange={
+                  canMutate ? handlePortFlowInvertedChange : undefined
+                }
+                onReorganizeTree={
+                  canMutate && layoutMode === 'tree' ? () => void handleReorganizeTree() : undefined
+                }
+                layoutDisabled={!canMutate}
               />
             ) : null}
           </div>
@@ -1686,8 +2469,11 @@ export default function ConnectionDiagramPage() {
               paperSize={paperSize}
               printOrientation={printOrientation}
               showPrintMargins={showPrintMargins}
+              printInvertColors={invertColors}
               printFrame={printFrame}
               printFrameLocked={printFrameLocked}
+              highlightedPrintCol={highlightedPrintSector.col}
+              highlightedPrintRow={highlightedPrintSector.row}
               onPrintFrameChange={canMutate ? setPrintFrame : undefined}
               onPrintFrameChangeEnd={canMutate ? (frame) => applyPrintFrame(frame) : undefined}
               onPrintDiagnostics={setPrintDiagnostics}
@@ -1752,8 +2538,15 @@ export default function ConnectionDiagramPage() {
               printOrientation={printOrientation}
               printFrame={printFrame}
               frameLocked={printFrameLocked}
+              highlightedCol={highlightedPrintSector.col}
+              highlightedRow={highlightedPrintSector.row}
+              onHighlightedSectorChange={(col, row) =>
+                setHighlightedPrintSector({ col, row })
+              }
               includeLegend={includeLegend}
               includeLinkTable={includeLinkTable}
+              linkTableFormat={linkTableFormat}
+              invertColors={invertColors}
               outsideCount={printDiagnostics.outsideCount}
               cutCount={printDiagnostics.cutCount}
               exporting={exporting}
@@ -1780,6 +2573,14 @@ export default function ConnectionDiagramPage() {
                 setIncludeLinkTable(value)
                 persistSettingsSoon({ ...buildPrintSettings(), printIncludeLinkTable: value })
               }}
+              onLinkTableFormatChange={(value) => {
+                setLinkTableFormat(value)
+                persistSettingsSoon({ ...buildPrintSettings(), printLinkTableFormat: value })
+              }}
+              onInvertColorsChange={(value) => {
+                setInvertColors(value)
+                persistSettingsSoon({ ...buildPrintSettings(), printInvertColors: value })
+              }}
               onExport={() => void handleExportPdf()}
               onClose={closePrintMode}
             />
@@ -1794,6 +2595,15 @@ export default function ConnectionDiagramPage() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Sala servidores"
+          />
+          <Select
+            label="Tipo de diagrama"
+            value={newLayoutMode}
+            onChange={(e) => setNewLayoutMode(e.target.value as DiagramLayoutMode)}
+            options={[
+              { value: 'free', label: 'Libre (contenedores físicos)' },
+              { value: 'tree', label: 'Árbol (layout jerárquico)' },
+            ]}
           />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
@@ -1880,6 +2690,109 @@ export default function ConnectionDiagramPage() {
         </div>
       </Modal>
 
+      <Modal
+        isOpen={areaModalOpen}
+        onClose={() => setAreaModalOpen(false)}
+        title="Nueva área"
+      >
+        <div className="space-y-3">
+          <Input
+            label="Nombre"
+            value={areaForm.name}
+            onChange={(e) => setAreaForm({ name: e.target.value })}
+            placeholder="Sala de servidores"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && areaForm.name.trim()) void handleCreateArea()
+            }}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setAreaModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void handleCreateArea()}
+              disabled={!areaForm.name.trim() || !scopeSiteId}
+            >
+              Crear y agregar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={rackModalOpen}
+        onClose={() => setRackModalOpen(false)}
+        title="Nuevo rack"
+      >
+        <div className="space-y-3">
+          <Input
+            label="Nombre"
+            value={rackForm.name}
+            onChange={(e) => setRackForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="RACK-01"
+          />
+          <Select
+            label="Área"
+            value={rackForm.areaId}
+            onChange={(e) => setRackForm((f) => ({ ...f, areaId: e.target.value }))}
+            options={areaOptions}
+            disabled={!scopeSiteId || areas.length === 0}
+          />
+          <Input
+            label="Altura (U)"
+            type="number"
+            value={String(rackForm.heightU)}
+            onChange={(e) =>
+              setRackForm((f) => ({ ...f, heightU: Number(e.target.value) || 42 }))
+            }
+            min={1}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setRackModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void handleCreateRack()}
+              disabled={!rackForm.name.trim() || !rackForm.areaId || !projectId}
+            >
+              Crear y agregar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={siteModalOpen}
+        onClose={() => setSiteModalOpen(false)}
+        title="Nuevo sitio"
+      >
+        <div className="space-y-3">
+          <Input
+            label="Nombre"
+            value={siteForm.name}
+            onChange={(e) => setSiteForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="Oficina central"
+          />
+          <Input
+            label="Dirección (opcional)"
+            value={siteForm.address}
+            onChange={(e) => setSiteForm((f) => ({ ...f, address: e.target.value }))}
+            placeholder="Av. Ejemplo 1234"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setSiteModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void handleCreateSite()}
+              disabled={!siteForm.name.trim() || !projectId}
+            >
+              Crear sitio
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {canMutate && projectId && linkModal.open ? (
         <SimpleLinkModal
           isOpen={linkModal.open}
@@ -1889,6 +2802,8 @@ export default function ConnectionDiagramPage() {
           targetDeviceId={modalTargetDeviceId}
           initialSourcePortId={linkModal.sourcePortId}
           initialSourcePortLabel={linkModal.sourcePortLabel}
+          initialTargetPortId={linkModal.targetPortId}
+          initialTargetPortLabel={linkModal.targetPortLabel}
           containerByDeviceId={containerByDeviceId}
           destinationOptions={destinationDeviceOptions}
           edge={modalEdge}
@@ -1948,6 +2863,50 @@ export default function ConnectionDiagramPage() {
         }
         confirmLabel="Eliminar"
         isLoading={deletingLink}
+      />
+
+      <RemoveFromDiagramDialog
+        isOpen={Boolean(removeFromDiagram)}
+        info={removeFromDiagram?.info ?? null}
+        onClose={() => {
+          if (!removingFromDiagram) setRemoveFromDiagram(null)
+        }}
+        onConfirm={async () => {
+          if (removeFromDiagram) await removeFromDiagram.onConfirm()
+        }}
+        isLoading={removingFromDiagram}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(assignDeviceConfirm)}
+        onClose={() => {
+          if (!assigningDevice) setAssignDeviceConfirm(null)
+        }}
+        onConfirm={async () => {
+          if (assignDeviceConfirm) await assignDeviceConfirm.onConfirm()
+        }}
+        title={`Mover «${assignDeviceConfirm?.deviceLabel ?? ''}»`}
+        description={
+          assignDeviceConfirm ? (
+            <>
+              Se modificará la ruta de «{assignDeviceConfirm.deviceLabel}»:{' '}
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {assignDeviceConfirm.fromPath}
+              </span>{' '}
+              →{' '}
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {assignDeviceConfirm.toPath}
+              </span>
+              . Inventario y diagrama quedarán sincronizados
+              {assignDeviceConfirm.areaChanged
+                ? ' (cambio de área en la ficha del equipo)'
+                : ''}
+              .
+            </>
+          ) : null
+        }
+        confirmLabel="Actualizar ruta"
+        isLoading={assigningDevice}
       />
     </div>
   )

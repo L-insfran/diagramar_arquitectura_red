@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Lock,
   Maximize2,
@@ -11,6 +13,7 @@ import {
 import { Button } from '../Button'
 import type { DiagramPrintFrame } from '../../types'
 import type { PaperFormat, PrintOrientation } from '../../utils/pdf/a4Geometry'
+import type { LinkTableFormat } from '../../utils/pdf/linkReferencePdf'
 import {
   frameWithGrid,
   frameWithScale,
@@ -26,10 +29,17 @@ type PrintModePanelProps = {
   frameLocked: boolean
   includeLegend: boolean
   includeLinkTable: boolean
+  linkTableFormat: LinkTableFormat
+  invertColors: boolean
   outsideCount: number
   cutCount: number
   exporting: boolean
   readOnly?: boolean
+  /** Columna 0-based del sector resaltado en el canvas. */
+  highlightedCol?: number
+  /** Fila 0-based del sector resaltado en el canvas. */
+  highlightedRow?: number
+  onHighlightedSectorChange?: (col: number, row: number) => void
   onPaperSizeChange: (value: PaperFormat) => void
   onOrientationChange: (value: PrintOrientation) => void
   onFrameChange: (frame: DiagramPrintFrame) => void
@@ -40,6 +50,8 @@ type PrintModePanelProps = {
   onCenterFrame: () => void
   onIncludeLegendChange: (value: boolean) => void
   onIncludeLinkTableChange: (value: boolean) => void
+  onLinkTableFormatChange: (value: LinkTableFormat) => void
+  onInvertColorsChange: (value: boolean) => void
   onExport: () => void
   onClose: () => void
 }
@@ -127,10 +139,15 @@ export function PrintModePanel({
   frameLocked,
   includeLegend,
   includeLinkTable,
+  linkTableFormat,
+  invertColors,
   outsideCount,
   cutCount,
   exporting,
   readOnly = false,
+  highlightedCol = 0,
+  highlightedRow = 0,
+  onHighlightedSectorChange,
   onPaperSizeChange,
   onOrientationChange,
   onFrameChange,
@@ -141,6 +158,8 @@ export function PrintModePanel({
   onCenterFrame,
   onIncludeLegendChange,
   onIncludeLinkTableChange,
+  onLinkTableFormatChange,
+  onInvertColorsChange,
   onExport,
   onClose,
 }: PrintModePanelProps) {
@@ -151,6 +170,10 @@ export function PrintModePanel({
   const maxCols = Math.max(1, Math.floor(MAX_DIAGRAM_PAGES / rows))
   const maxRows = Math.max(1, Math.floor(MAX_DIAGRAM_PAGES / cols))
   const canEditFrame = Boolean(printFrame) && !frameLocked && !readOnly
+  const activeCol = Math.min(Math.max(0, highlightedCol), cols - 1)
+  const activeRow = Math.min(Math.max(0, highlightedRow), rows - 1)
+  const activePageIndex = activeRow * cols + activeCol + 1
+  const canSelectSector = Boolean(onHighlightedSectorChange) && pages > 1
 
   const commitGrid = (nextCols: number, nextRows: number) => {
     if (!printFrame) return
@@ -169,6 +192,13 @@ export function PrintModePanel({
     )
     onFrameChange(next)
     if (ended) onFrameChangeEnd?.(next)
+  }
+
+  const stepHighlightedPage = (delta: number) => {
+    if (!onHighlightedSectorChange || pages <= 1) return
+    const flat = activeRow * cols + activeCol
+    const nextFlat = (flat + delta + pages) % pages
+    onHighlightedSectorChange(nextFlat % cols, Math.floor(nextFlat / cols))
   }
 
   return (
@@ -306,6 +336,72 @@ export function PrintModePanel({
           </p>
         </section>
 
+        {pages > 1 ? (
+          <section className="space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              Página resaltada
+            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                Pág. {activePageIndex} · fila {activeRow + 1} · columna {activeCol + 1}
+              </p>
+              <div className="flex items-center overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  disabled={!canSelectSector}
+                  className="px-1.5 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Página anterior"
+                  onClick={() => stepHighlightedPage(-1)}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={!canSelectSector}
+                  className="px-1.5 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Página siguiente"
+                  onClick={() => stepHighlightedPage(1)}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            <div
+              className="inline-grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-1.5 dark:border-slate-700 dark:bg-slate-800/60"
+              style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+              role="group"
+              aria-label="Seleccionar página a resaltar"
+            >
+              {Array.from({ length: pages }, (_, i) => {
+                const c = i % cols
+                const r = Math.floor(i / cols)
+                const pageNum = i + 1
+                const isActive = c === activeCol && r === activeRow
+                return (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    disabled={!canSelectSector}
+                    aria-pressed={isActive}
+                    title={`Pág. ${pageNum} (fila ${r + 1}, columna ${c + 1})`}
+                    onClick={() => onHighlightedSectorChange?.(c, r)}
+                    className={`h-6 min-w-6 rounded-sm text-[10px] font-semibold tabular-nums transition disabled:opacity-50 ${
+                      isActive
+                        ? 'bg-orange-500 text-white shadow-sm'
+                        : 'bg-slate-200 text-slate-600 hover:bg-orange-100 hover:text-orange-800 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-orange-950/50 dark:hover:text-orange-100'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[10px] leading-snug text-slate-400">
+              Elegí la página a resaltar desde esta grilla o con las flechas.
+            </p>
+          </section>
+        ) : null}
+
         <section className="space-y-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
             Contenido del PDF
@@ -327,6 +423,35 @@ export function PrintModePanel({
               className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
             />
             Incluir tabla de enlaces
+          </label>
+          {includeLinkTable ? (
+            <div className="space-y-1.5 pl-6">
+              <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                Formato de enlaces
+              </p>
+              <SegmentToggle
+                value={linkTableFormat}
+                onChange={onLinkTableFormatChange}
+                options={[
+                  { value: 'table', label: 'Tabla' },
+                  { value: 'path', label: 'Ruta lineal' },
+                ]}
+              />
+            </div>
+          ) : null}
+          <label className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={invertColors}
+              onChange={(e) => onInvertColorsChange(e.target.checked)}
+              className="mt-0.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+            />
+            <span>
+              Invertir colores (impresión B/N)
+              <span className="mt-0.5 block text-[10px] leading-snug text-slate-400">
+                Fondos claros y trazos oscuros para imprimir sin manchas.
+              </span>
+            </span>
           </label>
         </section>
 

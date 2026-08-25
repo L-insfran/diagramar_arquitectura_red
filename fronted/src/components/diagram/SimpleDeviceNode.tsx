@@ -1,26 +1,64 @@
-import { memo } from 'react'
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
-import { X } from 'lucide-react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Handle,
+  NodeResizer,
+  Position,
+  useStore,
+  useUpdateNodeInternals,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react'
+import { MoreVertical } from 'lucide-react'
 import {
   DIAGRAM_CONNECT_SOURCE_HANDLE,
   DIAGRAM_CONNECT_TARGET_HANDLE,
-  diagramHandleCenterY,
-  type DiagramPortHandle,
 } from '../../utils/diagram/diagramPortHandles'
-
+import type { DiagramPortSlot } from '../../utils/diagram/devicePortSlots'
+import {
+  insertIndexFromPointerT,
+  reorderSlotOnSide,
+  renormalizeSideAnchors,
+} from '../../utils/diagram/devicePortSlots'
+import {
+  anchorToHandleStyle,
+  anchorToLabelStyle,
+  projectPointerToPerimeter,
+  type DiagramHandleAnchor,
+  type DiagramHandleSide,
+} from '../../utils/diagram/handleAnchor'
+import {
+  DIAGRAM_DEVICE_CHAR_PX,
+  DIAGRAM_DEVICE_META,
+  DIAGRAM_DEVICE_NAME,
+} from '../../utils/diagram/diagramTypography'
 export const SIMPLE_DEVICE_WIDTH = 360
-export const SIMPLE_DEVICE_BASE_H = 36
-export const SIMPLE_DEVICE_PORT_ROW_H = 18
-export const SIMPLE_DEVICE_NAME_LINE_H = 18
-export const SIMPLE_DEVICE_NAME_ROW_H = 24
-export const SIMPLE_DEVICE_META_H = 14
-/** Default vertical channel between stacked devices. */
+export const SIMPLE_DEVICE_MIN_WIDTH = 180
+export const SIMPLE_DEVICE_BASE_H = 40
+export const SIMPLE_DEVICE_PORT_ROW_H = 22
+export const SIMPLE_DEVICE_PORT_ROW_COMPACT_H = 16
+export const SIMPLE_DEVICE_NAME_LINE_H = 22
+export const SIMPLE_DEVICE_NAME_ROW_H = 28
+export const SIMPLE_DEVICE_META_H = 16
 export const SIMPLE_DEVICE_GAP = 28
 export const DEVICE_GAP_MIN = 8
 export const DEVICE_GAP_MAX = 72
 export const DEVICE_GAP_STEP = 4
-/** Extra air above the first and below the last stacked device. */
 export const SIMPLE_DEVICE_STACK_PAD = 18
+/** Matches Tailwind `border` on the device card. */
+export const DEVICE_NODE_BORDER = 1
+/** Accent strip (`borderLeftWidth`) on the device card. */
+export const DEVICE_NODE_ACCENT_BORDER = 4
+/**
+ * Border-box → padding-box inset for absolute handles/labels.
+ * Only left/top are needed: padding origin is after those borders;
+ * right/bottom borders do not change that conversion.
+ */
+export const DEVICE_NODE_INSET = {
+  left: DEVICE_NODE_ACCENT_BORDER,
+  top: DEVICE_NODE_BORDER,
+  right: DEVICE_NODE_BORDER,
+  bottom: DEVICE_NODE_BORDER,
+}
 
 export type DeviceStackLayoutOpts = {
   hidePicker?: boolean
@@ -35,8 +73,7 @@ export function resolveDeviceGap(opts?: DeviceStackLayoutOpts): number {
   return SIMPLE_DEVICE_GAP
 }
 export const CONTAINER_PAD = 12
-/** Title + ubicación (hasta 2 líneas). */
-export const CONTAINER_HEADER_H = 60
+export const CONTAINER_HEADER_H = 68
 export const CONTAINER_SELECTOR_H = 40
 
 export type SimpleDevicePortClick = {
@@ -51,72 +88,321 @@ export type SimpleDeviceNodeData = {
   ipAddress: string | null
   status: string
   accentColor: string
-  /** Puertos con al menos un diagram_link en este canvas. */
   portsInUse?: number
-  /** Total de puertos del equipo (inventario). */
   portCount?: number
   readOnly?: boolean
-  /** Puertos con enlace saliente en este diagrama (solo los conectados). */
-  sourcePorts?: DiagramPortHandle[]
-  /** Puertos con enlace entrante en este diagrama (solo los conectados). */
-  targetPorts?: DiagramPortHandle[]
+  slots?: DiagramPortSlot[]
+  handleAnchors?: Record<string, DiagramHandleAnchor>
   onRemove?: () => void
-  /** Click en un puerto conectado → crear nuevo enlace con ese origen. */
   onPortClick?: (params: SimpleDevicePortClick) => void
-  /** Doble clic en el equipo → abrir modal de nuevo enlace. */
   onDeviceDoubleClick?: () => void
+  onHandleAnchorChange?: (handleId: string, anchor: DiagramHandleAnchor) => void
+  onHandleAnchorChangeEnd?: (handleId: string, anchor: DiagramHandleAnchor) => void
+  /** Batch update after side reorder / redistribute. */
+  onSlotsReorder?: (slots: DiagramPortSlot[]) => void
+  onRedistributePorts?: () => void
   [key: string]: unknown
 }
 
 export type SimpleDeviceNodeType = Node<SimpleDeviceNodeData, 'simpleDevice'>
 
-/** Lines needed to show the full device name (no ellipsis). */
-export function estimateDeviceNameLines(label: string): number {
-  const chrome = 16 + 22 // horizontal padding + remove button
-  const usable = Math.max(80, SIMPLE_DEVICE_WIDTH - chrome)
-  // ~7.4px per glyph at text-sm semibold for inventory-style codes
-  const charsPerLine = Math.max(10, Math.floor(usable / 7.4))
+export function estimateDeviceNameLines(
+  label: string,
+  nodeWidth = SIMPLE_DEVICE_WIDTH,
+): number {
+  const chrome = 16 + 22
+  const usable = Math.max(80, nodeWidth - chrome)
+  const charsPerLine = Math.max(10, Math.floor(usable / DIAGRAM_DEVICE_CHAR_PX))
   return Math.min(5, Math.max(1, Math.ceil((label || ' ').length / charsPerLine)))
 }
 
-/**
- * Device height grows with wrapped name + denser side of connected ports
- * (unconnected ports are never shown).
- */
-export function simpleDeviceHeight(connectedPortSlots = 0, label = ''): number {
-  const slots = Math.max(0, connectedPortSlots)
-  const nameLines = estimateDeviceNameLines(label)
+export function simpleDeviceHeight(
+  portRows = 0,
+  label = '',
+  nodeWidth = SIMPLE_DEVICE_WIDTH,
+  compact = false,
+): number {
+  const rows = Math.max(0, portRows)
+  const rowH = compact ? SIMPLE_DEVICE_PORT_ROW_COMPACT_H : SIMPLE_DEVICE_PORT_ROW_H
+  const nameLines = estimateDeviceNameLines(label, nodeWidth)
   const nameBlock = nameLines * SIMPLE_DEVICE_NAME_LINE_H + 4
-  // Reserve meta row for "n / m puertos" (common for inventory devices).
   const header = nameBlock + SIMPLE_DEVICE_META_H
-  if (slots <= 0) return Math.max(SIMPLE_DEVICE_BASE_H, header + 8)
-  return Math.max(SIMPLE_DEVICE_BASE_H, header + slots * SIMPLE_DEVICE_PORT_ROW_H + 6)
+  if (rows <= 0) return Math.max(SIMPLE_DEVICE_BASE_H, header + 8)
+  return Math.max(SIMPLE_DEVICE_BASE_H, header + rows * rowH + 8)
 }
 
-function SimpleDeviceNodeComponent({ data, selected }: NodeProps<SimpleDeviceNodeType>) {
-  const canReorder = !data.readOnly
-  const sourcePorts = data.sourcePorts ?? []
-  const targetPorts = data.targetPorts ?? []
-  const showPortRows = sourcePorts.length > 0 || targetPorts.length > 0
-  const displayHeight = simpleDeviceHeight(
-    Math.max(sourcePorts.length, targetPorts.length),
-    data.label
+export function devicePortAreaTop(
+  label: string,
+  portRowCount: number,
+  portCount: number,
+  nodeWidth = SIMPLE_DEVICE_WIDTH,
+): number {
+  if (portRowCount <= 0) return 0
+  const nameLines = estimateDeviceNameLines(label, nodeWidth)
+  const nameBlockH = nameLines * SIMPLE_DEVICE_NAME_LINE_H + 4
+  const showPortCounter = portCount > 0
+  return nameBlockH + (showPortCounter ? SIMPLE_DEVICE_META_H : 0)
+}
+
+export type SavedDeviceExtent = {
+  width?: number
+  height?: number
+}
+
+export function resolveDeviceNodeSize(
+  autoHeight: number,
+  saved?: SavedDeviceExtent | null,
+): { width: number; height: number } {
+  const rawW = saved?.width
+  const rawH = saved?.height
+  const width =
+    rawW != null && Number.isFinite(rawW) && rawW > 0
+      ? Math.max(SIMPLE_DEVICE_MIN_WIDTH, rawW)
+      : SIMPLE_DEVICE_WIDTH
+  const height =
+    rawH != null && Number.isFinite(rawH) && rawH > 0
+      ? Math.max(autoHeight, rawH)
+      : autoHeight
+  return { width, height }
+}
+
+const HANDLE_DRAG_THRESHOLD_PX = 4
+const ANCHOR_TRANSITION = 'top 180ms ease, left 180ms ease, bottom 180ms ease, right 180ms ease, transform 180ms ease'
+
+type PortAnchorProps = {
+  slot: DiagramPortSlot
+  nodeWidth: number
+  nodeHeight: number
+  canDrag: boolean
+  canClick: boolean
+  draggingId: string | null
+  onPortClick?: () => void
+  onAnchorLive?: (anchor: DiagramHandleAnchor) => void
+  onAnchorCommit?: (anchor: DiagramHandleAnchor, side: DiagramHandleSide) => void
+}
+
+function PortAnchorHandle({
+  slot,
+  canDrag,
+  canClick,
+  draggingId,
+  onPortClick,
+  onAnchorLive,
+  onAnchorCommit,
+  nodeWidth,
+  nodeHeight,
+}: PortAnchorProps) {
+  const shellRef = useRef<HTMLDivElement>(null)
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
+  const isDraggingRef = useRef(false)
+  const [dragging, setDragging] = useState(false)
+  const zoom = useStore((s) => s.transform[2] || 1)
+  const anchor = slot.anchor
+  const { position, style } = anchorToHandleStyle(
+    anchor,
+    nodeWidth,
+    nodeHeight,
+    DEVICE_NODE_INSET
   )
-  const canConnect = !data.readOnly
+  const labelStyle = anchorToLabelStyle(anchor, nodeWidth, nodeHeight, DEVICE_NODE_INSET)
+  const isDragging = draggingId === slot.id
+  const connected = slot.connected
+
+  const projectFromEvent = useCallback(
+    (clientX: number, clientY: number): DiagramHandleAnchor | null => {
+      const shell = shellRef.current?.parentElement
+      if (!shell) return null
+      // shell is the padding box; convert screen px → border-box flow coords
+      const rect = shell.getBoundingClientRect()
+      const z = zoom > 0 ? zoom : 1
+      return projectPointerToPerimeter(
+        (clientX - rect.left) / z + DEVICE_NODE_INSET.left,
+        (clientY - rect.top) / z + DEVICE_NODE_INSET.top,
+        nodeWidth,
+        nodeHeight
+      )
+    },
+    [nodeHeight, nodeWidth, zoom]
+  )
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!canDrag) return
+    e.stopPropagation()
+    e.preventDefault()
+    pointerDownRef.current = { x: e.clientX, y: e.clientY }
+    isDraggingRef.current = false
+    setDragging(false)
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!canDrag || !pointerDownRef.current) return
+    const dx = e.clientX - pointerDownRef.current.x
+    const dy = e.clientY - pointerDownRef.current.y
+    if (!isDraggingRef.current && Math.hypot(dx, dy) >= HANDLE_DRAG_THRESHOLD_PX) {
+      isDraggingRef.current = true
+      setDragging(true)
+    }
+    if (!isDraggingRef.current) return
+    e.stopPropagation()
+    const next = projectFromEvent(e.clientX, e.clientY)
+    if (next) onAnchorLive?.(next)
+  }
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!canDrag || !pointerDownRef.current) return
+    e.stopPropagation()
+    ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+    if (isDraggingRef.current) {
+      const next = projectFromEvent(e.clientX, e.clientY)
+      if (next) onAnchorCommit?.(next, next.side)
+    }
+    pointerDownRef.current = null
+    isDraggingRef.current = false
+    setDragging(false)
+  }
+
+  const handleClass = connected
+    ? '!bg-blue-500 !border-blue-600'
+    : '!bg-white !border-slate-300 dark:!bg-slate-900 dark:!border-slate-500'
+  const handleSizeClass = connected ? '!h-2.5 !w-2.5' : '!h-2 !w-2'
+
+  const transitionStyle = isDragging ? {} : { transition: ANCHOR_TRANSITION }
+
+  return (
+    <div ref={shellRef} className="pointer-events-none absolute inset-0">
+      <Handle
+        type="target"
+        position={position}
+        id={`${slot.id}::in`}
+        className={`!z-10 ${handleSizeClass} !border-2 !opacity-0 nodrag nopan`}
+        style={{ ...style, pointerEvents: 'none' }}
+        isConnectable
+      />
+      <Handle
+        type="source"
+        position={position}
+        id={slot.id}
+        className={`!z-20 ${handleSizeClass} !border-2 ${handleClass} nodrag nopan ${
+          canDrag ? dragging || isDragging ? 'cursor-grabbing' : 'cursor-grab' : ''
+        }`}
+        style={{ ...style, ...transitionStyle, pointerEvents: 'auto' }}
+        isConnectable
+        title={canDrag ? `${slot.label} — arrastrá para mover` : slot.label}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      />
+      <button
+        type="button"
+        className={`nodrag nopan z-10 truncate rounded font-semibold leading-tight ${
+          canClick
+            ? connected
+              ? 'cursor-pointer text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40'
+              : 'cursor-pointer text-slate-400 hover:bg-slate-50 hover:text-blue-600 dark:text-slate-500 dark:hover:bg-slate-800/60 dark:hover:text-blue-400'
+            : connected
+              ? 'text-blue-600 dark:text-blue-400'
+              : 'text-slate-400 dark:text-slate-500'
+        }`}
+        style={{ ...labelStyle, ...transitionStyle }}
+        title={
+          canClick
+            ? slot.connected
+              ? `Nuevo enlace desde ${slot.label}`
+              : `Crear enlace en ${slot.label}`
+            : slot.label
+        }
+        disabled={!canClick}
+        onClick={(e) => {
+          e.stopPropagation()
+          onPortClick?.()
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {slot.label}
+      </button>
+    </div>
+  )
+}
+
+function SimpleDeviceNodeComponent({
+  id,
+  data,
+  selected,
+  width,
+  height,
+}: NodeProps<SimpleDeviceNodeType>) {
+  const updateNodeInternals = useUpdateNodeInternals()
+  const canReorder = !data.readOnly
+  const slots = data.slots ?? []
+  const showPortRows = slots.length > 0
+  const nodeWidth = Number(width) > 0 ? Number(width) : SIMPLE_DEVICE_WIDTH
+  const hasCompact = slots.some((s) => !s.connected)
+  const portRows = showPortRows
+    ? Math.max(
+        ...['left', 'right', 'top', 'bottom'].map(
+          (side) => slots.filter((s) => s.anchor.side === side).length
+        ),
+        1
+      )
+    : 0
+  const contentMinH = simpleDeviceHeight(
+    portRows,
+    data.label,
+    nodeWidth,
+    hasCompact && slots.every((s) => !s.connected)
+  )
+  const displayHeight = Number(height) > 0 ? Math.max(Number(height), contentMinH) : contentMinH
+  const canResize = !data.readOnly
+  const canConnect = !data.readOnly && slots.length === 0
   const canClickPorts = !data.readOnly && Boolean(data.onPortClick)
+  const canDragHandles = !data.readOnly && Boolean(data.onHandleAnchorChange)
   const canDoubleClickLink = !data.readOnly && Boolean(data.onDeviceDoubleClick)
   const portCount = data.portCount ?? 0
   const portsInUse = data.portsInUse ?? 0
   const showPortCounter = portCount > 0
-  const nameLines = estimateDeviceNameLines(data.label)
+  const nameLines = estimateDeviceNameLines(data.label, nodeWidth)
   const nameBlockH = nameLines * SIMPLE_DEVICE_NAME_LINE_H + 4
-  const headerH = nameBlockH + (showPortCounter ? SIMPLE_DEVICE_META_H : 0)
-  const portAreaTop = showPortRows ? headerH : 0
-  const portAreaH = Math.max(1, displayHeight - portAreaTop)
 
-  const emitPortClick = (port: DiagramPortHandle, side: 'source' | 'target') => {
+  const [liveSlots, setLiveSlots] = useState<DiagramPortSlot[] | null>(null)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const displaySlots = liveSlots ?? slots
+
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // RF caches handleBounds; custom CSS positions need a remesaure when anchors/size change.
+  useEffect(() => {
+    updateNodeInternals(id)
+  }, [
+    id,
+    updateNodeInternals,
+    nodeWidth,
+    displayHeight,
+    displaySlots,
+  ])
+
+  const emitPortClick = (slot: DiagramPortSlot) => {
     if (!canClickPorts) return
-    data.onPortClick?.({ handleId: port.id, label: port.label, side })
+    const side: 'source' | 'target' = slot.role === 'target' ? 'target' : 'source'
+    data.onPortClick?.({ handleId: slot.id, label: slot.label, side })
+  }
+
+  const commitAnchor = (handleId: string, anchor: DiagramHandleAnchor) => {
+    setLiveSlots(null)
+    setDraggingId(null)
+    data.onHandleAnchorChange?.(handleId, anchor)
+    data.onHandleAnchorChangeEnd?.(handleId, anchor)
+  }
+
+  const handleAnchorCommit = (handleId: string, projected: DiagramHandleAnchor, side: DiagramHandleSide) => {
+    const current = liveSlots ?? slots
+    const insertAt = insertIndexFromPointerT(current, side, projected.t, handleId)
+    let reordered = reorderSlotOnSide(current, handleId, side, insertAt)
+    reordered = renormalizeSideAnchors(reordered, side)
+    setLiveSlots(reordered)
+    data.onSlotsReorder?.(reordered)
+    const slot = reordered.find((s) => s.id === handleId)
+    if (slot) commitAnchor(handleId, slot.anchor)
   }
 
   return (
@@ -127,16 +413,16 @@ function SimpleDeviceNodeComponent({ data, selected }: NodeProps<SimpleDeviceNod
           : 'border-slate-300 dark:border-slate-600'
       } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
       style={{
-        width: SIMPLE_DEVICE_WIDTH,
+        width: nodeWidth,
         height: displayHeight,
-        borderLeftWidth: 4,
+        borderLeftWidth: DEVICE_NODE_ACCENT_BORDER,
         borderLeftColor: data.accentColor,
       }}
       title={
         canDoubleClickLink
           ? 'Doble clic para crear enlace'
           : canReorder
-            ? 'Arrastrá para reordenar'
+            ? 'Arrastrá para reubicar · redimensioná desde las esquinas'
             : undefined
       }
       onDoubleClick={
@@ -148,75 +434,70 @@ function SimpleDeviceNodeComponent({ data, selected }: NodeProps<SimpleDeviceNod
           : undefined
       }
     >
-      {/* Anclajes visibles: solo puertos que ya tienen diagram_link. */}
-      {targetPorts.map((port, index) => (
-        <Handle
-          key={port.id}
-          type="target"
-          position={Position.Left}
-          id={port.id}
-          className="!h-2.5 !w-2.5 !border-0 !bg-blue-500 nodrag nopan"
-          style={{
-            left: -5,
-            top: portAreaTop + diagramHandleCenterY(index, targetPorts.length, portAreaH),
-          }}
-          isConnectable={false}
-          title={port.label}
+      {canResize ? (
+        <NodeResizer
+          minWidth={SIMPLE_DEVICE_MIN_WIDTH}
+          minHeight={contentMinH}
+          isVisible={selected}
+          keepAspectRatio={false}
+          lineClassName="!pointer-events-none !opacity-0"
+          lineStyle={{ opacity: 0, pointerEvents: 'none' }}
+          handleClassName="!h-2.5 !w-2.5 !rounded-sm !border-2 !border-blue-500 !bg-white dark:!bg-slate-900"
         />
-      ))}
-      {sourcePorts.map((port, index) => (
-        <Handle
-          key={port.id}
-          type="source"
-          position={Position.Right}
-          id={port.id}
-          className="!h-2.5 !w-2.5 !border-0 !bg-blue-500 nodrag nopan"
-          style={{
-            right: -5,
-            top: portAreaTop + diagramHandleCenterY(index, sourcePorts.length, portAreaH),
+      ) : null}
+
+      {displaySlots.map((slot) => (
+        <PortAnchorHandle
+          key={slot.id}
+          slot={slot}
+          nodeWidth={nodeWidth}
+          nodeHeight={displayHeight}
+          canDrag={canDragHandles}
+          canClick={canClickPorts}
+          draggingId={draggingId}
+          onPortClick={() => emitPortClick(slot)}
+          onAnchorLive={(next) => {
+            setDraggingId(slot.id)
+            setLiveSlots((prev) => {
+              const base = prev ?? slots
+              return base.map((s) =>
+                s.id === slot.id ? { ...s, anchor: next, side: next.side } : s
+              )
+            })
+            data.onHandleAnchorChange?.(slot.id, next)
           }}
-          isConnectable={false}
-          title={port.label}
+          onAnchorCommit={(next, side) => handleAnchorCommit(slot.id, next, side)}
         />
       ))}
 
-      {/*
-        Handle genérico para crear enlaces (no es un puerto del inventario).
-        Visible si el lado no tiene puertos conectados; si ya tiene, queda
-        invisible pero permite arrastrar un enlace adicional.
-      */}
       {canConnect ? (
         <>
           <Handle
             type="target"
             position={Position.Left}
             id={DIAGRAM_CONNECT_TARGET_HANDLE}
-            className={`!border-0 nodrag nopan ${
-              targetPorts.length > 0
-                ? '!h-full !w-3 !opacity-0'
-                : '!h-2.5 !w-2.5 !bg-blue-500'
-            }`}
-            style={
-              targetPorts.length > 0
-                ? { left: -6, top: 0, transform: 'none', height: '100%' }
-                : { left: -5, top: '50%' }
-            }
+            className="!z-0 !h-2.5 !w-2.5 !border-0 !bg-blue-500 nodrag nopan"
+            style={{
+              left: 0 - DEVICE_NODE_INSET.left,
+              top: displayHeight / 2 - DEVICE_NODE_INSET.top,
+              right: 'auto',
+              bottom: 'auto',
+              transform: 'translate(-50%, -50%)',
+            }}
             isConnectable
           />
           <Handle
             type="source"
             position={Position.Right}
             id={DIAGRAM_CONNECT_SOURCE_HANDLE}
-            className={`!border-0 nodrag nopan ${
-              sourcePorts.length > 0
-                ? '!h-full !w-3 !opacity-0'
-                : '!h-2.5 !w-2.5 !bg-blue-500'
-            }`}
-            style={
-              sourcePorts.length > 0
-                ? { right: -6, top: 0, transform: 'none', height: '100%' }
-                : { right: -5, top: '50%' }
-            }
+            className="!z-0 !h-2.5 !w-2.5 !border-0 !bg-blue-500 nodrag nopan"
+            style={{
+              left: nodeWidth - DEVICE_NODE_INSET.left,
+              top: displayHeight / 2 - DEVICE_NODE_INSET.top,
+              right: 'auto',
+              bottom: 'auto',
+              transform: 'translate(-50%, -50%)',
+            }}
             isConnectable
           />
         </>
@@ -225,106 +506,66 @@ function SimpleDeviceNodeComponent({ data, selected }: NodeProps<SimpleDeviceNod
       <div className="flex h-full flex-col px-2 py-1">
         <div className="flex items-start gap-1" style={{ minHeight: nameBlockH }}>
           <div
-            className="min-w-0 flex-1 break-all text-sm font-semibold leading-[18px] text-slate-900 dark:text-slate-100"
+            className={`min-w-0 flex-1 break-all ${DIAGRAM_DEVICE_NAME} text-slate-900 dark:text-slate-100`}
             title={data.label}
           >
             {data.label}
           </div>
-          {!data.readOnly && data.onRemove ? (
-            <button
-              type="button"
-              title="Sacar del diagrama"
-              className="nodrag nopan shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400"
-              onClick={(e) => {
-                e.stopPropagation()
-                data.onRemove?.()
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+          {!data.readOnly && (data.onRemove || data.onRedistributePorts) ? (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                title="Opciones del equipo"
+                className="nodrag nopan rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMenuOpen((v) => !v)
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="h-3.5 w-3.5" />
+              </button>
+              {menuOpen ? (
+                <div className="nodrag nopan absolute right-0 top-full z-50 mt-0.5 min-w-[10rem] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                  {data.onRedistributePorts ? (
+                    <button
+                      type="button"
+                      className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMenuOpen(false)
+                        data.onRedistributePorts?.()
+                      }}
+                    >
+                      Redistribuir puertos
+                    </button>
+                  ) : null}
+                  {data.onRemove ? (
+                    <button
+                      type="button"
+                      className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMenuOpen(false)
+                        data.onRemove?.()
+                      }}
+                    >
+                      Sacar del diagrama
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
         {showPortCounter ? (
-          <div
-            className="flex items-center"
-            style={{ height: SIMPLE_DEVICE_META_H }}
-          >
+          <div className="flex items-center" style={{ height: SIMPLE_DEVICE_META_H }}>
             <span
-              className="whitespace-nowrap text-[9px] tabular-nums text-slate-500 dark:text-slate-400"
+              className={`whitespace-nowrap ${DIAGRAM_DEVICE_META} text-slate-500 dark:text-slate-400`}
               title={`${portsInUse} de ${portCount} puertos con enlace en este diagrama`}
             >
               {portsInUse} / {portCount} puertos
             </span>
-          </div>
-        ) : null}
-
-        {showPortRows ? (
-          <div className="flex min-h-0 flex-1 flex-col justify-center gap-0.5">
-            {Array.from({
-              length: Math.max(sourcePorts.length, targetPorts.length),
-            }).map((_, index) => {
-              const target = targetPorts[index]
-              const source = sourcePorts[index]
-              return (
-                <div
-                  key={`port-row-${index}`}
-                  className="flex items-center justify-between gap-2"
-                  style={{ minHeight: SIMPLE_DEVICE_PORT_ROW_H - 2 }}
-                >
-                  {target ? (
-                    <button
-                      type="button"
-                      className={`nodrag nopan max-w-[45%] truncate rounded px-1 text-left text-[10px] font-medium leading-tight ${
-                        canClickPorts
-                          ? 'cursor-pointer text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40'
-                          : 'text-slate-500 dark:text-slate-400'
-                      }`}
-                      title={
-                        canClickPorts
-                          ? `Nuevo enlace desde ${target.label}`
-                          : target.label
-                      }
-                      disabled={!canClickPorts}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        emitPortClick(target, 'target')
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      {target.label}
-                    </button>
-                  ) : (
-                    <span className="max-w-[45%]" />
-                  )}
-                  {source ? (
-                    <button
-                      type="button"
-                      className={`nodrag nopan max-w-[45%] truncate rounded px-1 text-right text-[10px] font-medium leading-tight ${
-                        canClickPorts
-                          ? 'cursor-pointer text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40'
-                          : 'text-slate-500 dark:text-slate-400'
-                      }`}
-                      title={
-                        canClickPorts
-                          ? `Nuevo enlace desde ${source.label}`
-                          : source.label
-                      }
-                      disabled={!canClickPorts}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        emitPortClick(source, 'source')
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      {source.label}
-                    </button>
-                  ) : (
-                    <span className="max-w-[45%]" />
-                  )}
-                </div>
-              )
-            })}
           </div>
         ) : null}
       </div>
