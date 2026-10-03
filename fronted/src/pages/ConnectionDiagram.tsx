@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Cable,
+  ChevronLeft,
+  Download,
+  ChevronRight,
   Copy,
   MoreVertical,
   Pencil,
@@ -37,7 +40,10 @@ import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { useToast } from '../contexts/ToastContext'
-import { connectionDiagramsService } from '../services/connection-diagrams.service'
+import {
+  connectionDiagramsService,
+  type UpdateConnectionDiagramPayload,
+} from '../services/connection-diagrams.service'
 import { diagramLinksService } from '../services/diagram-links.service'
 import { devicesService } from '../services/devices.service'
 import { boardsService } from '../services/boards.service'
@@ -45,6 +51,7 @@ import { racksService } from '../services/racks.service'
 import { sitesService } from '../services/sites.service'
 import { systemBrandingService } from '../services/systemBranding.service'
 import { exportConnectionDiagramPdf } from '../utils/exportConnectionDiagramPdf'
+import { exportConnectionDiagramDxf } from '../utils/exportConnectionDiagramDxf'
 import type { LinkTableFormat } from '../utils/pdf/linkReferencePdf'
 import type { PaperFormat, PrintOrientation } from '../utils/pdf/a4Geometry'
 import {
@@ -85,7 +92,6 @@ import type {
   ConnectionDiagram,
   DiagramContainerState,
   DiagramLayoutMode,
-  DiagramLink,
   DiagramLinkEdge,
   DiagramNodePosition,
   DiagramPortDisplay,
@@ -98,6 +104,7 @@ import { computeTreeLayout, collectVisibleDeviceIds } from '../utils/diagram/tre
 import {
   buildLayoutUpdate,
   hasTreeLayoutPositions,
+  omitUnchangedDiagramFields,
   resolveActiveLayoutState,
   resolveFreeLayoutState,
   resolveTreeLayoutState,
@@ -165,11 +172,32 @@ function computeInitialPositionForAddedDevice(
   )
 }
 
+const SCOPE_PANEL_STORAGE_KEY = 'nm.diagram.scopePanel.collapsed'
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  return target.isContentEditable
+}
+
 const BOARD_KIND_OPTIONS = [
   { value: 'generic', label: 'Genérico' },
   { value: 'electrical', label: 'Eléctrico' },
   { value: 'communications', label: 'Comunicaciones' },
 ]
+
+function createViewErrorMessage(error: unknown): string {
+  const err = error as {
+    message?: string
+    response?: { status?: number; data?: { message?: string } }
+  } | null
+  const fromBody = err?.response?.data?.message
+  if (typeof fromBody === 'string' && fromBody.trim()) return fromBody
+  if (typeof err?.message === 'string' && err.message.trim()) return err.message
+  if (err?.response?.status) return `HTTP ${err.response.status}`
+  return 'No se pudo crear la vista'
+}
 
 export default function ConnectionDiagramPage() {
   const { activeProjectId: projectId, activeProject } = useProject()
@@ -209,11 +237,17 @@ export default function ConnectionDiagramPage() {
   const [printDiagnostics, setPrintDiagnostics] = useState({ outsideCount: 0, cutCount: 0 })
   const [staleLinkIds, setStaleLinkIds] = useState<string[]>([])
   const [referenceListCollapsed, setReferenceListCollapsed] = useState(false)
+  const [scopePanelCollapsed, setScopePanelCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SCOPE_PANEL_STORAGE_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
   const [deviceGap, setDeviceGap] = useState(SIMPLE_DEVICE_GAP)
   const [portDisplay, setPortDisplay] = useState<DiagramPortDisplay>('all')
   const [portFlowInverted, setPortFlowInverted] = useState(false)
   const [layoutMode, setLayoutMode] = useState<DiagramLayoutMode>('free')
-  const [newLayoutMode, setNewLayoutMode] = useState<DiagramLayoutMode>('free')
   const [focusedLinkId, setFocusedLinkId] = useState<string | null>(null)
   const printSaveTimer = useRef<number | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -223,6 +257,14 @@ export default function ConnectionDiagramPage() {
   const [renaming, setRenaming] = useState(false)
   const [diagramActionsOpen, setDiagramActionsOpen] = useState(false)
   const diagramActionsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SCOPE_PANEL_STORAGE_KEY, scopePanelCollapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [scopePanelCollapsed])
 
   useEffect(() => {
     if (!diagramActionsOpen) return
@@ -338,11 +380,6 @@ export default function ConnectionDiagramPage() {
     [selectedId, projectId]
   )
 
-  const { data: projectDiagramLinks, refetch: refetchProjectLinks } = useApi(
-    () => (projectId ? diagramLinksService.getAll() : Promise.resolve([] as DiagramLink[])),
-    [projectId]
-  )
-
   const { data: sites, refetch: refetchSites } = useApi(
     () => sitesService.getAll(),
     [projectId]
@@ -442,6 +479,16 @@ export default function ConnectionDiagramPage() {
 
   const diagram: ConnectionDiagram | null = graphPayload?.diagram ?? null
 
+  const saveDiagram = useCallback(
+    async (payload: UpdateConnectionDiagramPayload) => {
+      if (!selectedId) return
+      const body = diagram ? omitUnchangedDiagramFields(payload, diagram) : payload
+      if (Object.keys(body).length === 0) return
+      await connectionDiagramsService.update(selectedId, body)
+    },
+    [selectedId, diagram]
+  )
+
   const diagramForCanvas = useMemo((): ConnectionDiagram | null => {
     if (!diagram) return null
     const active = resolveActiveLayoutState({ ...diagram, layoutMode })
@@ -478,14 +525,14 @@ export default function ConnectionDiagramPage() {
     async (siteId: string) => {
       if (!selectedId || !canMutate) return
       try {
-        await connectionDiagramsService.update(selectedId, {
+        await saveDiagram( {
           scopeSiteIds: siteId ? [siteId] : [],
         })
       } catch {
         /* ignore */
       }
     },
-    [selectedId, canMutate]
+    [selectedId, canMutate, saveDiagram]
   )
 
   const handleSiteChange = async (siteId: string) => {
@@ -512,7 +559,7 @@ export default function ConnectionDiagramPage() {
       },
     }
     try {
-      await connectionDiagramsService.update(selectedId, { containers: next })
+      await saveDiagram( { containers: next })
       await refetchGraph()
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'No se pudo agregar al canvas')
@@ -563,7 +610,7 @@ export default function ConnectionDiagramPage() {
   ) => {
     if (!selectedId) return
     try {
-      await connectionDiagramsService.update(selectedId, { containers: next })
+      await saveDiagram( { containers: next })
       if (successMsg) toast.success(successMsg)
       await refetchGraph()
       window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
@@ -581,9 +628,8 @@ export default function ConnectionDiagramPage() {
     const live = liveContainers()
     const subtreeIds = collectContainerSubtree(live, containerId)
     const deviceIds = collectRemovedDeviceIds(live, subtreeIds, resolveContainerDeviceIds)
-    const allLinks = projectDiagramLinks ?? []
-    const affectedLinks = allLinks.filter(
-      (l) => deviceIds.has(l.sourceDeviceId) || deviceIds.has(l.targetDeviceId),
+    const affectedLinks = (graphPayload?.graph.edges ?? []).filter(
+      (edge) => deviceIds.has(edge.source) || deviceIds.has(edge.target),
     )
 
     const doRemove = async () => {
@@ -624,7 +670,7 @@ export default function ConnectionDiagramPage() {
           deviceIds,
           new Set(affectedLinks.map((l) => l.id)),
         )
-        await connectionDiagramsService.update(selectedId, {
+        await saveDiagram( {
           containers: freePruned.containers,
           ...buildLayoutUpdate('free', {
             nodePositions: freePruned.nodePositions,
@@ -640,7 +686,6 @@ export default function ConnectionDiagramPage() {
           }),
         })
         toast.success(`«${label}» quitado del diagrama`)
-        refetchProjectLinks()
         await refetchGraph()
         window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
       } catch (e: any) {
@@ -857,7 +902,7 @@ export default function ConnectionDiagramPage() {
               edgeRoutes: freeBase.edgeRoutes ?? {},
               handleAnchors: freeBase.handleAnchors ?? {},
             }
-      await connectionDiagramsService.update(selectedId, {
+      await saveDiagram( {
         containers: {
           ...stripped,
           [containerId]: patchContainerDeviceIds(prev, deviceIds),
@@ -885,6 +930,7 @@ export default function ConnectionDiagramPage() {
       layoutMode,
       refetchGraph,
       resolveContainerDeviceIds,
+      saveDiagram,
     ],
   )
 
@@ -963,9 +1009,8 @@ export default function ConnectionDiagramPage() {
       if (!selectedId || !diagram || !canMutate) return
       const deviceLabel =
         graphPayload?.inventory.find((d) => d.id === deviceId)?.label ?? 'Equipo'
-      const allLinks = projectDiagramLinks ?? []
-      const affectedLinks = allLinks.filter(
-        (l) => l.sourceDeviceId === deviceId || l.targetDeviceId === deviceId,
+      const affectedLinks = (graphPayload?.graph.edges ?? []).filter(
+        (edge) => edge.source === deviceId || edge.target === deviceId,
       )
 
       const doRemove = async () => {
@@ -1015,7 +1060,7 @@ export default function ConnectionDiagramPage() {
             removedDeviceIds,
             removedLinkIds,
           )
-          await connectionDiagramsService.update(selectedId, {
+          await saveDiagram( {
             containers: freePruned.containers,
             ...buildLayoutUpdate('free', {
               nodePositions: freePruned.nodePositions,
@@ -1031,7 +1076,6 @@ export default function ConnectionDiagramPage() {
             }),
           })
           toast.success('Equipo sacado del diagrama')
-          refetchProjectLinks()
           await refetchGraph()
           window.setTimeout(() => canvasRef.current?.rerouteCables(), 100)
         } catch (e: any) {
@@ -1058,7 +1102,7 @@ export default function ConnectionDiagramPage() {
         onConfirm: doRemove,
       })
     },
-    [selectedId, diagram, canMutate, graphPayload?.inventory, projectDiagramLinks, refetchGraph, refetchProjectLinks, toast, resolveContainerDeviceIds, layoutMode]
+    [selectedId, diagram, canMutate, graphPayload?.inventory, graphPayload?.graph.edges, refetchGraph, toast, resolveContainerDeviceIds, layoutMode, saveDiagram]
   )
 
   const handleReorderDevicesInContainer = useCallback(
@@ -1074,7 +1118,7 @@ export default function ConnectionDiagramPage() {
         return
       }
       try {
-        await connectionDiagramsService.update(selectedId, {
+        await saveDiagram( {
           containers: {
             ...live,
             [containerId]: patchContainerDeviceIds(prev, deviceIds),
@@ -1086,7 +1130,7 @@ export default function ConnectionDiagramPage() {
         toast.error(e?.response?.data?.message ?? 'No se pudo reordenar')
       }
     },
-    [selectedId, diagram, canMutate, refetchGraph, toast, resolveContainerDeviceIds]
+    [selectedId, diagram, canMutate, refetchGraph, toast, resolveContainerDeviceIds, saveDiagram]
   )
 
   const handleCreateDiagram = async () => {
@@ -1097,20 +1141,23 @@ export default function ConnectionDiagramPage() {
         name: newName.trim(),
         scopeSiteIds: scopeSiteId ? [scopeSiteId] : [],
         scopeAreaIds: [],
-        layoutMode: newLayoutMode,
+        layoutMode: 'free',
         settings: {
           portDisplay: 'all',
           deviceGap: SIMPLE_DEVICE_GAP,
         },
       })
-      toast.success('Diagrama creado')
+      if (!created?.id) {
+        toast.error(createViewErrorMessage(null))
+        return
+      }
+      toast.success('Vista creada')
       setCreateOpen(false)
       setNewName('')
-      setNewLayoutMode('free')
       await refetchList()
       setSelectedId(created.id)
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'No se pudo crear el diagrama')
+    } catch (e: unknown) {
+      toast.error(createViewErrorMessage(e))
     }
   }
 
@@ -1124,7 +1171,7 @@ export default function ConnectionDiagramPage() {
     if (!selectedId || !renameName.trim()) return
     setRenaming(true)
     try {
-      await connectionDiagramsService.update(selectedId, { name: renameName.trim() })
+      await saveDiagram( { name: renameName.trim() })
       toast.success('Nombre actualizado')
       setRenameOpen(false)
       await refetchList()
@@ -1195,12 +1242,10 @@ export default function ConnectionDiagramPage() {
       if (!selectedId || !canMutate) return
       if (printSaveTimer.current != null) window.clearTimeout(printSaveTimer.current)
       printSaveTimer.current = window.setTimeout(() => {
-        void connectionDiagramsService
-          .update(selectedId, { settings: settings ?? buildPrintSettings() })
-          .catch(() => undefined)
+        void saveDiagram({ settings: settings ?? buildPrintSettings() }).catch(() => undefined)
       }, 700)
     },
-    [selectedId, canMutate, buildPrintSettings],
+    [selectedId, canMutate, buildPrintSettings, saveDiagram],
   )
 
   const measureDeviceForTree = useCallback(
@@ -1285,7 +1330,7 @@ export default function ConnectionDiagramPage() {
             handleAnchors: {},
           }
         }
-        await connectionDiagramsService.update(selectedId, updates)
+        await saveDiagram( updates)
         await refetchGraph()
         setLayoutMode(next)
         toast.success(next === 'tree' ? 'Modo árbol activado' : 'Modo libre activado')
@@ -1306,6 +1351,7 @@ export default function ConnectionDiagramPage() {
       computeTreePositions,
       refetchGraph,
       toast,
+      saveDiagram,
     ]
   )
 
@@ -1321,7 +1367,7 @@ export default function ConnectionDiagramPage() {
     if (!selectedId || !canMutate || layoutMode !== 'tree') return
     try {
       const treeState = resolveTreeLayoutState(diagram ?? { treeLayout: {} })
-      await connectionDiagramsService.update(selectedId, {
+      await saveDiagram( {
         ...buildLayoutUpdate('tree', {
           nodePositions: computeTreePositions(),
           edgeRoutes: {},
@@ -1335,19 +1381,17 @@ export default function ConnectionDiagramPage() {
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'No se pudo reorganizar')
     }
-  }, [selectedId, canMutate, layoutMode, computeTreePositions, diagram, refetchGraph, toast])
+  }, [selectedId, canMutate, layoutMode, computeTreePositions, diagram, refetchGraph, toast, saveDiagram])
 
   const persistPortSettingsSoon = useCallback(
     (patch: Partial<Pick<DiagramSettings, 'portDisplay' | 'portFlowInverted'>>) => {
       if (!selectedId || !canMutate) return
       if (printSaveTimer.current != null) window.clearTimeout(printSaveTimer.current)
       printSaveTimer.current = window.setTimeout(() => {
-        void connectionDiagramsService
-          .update(selectedId, { settings: { ...buildPrintSettings(), ...patch } })
-          .catch(() => undefined)
+        void saveDiagram({ settings: { ...buildPrintSettings(), ...patch } }).catch(() => undefined)
       }, 400)
     },
-    [selectedId, canMutate, buildPrintSettings]
+    [selectedId, canMutate, buildPrintSettings, saveDiagram]
   )
 
   const handlePortDisplayChange = useCallback(
@@ -1445,7 +1489,7 @@ export default function ConnectionDiagramPage() {
       })
       const { nodePositions, labelOffsets, edgeRoutes, handleAnchors, containers, settings } =
         payload
-      await connectionDiagramsService.update(selectedId, {
+      await saveDiagram( {
         containers,
         settings,
         layoutMode,
@@ -1464,6 +1508,29 @@ export default function ConnectionDiagramPage() {
       toast.error(e?.response?.data?.message ?? 'No se pudo guardar el layout')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleExportDxf = () => {
+    if (!selectedId || !canvasRef.current || !diagram || exporting) return
+    setExporting(true)
+    try {
+      const scene = canvasRef.current.getExportScene()
+      if (!scene) {
+        toast.error('No hay equipos ni contenedores en el diagrama para exportar.')
+        return
+      }
+      exportConnectionDiagramDxf({
+        title: diagram.name || 'Diagrama de conexión',
+        projectName: activeProject?.name,
+        clientName: activeProject?.clientName ?? undefined,
+        scene,
+      })
+      toast.success('DXF exportado')
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo exportar el DXF')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -1696,7 +1763,7 @@ export default function ConnectionDiagramPage() {
       const containerId = boardFlowNodeId(board.id)
       if (selectedId && diagram?.containers?.[containerId]) {
         const { [containerId]: _removed, ...rest } = diagram.containers
-        await connectionDiagramsService.update(selectedId, { containers: rest })
+        await saveDiagram( { containers: rest })
       }
       toast.success('Tablero eliminado')
       await refetchBoards()
@@ -1730,6 +1797,48 @@ export default function ConnectionDiagramPage() {
       })
     },
     []
+  )
+
+  const creatingLinkRef = useRef(false)
+  const handleCreateLinkFromPorts = useCallback(
+    async (params: {
+      sourceDeviceId: string
+      sourceHandleId: string
+      sourceLabel: string
+      targetDeviceId: string
+      targetHandleId: string
+      targetLabel: string
+    }) => {
+      if (!projectId || creatingLinkRef.current) return
+      if (params.sourceDeviceId === params.targetDeviceId) return
+      const sourceParsed = parseDiagramHandlePort(params.sourceHandleId)
+      const targetParsed = parseDiagramHandlePort(params.targetHandleId)
+      const sourcePortLabel = (sourceParsed.portLabel ?? params.sourceLabel).trim()
+      const targetPortLabel = (targetParsed.portLabel ?? params.targetLabel).trim()
+      if (!sourcePortLabel || !targetPortLabel) return
+      creatingLinkRef.current = true
+      try {
+        const link = await diagramLinksService.create({
+          projectId,
+          sourceDeviceId: params.sourceDeviceId,
+          targetDeviceId: params.targetDeviceId,
+          sourcePortId: sourceParsed.portId,
+          targetPortId: targetParsed.portId,
+          sourcePortLabel,
+          targetPortLabel,
+          cableTypeId: null,
+          description: null,
+        })
+        toast.success(`Enlace ${formatLinkCode(link.code)} creado`)
+        await refetchGraph()
+        window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'No se pudo crear el enlace')
+      } finally {
+        creatingLinkRef.current = false
+      }
+    },
+    [projectId, refetchGraph, toast]
   )
 
   const handlePortClick = useCallback(
@@ -1841,6 +1950,47 @@ export default function ConnectionDiagramPage() {
     [containerByDeviceId, graphPayload?.graph.edges, graphPayload?.inventory]
   )
 
+  useEffect(() => {
+    if (!canMutate || !focusedLinkId) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return
+      if (isTextEntryTarget(e.target)) return
+      if (
+        linkModal.open ||
+        linkDeleteConfirm ||
+        createOpen ||
+        renameOpen ||
+        rackModalOpen ||
+        siteModalOpen ||
+        areaModalOpen ||
+        boardModalOpen ||
+        removeFromDiagram ||
+        assignDeviceConfirm
+      ) {
+        return
+      }
+      e.preventDefault()
+      requestDeleteLink(focusedLinkId)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [
+    areaModalOpen,
+    assignDeviceConfirm,
+    boardModalOpen,
+    canMutate,
+    createOpen,
+    focusedLinkId,
+    linkDeleteConfirm,
+    linkModal.open,
+    rackModalOpen,
+    removeFromDiagram,
+    renameOpen,
+    requestDeleteLink,
+    siteModalOpen,
+  ])
+
   const handleConfirmDeleteLink = useCallback(async () => {
     if (!linkDeleteConfirm) return
     const { edgeId, code } = linkDeleteConfirm
@@ -1850,7 +2000,6 @@ export default function ConnectionDiagramPage() {
       if (focusedLinkId === edgeId) setFocusedLinkId(null)
       setLinkDeleteConfirm(null)
       toast.success(`Enlace ${code} eliminado`)
-      refetchProjectLinks()
       await refetchGraph()
       window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
     } catch (e: any) {
@@ -1858,7 +2007,7 @@ export default function ConnectionDiagramPage() {
     } finally {
       setDeletingLink(false)
     }
-  }, [focusedLinkId, linkDeleteConfirm, refetchGraph, refetchProjectLinks, toast])
+  }, [focusedLinkId, linkDeleteConfirm, refetchGraph, toast])
 
   const visibleLinkEdges = useMemo(() => {
     const shown = new Set(Object.keys(containerByDeviceId))
@@ -1943,39 +2092,36 @@ export default function ConnectionDiagramPage() {
               options={diagramOptions}
             />
             {canMutate && (
-              <>
-                <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>
-                  Nuevo
+              <div className="relative" ref={diagramActionsRef}>
+                <Button
+                  size="sm"
+                  variant={diagramActionsOpen ? 'primary' : 'secondary'}
+                  icon={<MoreVertical className="h-4 w-4" />}
+                  onClick={() => setDiagramActionsOpen((v) => !v)}
+                  aria-expanded={diagramActionsOpen}
+                  aria-haspopup="menu"
+                >
+                  Vistas
                 </Button>
-                {selectedId ? (
-                  <div className="relative" ref={diagramActionsRef}>
-                    <Button
-                      size="sm"
-                      variant={diagramActionsOpen ? 'primary' : 'secondary'}
-                      icon={<MoreVertical className="h-4 w-4" />}
-                      onClick={() => setDiagramActionsOpen((v) => !v)}
-                      aria-expanded={diagramActionsOpen}
-                      aria-haspopup="menu"
+                {diagramActionsOpen ? (
+                  <div
+                    className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                    role="menu"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                      onClick={() => {
+                        setDiagramActionsOpen(false)
+                        setCreateOpen(true)
+                      }}
                     >
-                      Más
-                    </Button>
-                    {diagramActionsOpen ? (
-                      <div
-                        className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-                        role="menu"
-                      >
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                          onClick={() => {
-                            setDiagramActionsOpen(false)
-                            openRenameDiagram()
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Renombrar
-                        </button>
+                      <Plus className="h-4 w-4" />
+                      Nueva vista
+                    </button>
+                    {selectedId ? (
+                      <>
                         <button
                           type="button"
                           role="menuitem"
@@ -1991,6 +2137,18 @@ export default function ConnectionDiagramPage() {
                         <button
                           type="button"
                           role="menuitem"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                          onClick={() => {
+                            setDiagramActionsOpen(false)
+                            openRenameDiagram()
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Renombrar
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
                           className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                           onClick={() => {
                             setDiagramActionsOpen(false)
@@ -2000,11 +2158,11 @@ export default function ConnectionDiagramPage() {
                           <Trash2 className="h-4 w-4" />
                           Eliminar
                         </button>
-                      </div>
+                      </>
                     ) : null}
                   </div>
                 ) : null}
-              </>
+              </div>
             )}
           </div>
         }
@@ -2012,10 +2170,42 @@ export default function ConnectionDiagramPage() {
       </div>
 
       <div className="flex min-h-0 flex-1 gap-0">
-        <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-auto border-r border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Alcance del diagrama
-          </div>
+        <aside
+          className={`flex shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white transition-[width] duration-200 ease-out dark:border-slate-800 dark:bg-slate-900 ${
+            scopePanelCollapsed ? 'w-10' : 'w-72'
+          }`}
+        >
+          {scopePanelCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setScopePanelCollapsed(false)}
+              className="flex h-full min-h-0 w-full flex-col items-center gap-3 py-3 text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              aria-expanded={false}
+              aria-label="Mostrar panel de alcance"
+              title="Mostrar panel de alcance"
+            >
+              <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="text-[10px] font-semibold uppercase tracking-wide writing-vertical-rl rotate-180">
+                Alcance
+              </span>
+            </button>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Alcance del diagrama
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScopePanelCollapsed(true)}
+                  className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  aria-expanded
+                  aria-label="Ocultar panel de alcance"
+                  title="Ocultar panel de alcance"
+                >
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
           {layoutMode === 'tree' ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs leading-snug text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
               Modo árbol: agregá equipos desde áreas/racks como siempre; en el canvas se
@@ -2376,6 +2566,8 @@ export default function ConnectionDiagramPage() {
               Seleccioná un sitio para listar áreas, racks y tableros.
             </p>
           )}
+            </div>
+          )}
         </aside>
 
         <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
@@ -2404,6 +2596,18 @@ export default function ConnectionDiagramPage() {
               </Button>
             ) : null}
             {selectedId ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Download className="h-4 w-4" />}
+                isLoading={exporting}
+                disabled={exporting}
+                onClick={handleExportDxf}
+              >
+                Exportar DXF
+              </Button>
+            ) : null}
+            {selectedId ? (
               <DiagramCanvasOptionsMenu
                 layoutMode={layoutMode}
                 onLayoutModeChange={canMutate ? handleLayoutModeChange : undefined}
@@ -2429,7 +2633,7 @@ export default function ConnectionDiagramPage() {
                   Empezá a documentar enlaces
                 </p>
                 <ol className="mt-3 space-y-1 text-sm text-slate-500 dark:text-slate-400">
-                  <li>1. Creá o seleccioná un diagrama</li>
+                  <li>1. Creá o seleccioná una vista</li>
                   <li>2. Elegí un sitio en el panel izquierdo</li>
                   <li>3. Agregá un área y conectá equipos</li>
                 </ol>
@@ -2440,7 +2644,7 @@ export default function ConnectionDiagramPage() {
                   icon={<Plus className="h-4 w-4" />}
                   onClick={() => setCreateOpen(true)}
                 >
-                  Nuevo diagrama
+                  Nueva vista
                 </Button>
               )}
             </div>
@@ -2481,6 +2685,7 @@ export default function ConnectionDiagramPage() {
               focusedLinkId={focusedLinkId}
               onFocusedLinkChange={setFocusedLinkId}
               onConnectDevices={canMutate ? handleConnectDevices : undefined}
+              onCreateLinkFromPorts={canMutate ? handleCreateLinkFromPorts : undefined}
               onPortClick={canMutate ? handlePortClick : undefined}
               onDeviceDoubleClick={canMutate ? handleDeviceDoubleClick : undefined}
               onNavigateToLink={
@@ -2588,22 +2793,16 @@ export default function ConnectionDiagramPage() {
         </section>
       </div>
 
-      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Nuevo diagrama">
+      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Nueva vista">
         <div className="space-y-3">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Vista nueva del mismo proyecto. Los enlaces E1, E2… se comparten.
+          </p>
           <Input
             label="Nombre"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Sala servidores"
-          />
-          <Select
-            label="Tipo de diagrama"
-            value={newLayoutMode}
-            onChange={(e) => setNewLayoutMode(e.target.value as DiagramLayoutMode)}
-            options={[
-              { value: 'free', label: 'Libre (contenedores físicos)' },
-              { value: 'tree', label: 'Árbol (layout jerárquico)' },
-            ]}
           />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
@@ -2808,7 +3007,7 @@ export default function ConnectionDiagramPage() {
           destinationOptions={destinationDeviceOptions}
           edge={modalEdge}
           existingEdges={occupancyEdgesFromDiagramLinks(
-            projectDiagramLinks ?? [],
+            graphPayload?.graph.edges ?? [],
             (graphPayload?.inventory ?? []).map((d) => d.id)
           )}
           inventory={graphPayload?.inventory ?? []}
@@ -2816,13 +3015,11 @@ export default function ConnectionDiagramPage() {
           boards={graphPayload?.boards ?? []}
           onSaved={async () => {
             setLinkModal({ open: false })
-            refetchProjectLinks()
             await refetchGraph()
             window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
           }}
           onDeleted={async () => {
             setLinkModal({ open: false })
-            refetchProjectLinks()
             await refetchGraph()
             window.setTimeout(() => canvasRef.current?.rerouteCables(), 120)
           }}

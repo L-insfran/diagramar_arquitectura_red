@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "powershell -ExecutionPolicy Bypass -File dev.ps1",
     "build": "tsc",
-    "start": "node build/bin/server.js",
+    "start": "node --import=tsx bin/server.ts",
     "ace": "node --import=tsx ace.js",
     "migration:run": "node --import=tsx ace.js migration:run",
     "migration:rollback": "node --import=tsx ace.js migration:rollback",

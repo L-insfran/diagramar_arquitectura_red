@@ -51,3 +51,9 @@ backend/storage/system/**
 # Vite / frontend
 public/dist/
 **/public/dist/
+
+# Docker bind mounts (adjuntos/branding en VM)
+data/storage/attachments/**
+!data/storage/attachments/.gitkeep
+data/storage/system/**
+!data/storage/system/.gitkeep

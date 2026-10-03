@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Eye, Pencil, Trash2, Layers } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
@@ -20,6 +20,54 @@ import { UNSET_TEMPLATE_ID } from '../utils/deviceInventory'
 import type { Device } from '../types'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
+const PAGE_SIZE = 50
+
+function DevicePagination({
+  page,
+  total,
+  perPage,
+  disabled,
+  onPageChange,
+}: {
+  page: number
+  total: number
+  perPage: number
+  disabled: boolean
+  onPageChange: (page: number) => void
+}) {
+  const pageCount = Math.max(1, Math.ceil(total / perPage))
+  const from = total === 0 ? 0 : (page - 1) * perPage + 1
+  const to = Math.min(page * perPage, total)
+
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-sm text-gray-500 dark:text-gray-400">
+      <span>{total === 0 ? '0 equipos' : `${from}–${to} de ${total}`}</span>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={disabled || page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          Anterior
+        </Button>
+        <span>
+          Página {page} de {pageCount}
+        </span>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={disabled || page >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+        >
+          Siguiente
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 export default function Devices() {
   const navigate = useNavigate()
@@ -28,12 +76,22 @@ export default function Devices() {
   const { activeProjectId, activeProject } = useProject()
   const toast = useToast()
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [areaFilter, setAreaFilter] = useState('')
   const [containerFilter, setContainerFilter] = useState('')
   const [deviceTypeFilter, setDeviceTypeFilter] = useState('')
   const [deviceTemplateFilter, setDeviceTemplateFilter] = useState('')
   const [inventoryOpen, setInventoryOpen] = useState(false)
+  const [inventorySession, setInventorySession] = useState(0)
+  const [inventoryResult, setInventoryResult] = useState<{ key: string; devices: Device[] } | null>(null)
+  const [inventoryFailed, setInventoryFailed] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
 
   const { data: deviceTypes } = useApi(() => deviceTypesService.getAll(), [activeProjectId])
 
@@ -47,50 +105,94 @@ export default function Devices() {
     [activeProjectId, areaFilter]
   )
 
-  const { data: devices, isLoading, refetch } = useApi(
+  const filterKey = [
+    activeProjectId,
+    debouncedSearch,
+    areaFilter,
+    containerFilter,
+    deviceTypeFilter,
+    deviceTemplateFilter,
+  ].join('\0')
+  const filterKeyRef = useRef(filterKey)
+  let pageForRequest = page
+  if (filterKeyRef.current !== filterKey) {
+    filterKeyRef.current = filterKey
+    pageForRequest = 1
+    if (page !== 1) setPage(1)
+  }
+
+  const { data: filterOptions, refetch: refetchFilters } = useApi(
+    () => devicesService.getFilterOptions(),
+    [activeProjectId]
+  )
+
+  const { data: devicePage, isLoading, refetch } = useApi(
     () =>
-      devicesService.getAll({
-        search,
+      devicesService.getPage({
+        search: debouncedSearch,
+        summary: true,
         areaId: areaFilter || undefined,
         containerId: containerFilter || undefined,
         deviceTypeId: deviceTypeFilter || undefined,
         deviceTemplateId: deviceTemplateFilter || undefined,
+        page: pageForRequest,
+        perPage: PAGE_SIZE,
       }),
-    [search, areaFilter, containerFilter, deviceTypeFilter, deviceTemplateFilter, activeProjectId]
+    [debouncedSearch, areaFilter, containerFilter, deviceTypeFilter, deviceTemplateFilter, activeProjectId, pageForRequest]
   )
 
-  const knownTemplatesRef = useRef<{ projectId: string; map: Map<string, string> }>({
-    projectId: '',
-    map: new Map(),
-  })
+  const devices = devicePage?.items
+  const total = devicePage?.total ?? 0
+  const inventoryKey = `${inventorySession}\0${filterKey}`
+  const inventoryDevices = inventoryResult?.key === inventoryKey ? inventoryResult.devices : null
 
-  const templateOptions = useMemo(() => {
-    if (knownTemplatesRef.current.projectId !== activeProjectId) {
-      knownTemplatesRef.current = { projectId: activeProjectId, map: new Map() }
+  useEffect(() => {
+    if (!inventoryOpen) return
+    let cancelled = false
+    setInventoryFailed(false)
+    devicesService
+      .getAll({
+        search: debouncedSearch,
+        summary: true,
+        areaId: areaFilter || undefined,
+        containerId: containerFilter || undefined,
+        deviceTypeId: deviceTypeFilter || undefined,
+        deviceTemplateId: deviceTemplateFilter || undefined,
+      })
+      .then((rows) => {
+        if (!cancelled) setInventoryResult({ key: inventoryKey, devices: rows })
+      })
+      .catch(() => {
+        if (!cancelled) setInventoryFailed(true)
+      })
+    return () => {
+      cancelled = true
     }
-    const map = knownTemplatesRef.current.map
-    for (const device of devices || []) {
-      if (device.deviceTemplateId) {
-        map.set(device.deviceTemplateId, device.deviceTemplate?.name || device.deviceTemplateId)
-      }
-    }
-    if (deviceTemplateFilter && !map.has(deviceTemplateFilter)) {
-      map.set(deviceTemplateFilter, 'Template seleccionado')
-    }
-    return [...map.entries()]
-      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
-      .map(([value, label]) => ({ value, label }))
-  }, [devices, deviceTemplateFilter, activeProjectId])
+  }, [
+    inventoryOpen,
+    inventoryKey,
+    debouncedSearch,
+    areaFilter,
+    containerFilter,
+    deviceTypeFilter,
+    deviceTemplateFilter,
+  ])
 
-  const areaOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const d of devices || []) {
-      if (d.areaId && d.area) map.set(d.areaId, d.area.name)
-    }
-    return [...map.entries()]
-      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
-      .map(([value, label]) => ({ value, label }))
-  }, [devices])
+  useEffect(() => {
+    if (!devicePage) return
+    const last = Math.max(1, Math.ceil(devicePage.total / PAGE_SIZE))
+    if (page > last) setPage(last)
+  }, [devicePage, page])
+
+  const templateOptions = useMemo(
+    () => (filterOptions?.templates ?? []).map((template) => ({ value: template.id, label: template.name })),
+    [filterOptions]
+  )
+
+  const areaOptions = useMemo(
+    () => (filterOptions?.areas ?? []).map((area) => ({ value: area.id, label: area.name })),
+    [filterOptions]
+  )
 
   const containerOptions = useMemo(() => {
     return (containers || [])
@@ -119,6 +221,8 @@ export default function Devices() {
       await devicesService.delete(d.id)
       toast.success('Dispositivo borrado', `${d.name} se eliminó correctamente.`)
       refetch()
+      refetchFilters()
+      if (inventoryOpen) setInventorySession((current) => current + 1)
     } catch (err: any) {
       toast.error('No se pudo borrar el dispositivo', err?.response?.data?.message || err?.message)
     } finally {
@@ -241,14 +345,17 @@ export default function Devices() {
     <div className="space-y-6">
       <PageHeader
         title="Dispositivos"
-        subtitle={`${devices?.length || 0} equipos en el inventario`}
+        subtitle={`${total} equipos en el inventario`}
         actions={
           <>
             <Button
               type="button"
               variant="ghost"
               icon={<Layers className="w-4 h-4" />}
-              onClick={() => setInventoryOpen(true)}
+              onClick={() => {
+                setInventorySession((current) => current + 1)
+                setInventoryOpen(true)
+              }}
             >
               Inventario por modelo
             </Button>
@@ -311,25 +418,46 @@ export default function Devices() {
         emptyMessage="No se encontraron dispositivos. Agrega tu primer dispositivo para comenzar."
       />
 
+      {devicePage && (
+        <DevicePagination
+          page={pageForRequest}
+          total={total}
+          perPage={PAGE_SIZE}
+          disabled={isLoading}
+          onPageChange={setPage}
+        />
+      )}
+
       <Modal
         isOpen={inventoryOpen}
         onClose={() => setInventoryOpen(false)}
         title="Inventario por modelo"
         size="xl"
       >
-        <DeviceInventoryPanel
-          devices={devices || []}
-          filtersActive={filtersActive}
-          projectName={activeProject?.name}
-          clientName={activeProject?.clientName ?? undefined}
-          authorName={authorName}
-          onSelectTemplate={(templateId) => {
-            if (templateId !== UNSET_TEMPLATE_ID) {
-              setDeviceTemplateFilter(templateId)
-            }
-            setInventoryOpen(false)
-          }}
-        />
+        {inventoryFailed ? (
+          <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            No se pudo cargar el inventario.
+          </p>
+        ) : inventoryDevices ? (
+          <DeviceInventoryPanel
+            devices={inventoryDevices}
+            filtersActive={filtersActive}
+            projectName={activeProject?.name}
+            clientName={activeProject?.clientName ?? undefined}
+            authorName={authorName}
+            onSelectTemplate={(templateId) => {
+              if (templateId !== UNSET_TEMPLATE_ID) {
+                setDeviceTemplateFilter(templateId)
+              }
+              setInventoryOpen(false)
+            }}
+          />
+        ) : (
+          <div className="py-12 text-center">
+            <div className="inline-block w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Cargando inventario…</p>
+          </div>
+        )}
       </Modal>
     </div>
   )

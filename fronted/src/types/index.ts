@@ -1018,6 +1018,22 @@ export interface DeviceFilters {
   rackId?: string
   search?: string
   projectId?: string
+  /** Listado sin puertos ni VLANs. */
+  summary?: boolean
+  page?: number
+  perPage?: number
+}
+
+export interface DeviceListPage {
+  items: Device[]
+  total: number
+  page: number
+  perPage: number
+}
+
+export interface DeviceFilterOptions {
+  areas: { id: string; name: string }[]
+  templates: { id: string; name: string }[]
 }
 
 export const MEDIUM_LABELS: Record<MediumType, string> = {

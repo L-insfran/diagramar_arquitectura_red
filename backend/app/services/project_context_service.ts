@@ -1,12 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import SystemUser from '#models/system_user'
 import ProjectMembership from '#models/project_membership'
-import {
-  canAccessProject,
-  canMutateInProject,
-  resolveRoleForProject,
-  type MembershipRole,
-} from '#services/authorization_service'
+import type { MembershipRole } from '#services/authorization_service'
 
 export type ProjectContext = {
   projectId: string
@@ -27,35 +22,57 @@ function pickProjectIdFromRequest(ctx: HttpContext): string | undefined {
   return header || fromQuery || fromBody || undefined
 }
 
-async function resolveDefaultProjectId(user: SystemUser): Promise<string | undefined> {
+function roleCanMutate(role: MembershipRole): boolean {
+  return role === 'admin' || role === 'operator'
+}
+
+async function findMembership(userId: string, projectId: string) {
+  return ProjectMembership.query()
+    .where('system_user_id', userId)
+    .where('project_id', projectId)
+    .first()
+}
+
+async function resolveDefaultMembership(user: SystemUser) {
   const defaultMembership = await ProjectMembership.query()
     .where('system_user_id', user.id)
     .where('is_default', true)
     .first()
-  if (defaultMembership) return defaultMembership.projectId
-
-  const anyMembership = await ProjectMembership.query().where('system_user_id', user.id).first()
-  if (anyMembership) return anyMembership.projectId
-
-  return user.projectId || undefined
+  if (defaultMembership) return defaultMembership
+  return ProjectMembership.query().where('system_user_id', user.id).first()
 }
 
 /**
  * Resolves the active project for the request.
- * Order: X-Project-Id header → project_id / projectId query/body → default membership → user.projectId
+ * Order: X-Project-Id header → project_id / projectId query/body → default membership → user.projectId.
+ * Membership is read once and reused for role and mutate permission.
  */
 export async function resolveProjectContext(ctx: HttpContext): Promise<ProjectContext | null> {
   const user = ctx.auth.getUserOrFail() as SystemUser
   const requested = pickProjectIdFromRequest(ctx)
-  const projectId = requested || (await resolveDefaultProjectId(user))
+
+  let membership: ProjectMembership | null = null
+  let projectId = requested
+
+  if (!projectId) {
+    membership = await resolveDefaultMembership(user)
+    projectId = membership?.projectId || user.projectId || undefined
+  }
   if (!projectId) return null
 
-  const allowed = await canAccessProject(user, projectId)
-  if (!allowed) return null
+  if (user.role === 'admin') {
+    return { projectId, role: 'admin', canMutate: true }
+  }
 
-  const role = (await resolveRoleForProject(user, projectId)) ?? 'viewer'
-  const canMutate = await canMutateInProject(user, projectId)
-  return { projectId, role, canMutate }
+  if (!membership || membership.projectId !== projectId) {
+    membership = await findMembership(user.id, projectId)
+  }
+
+  const role: MembershipRole | null =
+    membership?.role ?? (user.projectId === projectId ? user.role : null)
+  if (!role) return null
+
+  return { projectId, role, canMutate: roleCanMutate(role) }
 }
 
 export async function requireProjectContext(ctx: HttpContext): Promise<ProjectContext | null> {

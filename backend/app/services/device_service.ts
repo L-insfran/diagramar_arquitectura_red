@@ -58,8 +58,16 @@ export default class DeviceService {
   private accessories = new RackAccessoryService()
   private diagramLinks = new DiagramLinkService()
 
+  async listFilterOptions(projectId: string) {
+    return this.devices.listFilterOptions(projectId)
+  }
+
   async getAllByProject(projectId: string, filters?: DeviceFilters) {
     return this.devices.findAllByProject(projectId, filters)
+  }
+
+  async getPageByProject(projectId: string, filters: DeviceFilters & { page: number }) {
+    return this.devices.findPageByProject(projectId, filters)
   }
 
   async getById(id: string) {

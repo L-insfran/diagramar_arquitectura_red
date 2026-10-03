@@ -549,7 +549,7 @@ export default function RacksPage() {
   } = useApi(() => racksService.getAll(), [activeProjectId])
   const { data: sites } = useApi<Site[]>(() => sitesService.getAll(), [activeProjectId])
   const { data: devices, refetch: refetchDevices } = useApi(
-    () => devicesService.getAll(),
+    () => devicesService.getAll({ summary: true }),
     [activeProjectId]
   )
 

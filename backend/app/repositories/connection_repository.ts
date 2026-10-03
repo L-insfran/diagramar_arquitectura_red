@@ -5,23 +5,45 @@ import type {
   CreateConnectionInput,
   UpdateConnectionInput,
 } from '#dtos/connection_dto'
+import {
+  applyDeviceLocationScope,
+  inventoryScopeIsOpen,
+  type InventoryScope,
+} from '#services/inventory_scope'
 
 export default class ConnectionRepository {
-  async findAllByProjectWithPorts(projectId: string) {
-    return Connection.query()
+  async findAllByProjectWithPorts(projectId: string, scope?: InventoryScope) {
+    const query = Connection.query()
       .where('project_id', projectId)
       .whereNull('deleted_at')
-      .preload('sourcePort', (query) => {
-        query
+      .preload('sourcePort', (portQuery) => {
+        portQuery
           .preload('device', (dq) => dq.preload('deviceType'))
           .preload('vlans', (q) => q.preload('networks'))
       })
-      .preload('targetPort', (query) => {
-        query
+      .preload('targetPort', (portQuery) => {
+        portQuery
           .preload('device', (dq) => dq.preload('deviceType'))
           .preload('vlans', (q) => q.preload('networks'))
       })
       .preload('cableType')
+
+    if (scope && !inventoryScopeIsOpen(scope)) {
+      query.whereHas('sourcePort', (portQuery) => {
+        portQuery.whereHas('device', (deviceQuery) => {
+          deviceQuery.where('project_id', projectId).whereNull('deleted_at')
+          applyDeviceLocationScope(deviceQuery, scope)
+        })
+      })
+      query.whereHas('targetPort', (portQuery) => {
+        portQuery.whereHas('device', (deviceQuery) => {
+          deviceQuery.where('project_id', projectId).whereNull('deleted_at')
+          applyDeviceLocationScope(deviceQuery, scope)
+        })
+      })
+    }
+
+    return query
   }
 
   async findActiveSummaryOrFail(id: string) {

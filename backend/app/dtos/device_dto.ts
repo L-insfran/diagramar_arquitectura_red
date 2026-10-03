@@ -13,6 +13,23 @@ export type DeviceFilters = {
   areaId?: string
   containerId?: string
   search?: string
+  /** List row without ports and VLANs. Detail endpoints still preload them. */
+  summary?: boolean
+  /** Present only when the list is requested by page. */
+  page?: number
+  perPage?: number
+}
+
+export type DeviceListPage<T> = {
+  items: T[]
+  total: number
+  page: number
+  perPage: number
+}
+
+export type DeviceFilterOptions = {
+  areas: { id: string; name: string }[]
+  templates: { id: string; name: string }[]
 }
 
 export type CreateDeviceInput = {

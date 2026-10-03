@@ -17,6 +17,13 @@ import {
 } from '#validators/device_validator'
 import { bulkUpdatePortStatusValidator, bulkUpdatePortPassthroughValidator } from '#validators/port_validator'
 
+function parsePositiveInt(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined
+  const value = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(value) || value < 1) return undefined
+  return Math.floor(value)
+}
+
 export default class DevicesController {
   private deviceService = new DeviceService()
   private templateService = new DeviceTemplateService()
@@ -33,7 +40,11 @@ export default class DevicesController {
     const areaId = ctx.request.input('areaId') as string | undefined
     const containerId = ctx.request.input('containerId') as string | undefined
     const search = ctx.request.input('search') as string | undefined
-    const devices = await this.deviceService.getAllByProject(context.projectId, {
+    const summaryRaw = ctx.request.input('summary')
+    const summary = summaryRaw === '1' || summaryRaw === 'true' || summaryRaw === true
+    const page = parsePositiveInt(ctx.request.input('page'))
+    const perPage = parsePositiveInt(ctx.request.input('perPage'))
+    const filters = {
       status,
       deviceTypeId,
       deviceTemplateId,
@@ -41,8 +52,23 @@ export default class DevicesController {
       areaId,
       containerId,
       search,
-    })
+      summary,
+      perPage,
+    }
+    if (page) {
+      const data = await this.deviceService.getPageByProject(context.projectId, { ...filters, page })
+      return ctx.response.ok({ success: true, data })
+    }
+    const devices = await this.deviceService.getAllByProject(context.projectId, filters)
     return ctx.response.ok({ success: true, data: devices })
+  }
+
+  async filterOptions(ctx: HttpContext) {
+    const context = await requireProjectContext(ctx)
+    if (!context) return
+
+    const data = await this.deviceService.listFilterOptions(context.projectId)
+    return ctx.response.ok({ success: true, data })
   }
 
   async store(ctx: HttpContext) {

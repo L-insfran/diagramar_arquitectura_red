@@ -9,6 +9,7 @@ import type {
 } from '#dtos/diagram_link_dto'
 import type Device from '#models/device'
 import type DiagramLink from '#models/diagram_link'
+import type { InventoryScope } from '#services/inventory_scope'
 
 function containerName(device: Device): string | null {
   return device.container?.name ?? null
@@ -330,8 +331,8 @@ export default class DiagramLinkService {
     }
   }
 
-  async listEdgesByProject(projectId: string): Promise<DiagramLinkEdge[]> {
-    const links = await this.links.findAllByProject(projectId)
+  async listEdgesByProject(projectId: string, scope?: InventoryScope): Promise<DiagramLinkEdge[]> {
+    const links = await this.links.findAllByProject(projectId, scope)
     return links.map((link) => this.toEdge(link))
   }
 }

@@ -14,6 +14,12 @@ import Container from '#models/container'
 import RackAccessory from '#models/rack_accessory'
 import type Port from '#models/port'
 import ConnectionRepository from '#repositories/connection_repository'
+import {
+  applyAreaLocationScope,
+  applyDeviceLocationScope,
+  inventoryScopeIsOpen,
+  type InventoryScope,
+} from '#services/inventory_scope'
 import { facesForAccessory } from '#dtos/rack_accessory_dto'
 import type {
   CreateConnectionInput,
@@ -392,8 +398,51 @@ export default class TopologyService {
     return this.connections.findActiveSummaryOrFail(id)
   }
 
-  async getTopology(projectId: string) {
-    const connections = await this.connections.findAllByProjectWithPorts(projectId)
+  async getTopology(projectId: string, scope: InventoryScope = { siteIds: [], areaIds: [] }) {
+    const scoped = !inventoryScopeIsOpen(scope)
+
+    const deviceQuery = Device.query()
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
+      .preload('deviceType')
+      .preload('deviceTemplate')
+      .preload('site')
+      .preload('area', (a) => a.preload('site'))
+      .preload('container')
+      .preload('ports', (p) => p.preload('vlans', (v) => v.preload('networks')))
+    if (scoped) applyDeviceLocationScope(deviceQuery, scope)
+
+    const containerQuery = Container.query()
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
+      .preload('area', (a) => a.preload('site'))
+      .orderBy('name', 'asc')
+    if (scoped) {
+      containerQuery.whereHas('area', (areaQuery) => {
+        applyAreaLocationScope(areaQuery, scope)
+      })
+    }
+
+    const accessoryQuery = RackAccessory.query()
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
+      .orderBy('unit_start', 'asc')
+    if (scoped) {
+      accessoryQuery.whereHas('container', (cq) => {
+        cq.where('project_id', projectId)
+          .whereNull('deleted_at')
+          .whereHas('area', (areaQuery) => {
+            applyAreaLocationScope(areaQuery, scope)
+          })
+      })
+    }
+
+    const [connections, allDevices, allContainers, allAccessories] = await Promise.all([
+      this.connections.findAllByProjectWithPorts(projectId, scoped ? scope : undefined),
+      deviceQuery,
+      containerQuery,
+      accessoryQuery,
+    ])
 
     const activeConnections = connections.filter((conn) => {
       const sourceDevice = conn.sourcePort?.device
@@ -411,31 +460,10 @@ export default class TopologyService {
       occupancy[targetFace].add(conn.targetPortId)
     }
 
-    const allDevices = await Device.query()
-      .where('project_id', projectId)
-      .whereNull('deleted_at')
-      .preload('deviceType')
-      .preload('deviceTemplate')
-      .preload('site')
-      .preload('area', (a) => a.preload('site'))
-      .preload('container')
-      .preload('ports', (p) => p.preload('vlans', (v) => v.preload('networks')))
-
     const deviceNodes = new Map<string, FlowTopologyNode>()
     for (const device of allDevices) {
       deviceNodes.set(device.id, buildDeviceNode(device, occupancy))
     }
-
-    const allContainers = await Container.query()
-      .where('project_id', projectId)
-      .whereNull('deleted_at')
-      .preload('area', (a) => a.preload('site'))
-      .orderBy('name', 'asc')
-
-    const allAccessories = await RackAccessory.query()
-      .where('project_id', projectId)
-      .whereNull('deleted_at')
-      .orderBy('unit_start', 'asc')
 
     const accessoriesByContainer = new Map<string, TopologyRackAccessory[]>()
     for (const acc of allAccessories) {

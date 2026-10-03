@@ -24,3 +24,5 @@ Los ADR documentan decisiones de arquitectura significativas: contexto, opciones
 | [0008](0008-boards-como-contenedor-fisico.md) | Boards (tableros) como contenedor físico | Aceptado |
 | [0009](0009-diagramas-multiples-y-ruteo-ortogonal.md) | Diagramas múltiples y ruteo ortogonal | Aceptado (punto 4 superseded por 0010) |
 | [0010](0010-diagram-links-simplificados.md) | Enlaces simplificados de diagrama | Aceptado |
+| [0015](0015-cache-de-lecturas-en-cliente.md) | Caché de lecturas en el cliente | Aceptado |
+| [0016](0016-exportacion-dxf.md) | Exportación DXF del diagrama de conexión | Aceptado |

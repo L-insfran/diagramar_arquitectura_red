@@ -3,14 +3,31 @@ import type { DashboardAlert, DashboardMetrics } from '#dtos/dashboard_dto'
 
 const RACK_OCCUPANCY_WARN = 80
 const RACK_OCCUPANCY_CRIT = 95
+const DASHBOARD_CACHE_MS = 20_000
+
+type DashboardCacheEntry = {
+  expiresAt: number
+  data: DashboardMetrics
+}
+
+const dashboardCache = new Map<string, DashboardCacheEntry>()
 
 export default class DashboardService {
   private repo = new DashboardRepository()
 
   async getMetrics(projectId: string): Promise<DashboardMetrics> {
+    const now = Date.now()
+    const cached = dashboardCache.get(projectId)
+    if (cached && cached.expiresAt > now) return cached.data
+
+    const data = await this.loadMetrics(projectId)
+    dashboardCache.set(projectId, { expiresAt: now + DASHBOARD_CACHE_MS, data })
+    return data
+  }
+
+  private async loadMetrics(projectId: string): Promise<DashboardMetrics> {
     const [
       statusMap,
-      devices,
       racks,
       sites,
       areas,
@@ -31,7 +48,6 @@ export default class DashboardService {
       undocumented,
     ] = await Promise.all([
       this.repo.countDevicesByStatus(projectId),
-      this.repo.countDevices(projectId),
       this.repo.countRacks(projectId),
       this.repo.countSites(projectId),
       this.repo.countAreas(projectId),
@@ -52,6 +68,7 @@ export default class DashboardService {
       this.repo.listUndocumentedDeviceIds(projectId, 8),
     ])
 
+    const devices = Object.values(statusMap).reduce((total, count) => total + count, 0)
     const portsFree = Math.max(0, ports - portsOccupied)
     const { items: rackItems, usedU, totalCapacityU } = this.repo.buildRackSummaries(
       rackData.racks,

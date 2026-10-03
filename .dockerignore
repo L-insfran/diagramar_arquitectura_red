@@ -1,0 +1,23 @@
+# Contexto de build del frontend (docker-compose: context .)
+# Solo necesitamos fronted/ + docker/nginx.conf
+
+.git
+.cursor
+.vscode
+.idea
+docs
+AGENTS.md
+*.md
+backend
+data
+node_modules
+**/node_modules
+fronted/node_modules
+fronted/dist
+fronted/.env
+fronted/.env.*
+**/*.log
+**/coverage
+**/build
+.env
+.env.*

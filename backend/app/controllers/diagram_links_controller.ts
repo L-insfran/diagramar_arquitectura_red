@@ -19,8 +19,6 @@ export default class DiagramLinksController {
     const context = await requireProjectContext(ctx)
     if (!context) return
 
-    const user = ctx.auth.getUserOrFail() as SystemUser
-    await this.diagramLinks.softDeleteOrphansWithDeletedDevices(user.id)
     const links = await this.diagramLinks.getAllByProject(context.projectId)
     return ctx.response.ok({
       success: true,

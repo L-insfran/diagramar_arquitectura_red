@@ -1,0 +1,54 @@
+# Stack: frontend (nginx :3000) + backend (AdonisJS, interno).
+# Postgres NO se crea aquí: se reutiliza el contenedor existente vía red externa.
+#
+# En la VM (ejemplo):
+#   /home/adminpx/contenedores/diagramar_arquitectura_red
+#   cp docker/env.example .env   # completar DB_* , APP_KEY y POSTGRES_NETWORK
+#   docker compose up -d --build
+#
+# Acceso LAN: http://192.168.60.14:3000  (Portainer sigue en :9000)
+# APP_KEY debe coincidir con el de desarrollo local si restaurás un dump con secretos.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: diagramar-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3333"
+      NODE_ENV: production
+    volumes:
+      # Adjuntos y branding (ADR 0003) — persistir en el host
+      - ./data/storage/attachments:/app/storage/attachments
+      - ./data/storage/system:/app/storage/system
+    networks:
+      - app
+      - postgres_net
+    # El API no se publica a la LAN; solo nginx (frontend) habla con él.
+
+  frontend:
+    build:
+      context: .
+      dockerfile: fronted/Dockerfile
+    container_name: diagramar-frontend
+    restart: unless-stopped
+    ports:
+      # Puerto público de la app (elegido: 3000)
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+  # Red del Postgres existente (valor desde .env → POSTGRES_NETWORK)
+  postgres_net:
+    external: true
+    name: ${POSTGRES_NETWORK}

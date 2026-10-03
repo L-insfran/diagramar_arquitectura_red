@@ -41,10 +41,6 @@ export default class DashboardRepository {
     return map
   }
 
-  countDevices(projectId: string) {
-    return countWhere('devices', projectId, (q) => q.whereNull('deleted_at'))
-  }
-
   countRacks(projectId: string) {
     return countWhere('containers', projectId, (q) => q.whereNull('deleted_at').where('kind', 'rack'))
   }

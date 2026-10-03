@@ -1,4 +1,15 @@
-import axios from 'axios'
+import axios, { type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
+import {
+  isCacheableGet,
+  isWriteMethod,
+  projectIdOf,
+  readCacheClearProject,
+  readCacheGet,
+  readCacheKey,
+  readCacheSet,
+} from './readCache'
+
+type CachedRequestConfig = InternalAxiosRequestConfig & { readCacheHit?: boolean }
 
 const ACTIVE_PROJECT_KEY = 'nm:active-project'
 const LEGACY_ACTIVE_COMPANY_KEY = 'nm:active-company'
@@ -39,11 +50,36 @@ api.interceptors.request.use((config) => {
       delete (config.headers as Record<string, unknown>)['Content-Type']
     }
   }
+
+  if (isCacheableGet(config)) {
+    const cached = readCacheGet(readCacheKey(config))
+    if (cached !== undefined) {
+      const hit = config as CachedRequestConfig
+      hit.readCacheHit = true
+      hit.adapter = async () =>
+        ({
+          data: cached,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: hit,
+        }) as AxiosResponse
+    }
+  }
   return config
 })
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const config = response.config as CachedRequestConfig
+    if (config.readCacheHit) return response
+    if (isCacheableGet(config) && response.status === 200) {
+      readCacheSet(readCacheKey(config), response.data)
+    } else if (isWriteMethod(config.method) && response.status >= 200 && response.status < 300) {
+      readCacheClearProject(projectIdOf(config))
+    }
+    return response
+  },
   (error) => {
     if (error.response?.status === 401) {
       const isAuthRoute = error.config?.url?.startsWith('/auth/')

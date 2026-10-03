@@ -66,6 +66,7 @@ router
 
     // Devices
     router.get('/devices', [DevicesController, 'index'])
+    router.get('/devices/filter-options', [DevicesController, 'filterOptions'])
     router.post('/devices', [DevicesController, 'store'])
     router.get('/devices/:id', [DevicesController, 'show'])
     router.get('/devices/:id/relocation-impact', [DevicesController, 'relocationImpact'])

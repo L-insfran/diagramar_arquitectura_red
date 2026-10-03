@@ -3,6 +3,7 @@ import ConnectionDiagramRepository from '#repositories/connection_diagram_reposi
 import TopologyService from '#services/topology_service'
 import DiagramLinkService from '#services/diagram_link_service'
 import Area from '#models/area'
+import { inventoryScopeFrom } from '#services/inventory_scope'
 import type {
   CreateConnectionDiagramInput,
   DiagramContainerState,
@@ -165,15 +166,28 @@ export default class ConnectionDiagramService {
     return this.diagrams.findByIdOrFail(copy.id)
   }
 
-  async getGraph(id: string, actorId?: string) {
+  async getGraph(id: string) {
     const diagram = await this.diagrams.findByIdOrFail(id)
-    if (actorId) {
-      await this.diagramLinks.softDeleteOrphansWithDeletedDevices(actorId)
-    }
-    const topology = await this.topology.getTopology(diagram.projectId)
+    const scope = inventoryScopeFrom(diagram.scopeSiteIds, diagram.scopeAreaIds)
 
-    const siteFilter = new Set(diagram.scopeSiteIds ?? [])
-    const areaFilter = new Set(diagram.scopeAreaIds ?? [])
+    const areasQuery = Area.query()
+      .whereNull('deleted_at')
+      .whereHas('site', (siteQuery) => {
+        siteQuery.where('project_id', diagram.projectId).whereNull('deleted_at')
+        if (scope.siteIds.length > 0) siteQuery.whereIn('id', scope.siteIds)
+      })
+      .preload('site')
+      .orderBy('name', 'asc')
+    if (scope.areaIds.length > 0) areasQuery.whereIn('id', scope.areaIds)
+
+    const [topology, allLinkEdges, allAreas] = await Promise.all([
+      this.topology.getTopology(diagram.projectId, scope),
+      this.diagramLinks.listEdgesByProject(diagram.projectId, scope),
+      areasQuery,
+    ])
+
+    const siteFilter = new Set(scope.siteIds)
+    const areaFilter = new Set(scope.areaIds)
     const hasSiteFilter = siteFilter.size > 0
     const hasAreaFilter = areaFilter.size > 0
 
@@ -192,7 +206,6 @@ export default class ConnectionDiagramService {
     const inventoryIds = new Set(inventory.map((n) => n.id))
 
     const graphNodes = topology.graph.nodes.filter((n) => inventoryIds.has(n.id))
-    const allLinkEdges = await this.diagramLinks.listEdgesByProject(diagram.projectId)
     const edges = allLinkEdges.filter(
       (e) => inventoryIds.has(e.source) && inventoryIds.has(e.target)
     )
@@ -205,14 +218,6 @@ export default class ConnectionDiagramService {
       if (hasSiteFilter) return siteOk
       return areaOk
     })
-
-    const allAreas = await Area.query()
-      .whereNull('deleted_at')
-      .whereHas('site', (siteQuery) => {
-        siteQuery.where('project_id', diagram.projectId).whereNull('deleted_at')
-      })
-      .preload('site')
-      .orderBy('name', 'asc')
 
     const areas: TopologyAreaSummary[] = allAreas
       .map((area) => ({

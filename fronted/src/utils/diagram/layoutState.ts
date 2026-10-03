@@ -105,4 +105,96 @@ export function resolveTreeLayoutState(
   }
 }
 
+const EMPTY_LAYOUT: DiagramLayoutState = {
+  nodePositions: {},
+  labelOffsets: {},
+  edgeRoutes: {},
+  handleAnchors: {},
+}
+
+function stableStringify(value: unknown): string {
+  if (value === undefined || value === null) return 'null'
+  if (typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`
+}
+
+function sameJson(a: unknown, b: unknown): boolean {
+  return stableStringify(a) === stableStringify(b)
+}
+
+function sameScope(a?: string[] | null, b?: string[] | null): boolean {
+  const left = [...(a ?? [])].sort()
+  const right = [...(b ?? [])].sort()
+  return sameJson(left, right)
+}
+
+function normalizeLayout(state?: DiagramLayoutState | null): DiagramLayoutState {
+  return {
+    nodePositions: state?.nodePositions ?? {},
+    labelOffsets: state?.labelOffsets ?? {},
+    edgeRoutes: state?.edgeRoutes ?? {},
+    handleAnchors: state?.handleAnchors ?? {},
+  }
+}
+
+/**
+ * Drop top-level JSON fields that match the diagram already loaded.
+ * A field that did change is still sent whole: the API replaces that column.
+ */
+export function omitUnchangedDiagramFields(
+  payload: UpdateConnectionDiagramPayload,
+  baseline: Pick<
+    ConnectionDiagram,
+    | 'scopeSiteIds'
+    | 'scopeAreaIds'
+    | 'nodePositions'
+    | 'labelOffsets'
+    | 'edgeRoutes'
+    | 'handleAnchors'
+    | 'treeLayout'
+    | 'containers'
+    | 'settings'
+  >
+): UpdateConnectionDiagramPayload {
+  const next: UpdateConnectionDiagramPayload = { ...payload }
+
+  if (next.nodePositions !== undefined && sameJson(next.nodePositions, baseline.nodePositions ?? {})) {
+    delete next.nodePositions
+  }
+  if (next.labelOffsets !== undefined && sameJson(next.labelOffsets, baseline.labelOffsets ?? {})) {
+    delete next.labelOffsets
+  }
+  if (next.edgeRoutes !== undefined && sameJson(next.edgeRoutes, baseline.edgeRoutes ?? {})) {
+    delete next.edgeRoutes
+  }
+  if (next.handleAnchors !== undefined && sameJson(next.handleAnchors, baseline.handleAnchors ?? {})) {
+    delete next.handleAnchors
+  }
+  if (next.containers !== undefined && sameJson(next.containers, baseline.containers ?? {})) {
+    delete next.containers
+  }
+  if (next.settings !== undefined && sameJson(next.settings, baseline.settings ?? {})) {
+    delete next.settings
+  }
+  if (
+    next.treeLayout !== undefined &&
+    sameJson(normalizeLayout(next.treeLayout), normalizeLayout(baseline.treeLayout ?? EMPTY_LAYOUT))
+  ) {
+    delete next.treeLayout
+  }
+  if (next.scopeSiteIds !== undefined && sameScope(next.scopeSiteIds, baseline.scopeSiteIds)) {
+    delete next.scopeSiteIds
+  }
+  if (next.scopeAreaIds !== undefined && sameScope(next.scopeAreaIds, baseline.scopeAreaIds)) {
+    delete next.scopeAreaIds
+  }
+
+  return next
+}
+
 export type { DiagramNodePosition }

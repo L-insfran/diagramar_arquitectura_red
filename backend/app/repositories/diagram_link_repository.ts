@@ -6,6 +6,11 @@ import DiagramLink from '#models/diagram_link'
 import Device from '#models/device'
 import Port from '#models/port'
 import type { CreateDiagramLinkInput, UpdateDiagramLinkInput } from '#dtos/diagram_link_dto'
+import {
+  applyDeviceLocationScope,
+  inventoryScopeIsOpen,
+  type InventoryScope,
+} from '#services/inventory_scope'
 
 /** Ignore links whose source or target device was soft-deleted. */
 function whereBothEndpointsActive(q: ModelQueryBuilderContract<typeof DiagramLink>) {
@@ -59,10 +64,22 @@ export default class DiagramLinkRepository {
     return Number(row?.max_code ?? 0) + 1
   }
 
-  async findAllByProject(projectId: string) {
-    return whereBothEndpointsActive(
+  async findAllByProject(projectId: string, scope?: InventoryScope) {
+    const query = whereBothEndpointsActive(
       DiagramLink.query().where('project_id', projectId).whereNull('deleted_at')
     )
+
+    if (scope && !inventoryScopeIsOpen(scope)) {
+      query
+        .whereHas('sourceDevice', (deviceQuery) => {
+          applyDeviceLocationScope(deviceQuery, scope)
+        })
+        .whereHas('targetDevice', (deviceQuery) => {
+          applyDeviceLocationScope(deviceQuery, scope)
+        })
+    }
+
+    return query
       .preload('sourceDevice', (q) => q.preload('container'))
       .preload('targetDevice', (q) => q.preload('container'))
       .preload('sourcePort')

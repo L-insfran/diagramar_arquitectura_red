@@ -6,6 +6,10 @@ import { SearchableSelect, type SearchableSelectOption } from '../SearchableSele
 import { diagramLinksService } from '../../services/diagram-links.service'
 import { cableTypesService } from '../../services/cable-types.service'
 import { formatLinkCode } from '../../utils/diagram/linkLabel'
+import {
+  swapLinkEndpoints,
+  type LinkEndpointDraft,
+} from '../../utils/diagram/linkEndpoints'
 import type {
   DiagramLinkEdge,
   TopologyBoardSummary,
@@ -175,6 +179,15 @@ function isPortOccupied(
   return false
 }
 
+type ModalLinkEnd = LinkEndpointDraft & {
+  /** Equipo fijo (solo lectura). Viaja con el extremo al invertir. */
+  deviceLocked: boolean
+}
+
+function emptyLinkEnd(deviceLocked = false): ModalLinkEnd {
+  return { deviceId: '', portId: '', portLabel: '', deviceLocked }
+}
+
 export function SimpleLinkModal({
   isOpen,
   onClose,
@@ -196,32 +209,19 @@ export function SimpleLinkModal({
   onDeleted,
 }: Props) {
   const isEdit = Boolean(edge?.id)
-  const pickSource = !isEdit && !sourceDeviceId
-  const pickDestination = !isEdit && !targetDeviceId
 
-  const [selectedSourceId, setSelectedSourceId] = useState(sourceDeviceId ?? '')
-  const [selectedTargetId, setSelectedTargetId] = useState(targetDeviceId ?? '')
-  const effectiveSourceId = isEdit
-    ? (edge?.source ?? sourceDeviceId ?? '')
-    : pickSource
-      ? selectedSourceId
-      : (sourceDeviceId ?? '')
-  const effectiveTargetId = isEdit
-    ? (edge?.target ?? targetDeviceId ?? '')
-    : pickDestination
-      ? selectedTargetId
-      : (targetDeviceId ?? '')
+  const [sourceEnd, setSourceEnd] = useState<ModalLinkEnd>(() => emptyLinkEnd())
+  const [targetEnd, setTargetEnd] = useState<ModalLinkEnd>(() => emptyLinkEnd())
+  const [endsSwapped, setEndsSwapped] = useState(false)
+  const pickSource = !sourceEnd.deviceLocked
+  const pickDestination = !targetEnd.deviceLocked
 
-  const sourceDevice = inventory.find((d) => d.id === effectiveSourceId)
-  const targetDevice = inventory.find((d) => d.id === effectiveTargetId)
+  const sourceDevice = inventory.find((d) => d.id === sourceEnd.deviceId)
+  const targetDevice = inventory.find((d) => d.id === targetEnd.deviceId)
 
   const sourcePorts = sourceDevice?.data.ports ?? []
   const targetPorts = targetDevice?.data.ports ?? []
 
-  const [sourcePortId, setSourcePortId] = useState('')
-  const [targetPortId, setTargetPortId] = useState('')
-  const [sourcePortLabel, setSourcePortLabel] = useState('')
-  const [targetPortLabel, setTargetPortLabel] = useState('')
   const [description, setDescription] = useState('')
   const [cableTypeId, setCableTypeId] = useState('')
   const [cableTypeOptions, setCableTypeOptions] = useState<SearchableSelectOption[]>([])
@@ -245,34 +245,47 @@ export function SimpleLinkModal({
   useEffect(() => {
     if (!isOpen) return
     setError(null)
-    setSelectedSourceId(sourceDeviceId ?? '')
-    setSelectedTargetId(targetDeviceId ?? '')
+    setEndsSwapped(false)
     if (edge?.id) {
-      setSourcePortId(edge.sourcePortId ?? '')
-      setTargetPortId(edge.targetPortId ?? '')
-      setSourcePortLabel(edge.sourcePort ?? '')
-      setTargetPortLabel(edge.targetPort ?? '')
+      setSourceEnd({
+        deviceId: edge.source,
+        portId: edge.sourcePortId ?? '',
+        portLabel: edge.sourcePort ?? '',
+        deviceLocked: true,
+      })
+      setTargetEnd({
+        deviceId: edge.target,
+        portId: edge.targetPortId ?? '',
+        portLabel: edge.targetPort ?? '',
+        deviceLocked: true,
+      })
       setDescription(edge.description ?? '')
       setCableTypeId(edge.cableTypeId ?? '')
       return
     }
     const srcId = initialSourcePortId ?? ''
     const tgtId = initialTargetPortId ?? ''
-    setSourcePortId(srcId)
-    setTargetPortId(tgtId)
-    // Prefer inventory port name so Etiqueta matches Puerto without typing.
     const srcDevice = inventory.find((d) => d.id === (sourceDeviceId ?? ''))
     const tgtDevice = inventory.find((d) => d.id === (targetDeviceId ?? ''))
-    setSourcePortLabel(
-      resolvePortName(srcDevice?.data.ports ?? [], srcId) ??
+    // Prefer inventory port name so Etiqueta matches Puerto without typing.
+    setSourceEnd({
+      deviceId: sourceDeviceId ?? '',
+      portId: srcId,
+      portLabel:
+        resolvePortName(srcDevice?.data.ports ?? [], srcId) ??
         initialSourcePortLabel ??
-        ''
-    )
-    setTargetPortLabel(
-      resolvePortName(tgtDevice?.data.ports ?? [], tgtId) ??
+        '',
+      deviceLocked: Boolean(sourceDeviceId),
+    })
+    setTargetEnd({
+      deviceId: targetDeviceId ?? '',
+      portId: tgtId,
+      portLabel:
+        resolvePortName(tgtDevice?.data.ports ?? [], tgtId) ??
         initialTargetPortLabel ??
-        ''
-    )
+        '',
+      deviceLocked: Boolean(targetDeviceId),
+    })
     setDescription('')
     setCableTypeId('')
   }, [
@@ -315,28 +328,28 @@ export function SimpleLinkModal({
     () =>
       toDeviceSelectOptions(
         destinationOptions,
-        effectiveTargetId,
+        targetEnd.deviceId,
         inventory,
         containerByDeviceId
       ),
-    [destinationOptions, effectiveTargetId, inventory, containerByDeviceId]
+    [destinationOptions, targetEnd.deviceId, inventory, containerByDeviceId]
   )
 
   const destSelectOptions = useMemo(
     () =>
       toDeviceSelectOptions(
         destinationOptions,
-        effectiveSourceId,
+        sourceEnd.deviceId,
         inventory,
         containerByDeviceId
       ),
-    [destinationOptions, effectiveSourceId, inventory, containerByDeviceId]
+    [destinationOptions, sourceEnd.deviceId, inventory, containerByDeviceId]
   )
 
   const sourcePortOptions = useMemo<SearchableSelectOption[]>(
     () =>
       sourcePorts.map((p) => {
-        const taken = isPortOccupied(occupied, effectiveSourceId, p.id, p.name, p.name)
+        const taken = isPortOccupied(occupied, sourceEnd.deviceId, p.id, p.name, p.name)
         return {
           value: p.id,
           label: `${p.name} (#${p.portNumber})`,
@@ -344,13 +357,13 @@ export function SimpleLinkModal({
           disabledReason: taken ? 'en uso' : undefined,
         }
       }),
-    [sourcePorts, occupied, effectiveSourceId]
+    [sourcePorts, occupied, sourceEnd.deviceId]
   )
 
   const targetPortOptions = useMemo<SearchableSelectOption[]>(
     () =>
       targetPorts.map((p) => {
-        const taken = isPortOccupied(occupied, effectiveTargetId, p.id, p.name, p.name)
+        const taken = isPortOccupied(occupied, targetEnd.deviceId, p.id, p.name, p.name)
         return {
           value: p.id,
           label: `${p.name} (#${p.portNumber})`,
@@ -358,7 +371,7 @@ export function SimpleLinkModal({
           disabledReason: taken ? 'en uso' : undefined,
         }
       }),
-    [targetPorts, occupied, effectiveTargetId]
+    [targetPorts, occupied, targetEnd.deviceId]
   )
 
   const sourceDisplay = deviceDisplayParts(
@@ -375,74 +388,81 @@ export function SimpleLinkModal({
   )
 
   const handleSourcePortChange = (value: string) => {
-    setSourcePortId(value)
-    if (!value) return
-    const port = sourcePorts.find((p) => p.id === value)
-    if (port) setSourcePortLabel(port.name)
+    const port = value ? sourcePorts.find((p) => p.id === value) : undefined
+    setSourceEnd((prev) => ({
+      ...prev,
+      portId: value,
+      portLabel: port?.name ?? prev.portLabel,
+    }))
   }
 
   const handleTargetPortChange = (value: string) => {
-    setTargetPortId(value)
-    if (!value) return
-    const port = targetPorts.find((p) => p.id === value)
-    if (port) setTargetPortLabel(port.name)
+    const port = value ? targetPorts.find((p) => p.id === value) : undefined
+    setTargetEnd((prev) => ({
+      ...prev,
+      portId: value,
+      portLabel: port?.name ?? prev.portLabel,
+    }))
   }
 
   const handleSourceDeviceChange = (value: string) => {
-    setSelectedSourceId(value)
-    setSourcePortId('')
-    setSourcePortLabel('')
+    setSourceEnd((prev) => ({ ...prev, deviceId: value, portId: '', portLabel: '' }))
     setError(null)
-    if (selectedTargetId === value) {
-      setSelectedTargetId('')
-      setTargetPortId('')
-      setTargetPortLabel('')
-    }
+    setTargetEnd((prev) => {
+      if (prev.deviceLocked || prev.deviceId !== value) return prev
+      return { ...prev, deviceId: '', portId: '', portLabel: '' }
+    })
   }
 
   const handleDestinationChange = (value: string) => {
-    setSelectedTargetId(value)
-    setTargetPortId('')
-    setTargetPortLabel('')
+    setTargetEnd((prev) => ({ ...prev, deviceId: value, portId: '', portLabel: '' }))
+    setError(null)
+  }
+
+  const handleInvertEnds = (checked: boolean) => {
+    const next = swapLinkEndpoints(sourceEnd, targetEnd)
+    setSourceEnd(next.source)
+    setTargetEnd(next.target)
+    setEndsSwapped(checked)
     setError(null)
   }
 
   const handleSave = async () => {
-    if (!effectiveSourceId) {
+    if (!sourceEnd.deviceId) {
       setError('Elegí el equipo origen.')
       return
     }
-    if (!effectiveTargetId) {
+    if (!targetEnd.deviceId) {
       setError('Elegí el equipo destino.')
       return
     }
-    const srcLabel = sourcePortLabel.trim()
-    const tgtLabel = targetPortLabel.trim()
+    const srcLabel = sourceEnd.portLabel.trim()
+    const tgtLabel = targetEnd.portLabel.trim()
     if (!srcLabel || !tgtLabel) {
       setError('Indicá el puerto de origen y destino (lista o texto).')
       return
     }
 
-    const sourcePort = sourcePortId
-      ? sourcePorts.find((p) => p.id === sourcePortId)
+    const sourcePort = sourceEnd.portId
+      ? sourcePorts.find((p) => p.id === sourceEnd.portId)
       : undefined
-    const targetPort = targetPortId
-      ? targetPorts.find((p) => p.id === targetPortId)
+    const targetPort = targetEnd.portId
+      ? targetPorts.find((p) => p.id === targetEnd.portId)
       : undefined
 
     if (
       isPortOccupied(
         occupied,
-        effectiveSourceId,
-        sourcePortId || null,
+        sourceEnd.deviceId,
+        sourceEnd.portId || null,
         srcLabel,
         sourcePort?.name,
         sourcePorts
       ) ||
       isPortOccupied(
         occupied,
-        effectiveTargetId,
-        targetPortId || null,
+        targetEnd.deviceId,
+        targetEnd.portId || null,
         tgtLabel,
         targetPort?.name,
         targetPorts
@@ -458,8 +478,10 @@ export function SimpleLinkModal({
     setError(null)
     try {
       const payload = {
-        sourcePortId: sourcePortId || null,
-        targetPortId: targetPortId || null,
+        sourceDeviceId: sourceEnd.deviceId,
+        targetDeviceId: targetEnd.deviceId,
+        sourcePortId: sourceEnd.portId || null,
+        targetPortId: targetEnd.portId || null,
         sourcePortLabel: srcLabel,
         targetPortLabel: tgtLabel,
         description: description.trim() || null,
@@ -470,8 +492,6 @@ export function SimpleLinkModal({
       } else {
         await diagramLinksService.create({
           projectId,
-          sourceDeviceId: effectiveSourceId,
-          targetDeviceId: effectiveTargetId,
           ...payload,
         })
       }
@@ -536,7 +556,7 @@ export function SimpleLinkModal({
             <SearchableSelect
               label="Equipo"
               options={sourceSelectOptions}
-              value={selectedSourceId}
+              value={sourceEnd.deviceId}
               onChange={handleSourceDeviceChange}
               placeholder="Seleccionar equipo…"
               searchPlaceholder="Buscar por nombre, rack, tablero o IP…"
@@ -551,27 +571,38 @@ export function SimpleLinkModal({
             <SearchableSelect
               label="Puerto"
               options={sourcePortOptions}
-              value={sourcePortId}
+              value={sourceEnd.portId}
               onChange={handleSourcePortChange}
               placeholder="Texto libre…"
               searchPlaceholder="Buscar puerto…"
               emptyOptionLabel="Texto libre…"
-              disabled={pickSource && !selectedSourceId}
+              disabled={pickSource && !sourceEnd.deviceId}
             />
             <Input
               label="Etiqueta"
-              value={sourcePortLabel}
-              onChange={(e) => setSourcePortLabel(e.target.value)}
-              placeholder={
-                resolvePortName(sourcePorts, sourcePortId) ?? 'Se completa al elegir el puerto'
+              value={sourceEnd.portLabel}
+              onChange={(e) =>
+                setSourceEnd((prev) => ({ ...prev, portLabel: e.target.value }))
               }
-              disabled={pickSource && !selectedSourceId}
+              placeholder={
+                resolvePortName(sourcePorts, sourceEnd.portId) ?? 'Se completa al elegir el puerto'
+              }
+              disabled={pickSource && !sourceEnd.deviceId}
               title="Se completa con el nombre del puerto; podés editarla si hace falta"
             />
           </div>
         </section>
 
-        <div className="border-t border-gray-200 dark:border-gray-700" role="separator" />
+        <label className="flex cursor-pointer items-center justify-between gap-3 border-y border-gray-200 py-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-200">
+          <span>Invertir origen / destino</span>
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            checked={endsSwapped}
+            disabled={saving || deleting}
+            onChange={(e) => handleInvertEnds(e.target.checked)}
+          />
+        </label>
 
         <section className="space-y-3" aria-labelledby="link-target-heading">
           <h3
@@ -584,7 +615,7 @@ export function SimpleLinkModal({
             <SearchableSelect
               label="Equipo"
               options={destSelectOptions}
-              value={selectedTargetId}
+              value={targetEnd.deviceId}
               onChange={handleDestinationChange}
               placeholder="Seleccionar equipo…"
               searchPlaceholder="Buscar por nombre, rack, tablero o IP…"
@@ -599,21 +630,23 @@ export function SimpleLinkModal({
             <SearchableSelect
               label="Puerto"
               options={targetPortOptions}
-              value={targetPortId}
+              value={targetEnd.portId}
               onChange={handleTargetPortChange}
               placeholder="Texto libre…"
               searchPlaceholder="Buscar puerto…"
               emptyOptionLabel="Texto libre…"
-              disabled={pickDestination && !selectedTargetId}
+              disabled={pickDestination && !targetEnd.deviceId}
             />
             <Input
               label="Etiqueta"
-              value={targetPortLabel}
-              onChange={(e) => setTargetPortLabel(e.target.value)}
-              placeholder={
-                resolvePortName(targetPorts, targetPortId) ?? 'Se completa al elegir el puerto'
+              value={targetEnd.portLabel}
+              onChange={(e) =>
+                setTargetEnd((prev) => ({ ...prev, portLabel: e.target.value }))
               }
-              disabled={pickDestination && !selectedTargetId}
+              placeholder={
+                resolvePortName(targetPorts, targetEnd.portId) ?? 'Se completa al elegir el puerto'
+              }
+              disabled={pickDestination && !targetEnd.deviceId}
               title="Se completa con el nombre del puerto; podés editarla si hace falta"
             />
           </div>

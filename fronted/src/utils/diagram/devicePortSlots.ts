@@ -306,6 +306,52 @@ export function assignSlotAnchors(
   return result.sort((a, b) => a.portNumber - b.portNumber || a.orderIndex - b.orderIndex)
 }
 
+/** Ignore sub-pixel rounding when a saved anchor still matches the automatic layout. */
+const ANCHOR_T_EPSILON = 0.01
+
+/**
+ * True when a resolved slot sits on another side, or along the same side
+ * at a different position than the automatic anchor.
+ */
+export function deviceSlotsHaveCustomAnchors(
+  slots: DiagramPortSlot[],
+  layoutMode: DiagramLayoutMode = 'free',
+  portFlowInverted = false,
+  nodeHeight = 100,
+  portAreaTop = 0
+): boolean {
+  const bySide = new Map<DiagramHandleSide, DiagramPortSlot[]>()
+  for (const slot of slots) {
+    const list = bySide.get(slot.side) ?? []
+    list.push(slot)
+    bySide.set(slot.side, list)
+  }
+
+  for (const [side, sideSlots] of bySide) {
+    const sorted = [...sideSlots].sort(
+      (a, b) => a.portNumber - b.portNumber || a.orderIndex - b.orderIndex
+    )
+    for (let index = 0; index < sorted.length; index++) {
+      const slot = sorted[index]
+      const role = slot.role === 'target' ? 'target' : 'source'
+      const expected = defaultHandleAnchor(
+        role,
+        index,
+        sorted.length,
+        nodeHeight,
+        portAreaTop,
+        layoutMode,
+        portFlowInverted,
+        side
+      )
+      if (slot.anchor.side !== expected.side) return true
+      if (Math.abs(slot.anchor.t - expected.t) > ANCHOR_T_EPSILON) return true
+    }
+  }
+
+  return false
+}
+
 /** Renormalize `t` evenly along one side after reorder. */
 export function renormalizeSideAnchors(
   slots: DiagramPortSlot[],

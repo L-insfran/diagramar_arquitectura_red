@@ -158,11 +158,11 @@ function relationDeviceId(value: unknown): string {
 }
 
 /**
- * Occupancy index for SimpleLinkModal from project-wide diagram_links.
+ * Occupancy index for SimpleLinkModal from diagram links or graph edges.
  * Skips links whose source/target is missing or not in live inventory (orphans).
  */
 export function occupancyEdgesFromDiagramLinks(
-  links: Array<DiagramLink | Record<string, unknown>> | null | undefined,
+  links: Array<DiagramLink | DiagramLinkEdge | Record<string, unknown>> | null | undefined,
   liveDeviceIds?: Iterable<string>
 ): DiagramLinkEdge[] {
   if (!links?.length) return []

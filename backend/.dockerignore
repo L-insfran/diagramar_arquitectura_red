@@ -1,0 +1,14 @@
+node_modules
+build
+coverage
+*.log
+.env
+.env.*
+storage/attachments/**
+!storage/attachments/.gitkeep
+storage/system/**
+!storage/system/.gitkeep
+check_user.ts
+dev.ps1
+.git
+*.md

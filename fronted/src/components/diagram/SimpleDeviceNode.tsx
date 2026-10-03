@@ -15,16 +15,10 @@ import {
 } from '../../utils/diagram/diagramPortHandles'
 import type { DiagramPortSlot } from '../../utils/diagram/devicePortSlots'
 import {
-  insertIndexFromPointerT,
-  reorderSlotOnSide,
-  renormalizeSideAnchors,
-} from '../../utils/diagram/devicePortSlots'
-import {
   anchorToHandleStyle,
   anchorToLabelStyle,
   projectPointerToPerimeter,
   type DiagramHandleAnchor,
-  type DiagramHandleSide,
 } from '../../utils/diagram/handleAnchor'
 import {
   DIAGRAM_DEVICE_CHAR_PX,
@@ -82,6 +76,16 @@ export type SimpleDevicePortClick = {
   side: 'source' | 'target'
 }
 
+export type PortConnectDragPhase = 'move' | 'end' | 'cancel'
+
+export type PortConnectDragParams = {
+  phase: PortConnectDragPhase
+  handleId: string
+  label: string
+  clientX: number
+  clientY: number
+}
+
 export type SimpleDeviceNodeData = {
   label: string
   deviceType: string | null
@@ -98,9 +102,11 @@ export type SimpleDeviceNodeData = {
   onDeviceDoubleClick?: () => void
   onHandleAnchorChange?: (handleId: string, anchor: DiagramHandleAnchor) => void
   onHandleAnchorChangeEnd?: (handleId: string, anchor: DiagramHandleAnchor) => void
-  /** Batch update after side reorder / redistribute. */
+  /** Batch update after a port anchor commit. */
   onSlotsReorder?: (slots: DiagramPortSlot[]) => void
   onRedistributePorts?: () => void
+  /** Pointer left the device: preview or finish a link to another port. */
+  onPortConnectDrag?: (params: PortConnectDragParams) => void
   [key: string]: unknown
 }
 
@@ -167,7 +173,11 @@ export function resolveDeviceNodeSize(
 }
 
 const HANDLE_DRAG_THRESHOLD_PX = 4
+/** Local px past the border box before a port drag becomes a link gesture. */
+const PORT_CONNECT_OUTSIDE_MARGIN = 36
 const ANCHOR_TRANSITION = 'top 180ms ease, left 180ms ease, bottom 180ms ease, right 180ms ease, transform 180ms ease'
+
+type PortGesture = 'pending' | 'anchor' | 'connect'
 
 type PortAnchorProps = {
   slot: DiagramPortSlot
@@ -178,7 +188,9 @@ type PortAnchorProps = {
   draggingId: string | null
   onPortClick?: () => void
   onAnchorLive?: (anchor: DiagramHandleAnchor) => void
-  onAnchorCommit?: (anchor: DiagramHandleAnchor, side: DiagramHandleSide) => void
+  onAnchorCommit?: (anchor: DiagramHandleAnchor) => void
+  onAnchorRevert?: () => void
+  onPortConnectDrag?: (params: PortConnectDragParams) => void
 }
 
 function PortAnchorHandle({
@@ -189,13 +201,15 @@ function PortAnchorHandle({
   onPortClick,
   onAnchorLive,
   onAnchorCommit,
+  onAnchorRevert,
+  onPortConnectDrag,
   nodeWidth,
   nodeHeight,
 }: PortAnchorProps) {
   const shellRef = useRef<HTMLDivElement>(null)
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
-  const isDraggingRef = useRef(false)
-  const [dragging, setDragging] = useState(false)
+  const gestureRef = useRef<PortGesture>('pending')
+  const [gesture, setGesture] = useState<PortGesture>('pending')
   const zoom = useStore((s) => s.transform[2] || 1)
   const anchor = slot.anchor
   const { position, style } = anchorToHandleStyle(
@@ -205,61 +219,113 @@ function PortAnchorHandle({
     DEVICE_NODE_INSET
   )
   const labelStyle = anchorToLabelStyle(anchor, nodeWidth, nodeHeight, DEVICE_NODE_INSET)
-  const isDragging = draggingId === slot.id
+  const isDragging = draggingId === slot.id || gesture === 'anchor'
   const connected = slot.connected
 
-  const projectFromEvent = useCallback(
-    (clientX: number, clientY: number): DiagramHandleAnchor | null => {
+  const localFromEvent = useCallback(
+    (clientX: number, clientY: number): { x: number; y: number } | null => {
       const shell = shellRef.current?.parentElement
       if (!shell) return null
       // shell is the padding box; convert screen px → border-box flow coords
       const rect = shell.getBoundingClientRect()
       const z = zoom > 0 ? zoom : 1
-      return projectPointerToPerimeter(
-        (clientX - rect.left) / z + DEVICE_NODE_INSET.left,
-        (clientY - rect.top) / z + DEVICE_NODE_INSET.top,
-        nodeWidth,
-        nodeHeight
-      )
+      return {
+        x: (clientX - rect.left) / z + DEVICE_NODE_INSET.left,
+        y: (clientY - rect.top) / z + DEVICE_NODE_INSET.top,
+      }
     },
-    [nodeHeight, nodeWidth, zoom]
+    [zoom]
   )
+
+  const connectParams = (clientX: number, clientY: number, phase: PortConnectDragPhase) => ({
+    phase,
+    handleId: slot.id,
+    label: slot.label,
+    clientX,
+    clientY,
+  })
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!canDrag) return
     e.stopPropagation()
     e.preventDefault()
     pointerDownRef.current = { x: e.clientX, y: e.clientY }
-    isDraggingRef.current = false
-    setDragging(false)
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    gestureRef.current = 'pending'
+    setGesture('pending')
+    const target = e.currentTarget as HTMLElement
+    try {
+      if (!target.hasPointerCapture(e.pointerId)) target.setPointerCapture(e.pointerId)
+    } catch {
+      // Synthetic events have no active pointer; the gesture still follows the target.
+    }
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!canDrag || !pointerDownRef.current) return
     const dx = e.clientX - pointerDownRef.current.x
     const dy = e.clientY - pointerDownRef.current.y
-    if (!isDraggingRef.current && Math.hypot(dx, dy) >= HANDLE_DRAG_THRESHOLD_PX) {
-      isDraggingRef.current = true
-      setDragging(true)
+    if (
+      gestureRef.current === 'pending' &&
+      Math.hypot(dx, dy) < HANDLE_DRAG_THRESHOLD_PX
+    ) {
+      return
     }
-    if (!isDraggingRef.current) return
+    const local = localFromEvent(e.clientX, e.clientY)
+    if (!local) return
+    const outside =
+      local.x < -PORT_CONNECT_OUTSIDE_MARGIN ||
+      local.y < -PORT_CONNECT_OUTSIDE_MARGIN ||
+      local.x > nodeWidth + PORT_CONNECT_OUTSIDE_MARGIN ||
+      local.y > nodeHeight + PORT_CONNECT_OUTSIDE_MARGIN
+
+    if (outside) {
+      if (gestureRef.current !== 'connect') {
+        gestureRef.current = 'connect'
+        setGesture('connect')
+        onAnchorRevert?.()
+      }
+      e.stopPropagation()
+      onPortConnectDrag?.(connectParams(e.clientX, e.clientY, 'move'))
+      return
+    }
+
+    if (gestureRef.current === 'connect') {
+      onPortConnectDrag?.(connectParams(e.clientX, e.clientY, 'cancel'))
+    }
+    if (gestureRef.current !== 'anchor') {
+      gestureRef.current = 'anchor'
+      setGesture('anchor')
+    }
     e.stopPropagation()
-    const next = projectFromEvent(e.clientX, e.clientY)
-    if (next) onAnchorLive?.(next)
+    onAnchorLive?.(projectPointerToPerimeter(local.x, local.y, nodeWidth, nodeHeight))
   }
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!canDrag || !pointerDownRef.current) return
     e.stopPropagation()
-    ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    if (isDraggingRef.current) {
-      const next = projectFromEvent(e.clientX, e.clientY)
-      if (next) onAnchorCommit?.(next, next.side)
+    const target = e.currentTarget as HTMLElement
+    if (target.hasPointerCapture?.(e.pointerId)) {
+      try {
+        target.releasePointerCapture(e.pointerId)
+      } catch {
+        // Already released, or the event was synthetic.
+      }
+    }
+    const mode = gestureRef.current
+    if (mode === 'connect') {
+      onPortConnectDrag?.(connectParams(e.clientX, e.clientY, 'end'))
+      onAnchorRevert?.()
+    } else if (mode === 'anchor') {
+      const local = localFromEvent(e.clientX, e.clientY)
+      if (local) {
+        onAnchorCommit?.(projectPointerToPerimeter(local.x, local.y, nodeWidth, nodeHeight))
+      } else {
+        onAnchorRevert?.()
+      }
     }
     pointerDownRef.current = null
-    isDraggingRef.current = false
-    setDragging(false)
+    gestureRef.current = 'pending'
+    setGesture('pending')
   }
 
   const handleClass = connected
@@ -284,11 +350,20 @@ function PortAnchorHandle({
         position={position}
         id={slot.id}
         className={`!z-20 ${handleSizeClass} !border-2 ${handleClass} nodrag nopan ${
-          canDrag ? dragging || isDragging ? 'cursor-grabbing' : 'cursor-grab' : ''
+          canDrag
+            ? gesture === 'connect'
+              ? 'cursor-crosshair'
+              : gesture === 'anchor' || isDragging
+                ? 'cursor-grabbing'
+                : 'cursor-grab'
+            : ''
         }`}
         style={{ ...style, ...transitionStyle, pointerEvents: 'auto' }}
         isConnectable
-        title={canDrag ? `${slot.label} — arrastrá para mover` : slot.label}
+        isConnectableStart={false}
+        title={
+          canDrag ? `${slot.label} — arrastrá para mover o conectar` : slot.label
+        }
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -356,7 +431,9 @@ function SimpleDeviceNodeComponent({
   const canResize = !data.readOnly
   const canConnect = !data.readOnly && slots.length === 0
   const canClickPorts = !data.readOnly && Boolean(data.onPortClick)
-  const canDragHandles = !data.readOnly && Boolean(data.onHandleAnchorChange)
+  const canDragHandles =
+    !data.readOnly &&
+    (Boolean(data.onSlotsReorder) || Boolean(data.onHandleAnchorChange))
   const canDoubleClickLink = !data.readOnly && Boolean(data.onDeviceDoubleClick)
   const portCount = data.portCount ?? 0
   const portsInUse = data.portsInUse ?? 0
@@ -367,6 +444,8 @@ function SimpleDeviceNodeComponent({
   const [liveSlots, setLiveSlots] = useState<DiagramPortSlot[] | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const displaySlots = liveSlots ?? slots
+  /** Slots prop at the moment of a commit; cleared once the parent publishes new slots. */
+  const pendingSlotsRef = useRef<DiagramPortSlot[] | null>(null)
 
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -387,22 +466,29 @@ function SimpleDeviceNodeComponent({
     data.onPortClick?.({ handleId: slot.id, label: slot.label, side })
   }
 
-  const commitAnchor = (handleId: string, anchor: DiagramHandleAnchor) => {
+  useEffect(() => {
+    if (!pendingSlotsRef.current) return
+    if (slots === pendingSlotsRef.current) return
+    pendingSlotsRef.current = null
     setLiveSlots(null)
     setDraggingId(null)
-    data.onHandleAnchorChange?.(handleId, anchor)
-    data.onHandleAnchorChangeEnd?.(handleId, anchor)
+  }, [slots])
+
+  const revertAnchor = () => {
+    pendingSlotsRef.current = null
+    setLiveSlots(null)
+    setDraggingId(null)
   }
 
-  const handleAnchorCommit = (handleId: string, projected: DiagramHandleAnchor, side: DiagramHandleSide) => {
-    const current = liveSlots ?? slots
-    const insertAt = insertIndexFromPointerT(current, side, projected.t, handleId)
-    let reordered = reorderSlotOnSide(current, handleId, side, insertAt)
-    reordered = renormalizeSideAnchors(reordered, side)
-    setLiveSlots(reordered)
-    data.onSlotsReorder?.(reordered)
-    const slot = reordered.find((s) => s.id === handleId)
-    if (slot) commitAnchor(handleId, slot.anchor)
+  const handleAnchorCommit = (handleId: string, projected: DiagramHandleAnchor) => {
+    const updated = slots.map((s) =>
+      s.id === handleId ? { ...s, anchor: projected, side: projected.side } : s
+    )
+    pendingSlotsRef.current = slots
+    setLiveSlots(updated)
+    setDraggingId(null)
+    data.onSlotsReorder?.(updated)
+    data.onHandleAnchorChangeEnd?.(handleId, projected)
   }
 
   return (
@@ -464,9 +550,14 @@ function SimpleDeviceNodeComponent({
                 s.id === slot.id ? { ...s, anchor: next, side: next.side } : s
               )
             })
-            data.onHandleAnchorChange?.(slot.id, next)
           }}
-          onAnchorCommit={(next, side) => handleAnchorCommit(slot.id, next, side)}
+          onAnchorCommit={(next) => handleAnchorCommit(slot.id, next)}
+          onAnchorRevert={revertAnchor}
+          onPortConnectDrag={
+            data.onPortConnectDrag
+              ? (params) => data.onPortConnectDrag?.(params)
+              : undefined
+          }
         />
       ))}
 
@@ -537,7 +628,7 @@ function SimpleDeviceNodeComponent({
                         data.onRedistributePorts?.()
                       }}
                     >
-                      Redistribuir puertos
+                      Restaurar puertos
                     </button>
                   ) : null}
                   {data.onRemove ? (

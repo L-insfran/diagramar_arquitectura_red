@@ -20,6 +20,7 @@ export type ScannedRoutes = {
     'projects.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'projects.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
+    'devices.filter_options': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -168,6 +169,7 @@ export type ScannedRoutes = {
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
+    'devices.filter_options': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
@@ -233,6 +235,7 @@ export type ScannedRoutes = {
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
+    'devices.filter_options': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }

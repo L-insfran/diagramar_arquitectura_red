@@ -1,11 +1,61 @@
 import { DateTime } from 'luxon'
 import Device from '#models/device'
+import Area from '#models/area'
+import DeviceTemplate from '#models/device_template'
 import DeviceType from '#models/device_type'
 import Port from '#models/port'
-import type { CreateDeviceInput, DeviceFilters, UpdateDeviceInput } from '#dtos/device_dto'
+import type {
+  CreateDeviceInput,
+  DeviceFilterOptions,
+  DeviceFilters,
+  DeviceListPage,
+  UpdateDeviceInput,
+} from '#dtos/device_dto'
 
 export default class DeviceRepository {
+  async listFilterOptions(projectId: string): Promise<DeviceFilterOptions> {
+    const [areas, templates] = await Promise.all([
+      Area.query()
+        .whereNull('deleted_at')
+        .whereHas('site', (siteQuery) => {
+          siteQuery.where('project_id', projectId).whereNull('deleted_at')
+        })
+        .orderBy('name', 'asc')
+        .select('id', 'name'),
+      DeviceTemplate.query()
+        .whereNull('deleted_at')
+        .whereHas('devices', (deviceQuery) => {
+          deviceQuery.where('project_id', projectId).whereNull('deleted_at')
+        })
+        .orderBy('name', 'asc')
+        .select('id', 'name'),
+    ])
+
+    return {
+      areas: areas.map((area) => ({ id: area.id, name: area.name })),
+      templates: templates.map((template) => ({ id: template.id, name: template.name })),
+    }
+  }
+
   async findAllByProject(projectId: string, filters?: DeviceFilters) {
+    return this.filteredQuery(projectId, filters)
+  }
+
+  async findPageByProject(
+    projectId: string,
+    filters: DeviceFilters & { page: number }
+  ): Promise<DeviceListPage<Device>> {
+    const perPage = Math.min(100, Math.max(1, filters.perPage ?? 50))
+    const paginator = await this.filteredQuery(projectId, filters).paginate(filters.page, perPage)
+    return {
+      items: paginator.all(),
+      total: Number(paginator.total),
+      page: paginator.currentPage,
+      perPage: paginator.perPage,
+    }
+  }
+
+  private filteredQuery(projectId: string, filters?: DeviceFilters) {
     const query = Device.query()
       .where('project_id', projectId)
       .whereNull('deleted_at')
@@ -15,8 +65,11 @@ export default class DeviceRepository {
       .preload('area')
       .preload('container')
       .preload('supportedByAccessory')
-      .preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
       .orderBy('name', 'asc')
+
+    if (!filters?.summary) {
+      query.preload('ports', (q) => q.orderBy('port_number', 'asc').preload('vlans'))
+    }
 
     if (filters?.status) {
       query.where('status', filters.status)

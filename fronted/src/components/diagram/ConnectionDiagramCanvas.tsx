@@ -5,6 +5,7 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
   ConnectionMode,
   getNodesBounds,
   useEdgesState,
@@ -27,6 +28,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useTheme } from '../../contexts/ThemeContext'
+import { useToast } from '../../contexts/ToastContext'
 import {
   AreaContainerNode,
   AREA_BODY_PAD,
@@ -58,6 +60,7 @@ import {
   CONTAINER_SELECTOR_H,
   resolveDeviceGap,
   resolveDeviceNodeSize,
+  type PortConnectDragParams,
 } from './SimpleDeviceNode'
 import { accentColorForNodeId } from '../../utils/diagram/diagramAccent'
 import { areaFlowNodeId } from '../../utils/areaPlacement'
@@ -80,6 +83,7 @@ import {
   edgeHandleId,
   edgeTargetHandleId,
   legacyToNeutralHandleId,
+  deviceSlotsHaveCustomAnchors,
   normalizeHandleAnchorKeys,
   portSlotsVerticalRows,
   resolveDevicePortSlots,
@@ -93,6 +97,11 @@ import {
 } from '../../utils/diagram/handleAnchor'
 import { isTreeLayoutMode } from '../../utils/diagram/treeLayout'
 import {
+  hitTestPortHandle,
+  portHitRadiusForZoom,
+  type PortHitNode,
+} from '../../utils/diagram/portHitTest'
+import {
   captureReactFlowViewport,
   type CapturedDiagram,
 } from '../../utils/pdf/diagramCapturePdf'
@@ -103,6 +112,7 @@ import {
 } from '../../utils/printDiagramSectorGrid'
 import type { PaperFormat, PrintOrientation } from '../../utils/pdf/a4Geometry'
 import { planFromFrame } from '../../utils/pdf/printFrame'
+import { buildExportScene, type DiagramExportScene } from '../../utils/diagram/exportScene'
 import { PrintFrameOverlay } from './PrintFrameOverlay'
 import type {
   ConnectionDiagram,
@@ -138,6 +148,8 @@ export type ConnectionDiagramCanvasHandle = {
     invertColors?: boolean,
   ) => Promise<CapturedDiagram | null>
   getContentBounds: () => { x: number; y: number; width: number; height: number } | null
+  /** Geometría vectorial del layout visible (libre o árbol). No modifica el canvas. */
+  getExportScene: () => DiagramExportScene | null
   getStaleLinkIds: () => string[]
   autorouteLinks: (edgeIds: string[]) => void
   /** Ajusta la cámara al contenido visible (p. ej. tras cambiar libre ↔ árbol). */
@@ -209,6 +221,15 @@ type Props = {
     targetDeviceId: string
     sourceHandle?: string | null
     targetHandle?: string | null
+  }) => void
+  /** Drop a port onto another device's port → create the link. */
+  onCreateLinkFromPorts?: (params: {
+    sourceDeviceId: string
+    sourceHandleId: string
+    sourceLabel: string
+    targetDeviceId: string
+    targetHandleId: string
+    targetLabel: string
   }) => void
   /** Click en etiqueta de puerto conectado → abrir modal con ese origen. */
   onPortClick?: (params: {
@@ -641,6 +662,7 @@ function buildGraph(params: {
   ) => void
   onSlotsReorder?: (deviceId: string, slots: DiagramPortSlot[]) => void
   onRedistributePorts?: (deviceId: string) => void
+  onPortConnectDrag?: (deviceId: string, params: PortConnectDragParams) => void
 }): { nodes: Node[]; edges: Edge<RoutedLinkEdgeData>[] } {
   const {
     inventory,
@@ -662,6 +684,7 @@ function buildGraph(params: {
     onHandleAnchorChangeEnd,
     onSlotsReorder,
     onRedistributePorts,
+    onPortConnectDrag,
   } = params
   const deviceDraggable = !readOnly && !hidePicker
   const nodes: Node[] = []
@@ -709,10 +732,12 @@ function buildGraph(params: {
 
   const deviceAnchorsFor = (deviceId: string): Record<string, DiagramHandleAnchor> => {
     const out: Record<string, DiagramHandleAnchor> = {}
+    const prefix = `${deviceId}::`
     for (const [key, val] of Object.entries(normalizedAnchors)) {
-      if (!key.startsWith(`${deviceId}::`)) continue
-      const handleId = legacyToNeutralHandleId(key.slice(deviceId.length + 2))
-      out[handleId] = val
+      if (!key.startsWith(prefix)) continue
+      const handleId = legacyToNeutralHandleId(key.slice(prefix.length))
+      // assignSlotAnchors looks up `deviceId::handleId`, not the bare handle id.
+      out[handleAnchorKey(deviceId, handleId)] = val
     }
     return out
   }
@@ -721,9 +746,9 @@ function buildGraph(params: {
     deviceId: string,
     nodeWidth: number,
     nodeHeight: number
-  ): DiagramPortSlot[] => {
+  ): { slots: DiagramPortSlot[]; hasCustomAnchors: boolean } => {
     const dev = deviceById.get(deviceId)
-    if (!dev) return []
+    if (!dev) return { slots: [], hasCustomAnchors: false }
     const portCount = dev.data.portCount ?? dev.data.ports?.length ?? 0
     const preliminary = resolveDevicePortSlots({
       deviceId,
@@ -741,7 +766,7 @@ function buildGraph(params: {
       portCount,
       nodeWidth
     )
-    return resolveDevicePortSlots({
+    const slots = resolveDevicePortSlots({
       deviceId,
       ports: dev.data.ports ?? [],
       edges,
@@ -752,6 +777,16 @@ function buildGraph(params: {
       nodeHeight,
       portAreaTop,
     })
+    return {
+      slots,
+      hasCustomAnchors: deviceSlotsHaveCustomAnchors(
+        slots,
+        layoutMode,
+        portFlowInverted,
+        nodeHeight,
+        portAreaTop
+      ),
+    }
   }
 
   let autoX = 40
@@ -838,7 +873,7 @@ function buildGraph(params: {
         width: widthById[did],
         height: heightById[did],
       })
-      const slots = buildSlotsForDevice(did, size.width, size.height)
+      const { slots, hasCustomAnchors } = buildSlotsForDevice(did, size.width, size.height)
       const deviceHandleAnchors: Record<string, DiagramHandleAnchor> = {}
       for (const slot of slots) {
         deviceHandleAnchors[slot.id] = slot.anchor
@@ -879,8 +914,12 @@ function buildGraph(params: {
             readOnly || hidePicker || !onSlotsReorder
               ? undefined
               : (nextSlots: DiagramPortSlot[]) => onSlotsReorder(did, nextSlots),
+          onPortConnectDrag:
+            readOnly || hidePicker || !onPortConnectDrag
+              ? undefined
+              : (params: PortConnectDragParams) => onPortConnectDrag(did, params),
           onRedistributePorts:
-            readOnly || hidePicker || !onRedistributePorts
+            readOnly || hidePicker || !onRedistributePorts || !hasCustomAnchors
               ? undefined
               : () => onRedistributePorts(did),
           onRemove:
@@ -1485,6 +1524,63 @@ function resolveNodeHandleEndpoint(
   return anchorToEndpoint(anchor, absPos.x, absPos.y, w, h)
 }
 
+function collectPortHitNodes(nodes: Node[]): PortHitNode[] {
+  const result: PortHitNode[] = []
+  for (const node of nodes) {
+    if (node.type !== 'simpleDevice') continue
+    const abs = absolutePos(nodes, node.id)
+    if (!abs) continue
+    const slots = (node.data?.slots as DiagramPortSlot[] | undefined) ?? []
+    if (slots.length === 0) continue
+    const measured = node.measured as { width?: number; height?: number } | undefined
+    const styleW = Number(node.width ?? node.style?.width ?? 0)
+    const styleH = Number(node.height ?? node.style?.height ?? 0)
+    const w =
+      Number(measured?.width ?? styleW) > 0
+        ? Number(measured?.width ?? styleW)
+        : SIMPLE_DEVICE_WIDTH
+    const label = (node.data?.label as string) ?? ''
+    const rows = portSlotsVerticalRows(slots)
+    const hasCompact = slots.some((s) => !s.connected)
+    const compact = hasCompact && slots.every((s) => !s.connected)
+    const contentMinH = simpleDeviceHeight(rows, label, w, compact)
+    const rawH = Number(measured?.height ?? styleH)
+    const h = rawH > 0 ? Math.max(rawH, contentMinH) : contentMinH
+    result.push({ id: node.id, absX: abs.x, absY: abs.y, width: w, height: h, slots })
+  }
+  return result
+}
+
+function sameRoutePoints(
+  next: { x: number; y: number }[],
+  prev?: { x: number; y: number }[]
+): boolean {
+  if (!prev || prev.length !== next.length) return false
+  for (let i = 0; i < next.length; i++) {
+    if (prev[i].x !== next[i].x || prev[i].y !== next[i].y) return false
+  }
+  return true
+}
+
+/** Dragged node plus every descendant, so cables inside a moving container move with it. */
+function collectMovedNodeIds(
+  rootId: string,
+  nodes: Array<{ id: string; parentId?: string | null }>
+): Set<string> {
+  const ids = new Set<string>([rootId])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const node of nodes) {
+      if (node.parentId && ids.has(node.parentId) && !ids.has(node.id)) {
+        ids.add(node.id)
+        grew = true
+      }
+    }
+  }
+  return ids
+}
+
 function ConnectionDiagramCanvasInner(
   {
     inventory,
@@ -1508,6 +1604,7 @@ function ConnectionDiagramCanvasInner(
     onPrintDiagnostics,
     onStaleLinkIdsChange,
     onConnectDevices,
+    onCreateLinkFromPorts,
     onPortClick,
     onDeviceDoubleClick,
     onNavigateToLink,
@@ -1520,6 +1617,7 @@ function ConnectionDiagramCanvasInner(
   ref: React.Ref<ConnectionDiagramCanvasHandle>
 ) {
   const { theme } = useTheme()
+  const toast = useToast()
   const colorMode: ColorMode = theme === 'dark' ? 'dark' : 'light'
   const callbacksRef = useRef({
     onAddDeviceToContainer,
@@ -1555,6 +1653,9 @@ function ConnectionDiagramCanvasInner(
   nodesRef.current = nodes
   edgesRef.current = edges
   const didFitRef = useRef(false)
+  /** Invalida reintentos de encuadre si el efecto se vuelve a correr. */
+  const fitAttemptRef = useRef(0)
+  const fitScopeRef = useRef('')
   const shellElRef = useRef<HTMLDivElement | null>(null)
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
   const prevLayoutModeRef = useRef(diagram.layoutMode ?? 'free')
@@ -1568,7 +1669,7 @@ function ConnectionDiagramCanvasInner(
   const handleAnchorsRef = useRef(handleAnchors)
   handleAnchorsRef.current = handleAnchors
   const rerouteCablesRef = useRef<() => void>(() => {})
-  const scheduleRerouteRef = useRef<() => void>(() => {})
+  const scheduleRerouteRef = useRef<(nodeId: string) => void>(() => {})
 
   useEffect(() => {
     const next = normalizeHandleAnchorKeys(diagram.handleAnchors ?? {})
@@ -1601,7 +1702,7 @@ function ConnectionDiagramCanvasInner(
             : n
         )
       )
-      scheduleRerouteRef.current()
+      scheduleRerouteRef.current(deviceId)
     },
     [setNodes]
   )
@@ -1639,7 +1740,7 @@ function ConnectionDiagramCanvasInner(
             : n
         )
       )
-      scheduleRerouteRef.current()
+      scheduleRerouteRef.current(deviceId)
     },
     [setNodes]
   )
@@ -1654,11 +1755,44 @@ function ConnectionDiagramCanvasInner(
       return next
     })
     rerouteCablesRef.current()
-  }, [])
+    toast.success('Puertos restaurados', 'Guardá el layout para conservarlo.')
+  }, [toast])
 
+  /**
+   * Encuadre inicial. fitView no hace nada si el store de React Flow todavía
+   * no adoptó los nodos o si el pane mide 0 (típico al volver a la ruta con
+   * datos en caché). Si se marca como hecho igual, el viewport queda en 0,0
+   * y el layout guardado (coordenadas lejanas) parece un canvas vacío.
+   */
   useEffect(() => {
-    didFitRef.current = false
-  }, [diagram.id, diagram.layoutMode])
+    const scope = `${diagram.id}:${diagram.layoutMode ?? 'free'}`
+    if (fitScopeRef.current !== scope) {
+      fitScopeRef.current = scope
+      didFitRef.current = false
+    }
+    if (didFitRef.current || nodes.length === 0) return
+
+    const attempt = ++fitAttemptRef.current
+    let frames = 0
+    const tryFit = () => {
+      if (attempt !== fitAttemptRef.current || didFitRef.current) return
+      const instance = rfInstanceRef.current
+      const shell = shellElRef.current
+      const sized = !!shell && shell.clientWidth > 0 && shell.clientHeight > 0
+      const readyCount = instance?.getNodes().length ?? 0
+      if (!instance || !sized || readyCount === 0) {
+        if (frames++ < 90) requestAnimationFrame(tryFit)
+        return
+      }
+      didFitRef.current = true
+      void instance.fitView({ padding: 0.15 })
+    }
+    const frame = requestAnimationFrame(tryFit)
+    return () => {
+      cancelAnimationFrame(frame)
+      if (fitAttemptRef.current === attempt) fitAttemptRef.current += 1
+    }
+  }, [nodes.length, diagram.id, diagram.layoutMode])
 
   const handlePickerOpenChange = useCallback(
     (containerId: string, open: boolean) => {
@@ -1670,6 +1804,74 @@ function ConnectionDiagramCanvasInner(
     },
     [setNodes]
   )
+
+  const onCreateLinkFromPortsRef = useRef(onCreateLinkFromPorts)
+  onCreateLinkFromPortsRef.current = onCreateLinkFromPorts
+  const [portConnectPreview, setPortConnectPreview] = useState<{
+    x1: number
+    y1: number
+    x2: number
+    y2: number
+  } | null>(null)
+
+  const handlePortConnectDrag = useCallback(
+    (deviceId: string, params: PortConnectDragParams) => {
+      if (params.phase === 'cancel') {
+        setPortConnectPreview(null)
+        return
+      }
+      const instance = rfInstanceRef.current
+      if (!instance) {
+        if (params.phase === 'end') setPortConnectPreview(null)
+        return
+      }
+      const flow = instance.screenToFlowPosition({ x: params.clientX, y: params.clientY })
+      const currentNodes = nodesRef.current
+      const sourceNode = currentNodes.find((n) => n.id === deviceId)
+      const sourceAbs = absolutePos(currentNodes, deviceId)
+      let x1 = flow.x
+      let y1 = flow.y
+      if (sourceNode && sourceAbs) {
+        const endpoint = resolveNodeHandleEndpoint(
+          sourceNode,
+          params.handleId,
+          'source',
+          handleAnchorsRef.current,
+          sourceAbs
+        )
+        x1 = endpoint.x
+        y1 = endpoint.y
+      }
+      const hit = hitTestPortHandle(
+        collectPortHitNodes(currentNodes),
+        flow,
+        portHitRadiusForZoom(instance.getZoom()),
+        deviceId
+      )
+      if (params.phase === 'move') {
+        setPortConnectPreview({
+          x1,
+          y1,
+          x2: hit?.x ?? flow.x,
+          y2: hit?.y ?? flow.y,
+        })
+        return
+      }
+      setPortConnectPreview(null)
+      if (!hit) return
+      onCreateLinkFromPortsRef.current?.({
+        sourceDeviceId: deviceId,
+        sourceHandleId: params.handleId,
+        sourceLabel: params.label,
+        targetDeviceId: hit.deviceId,
+        targetHandleId: hit.handleId,
+        targetLabel: hit.label,
+      })
+    },
+    []
+  )
+  const portConnectDragRef = useRef(handlePortConnectDrag)
+  portConnectDragRef.current = handlePortConnectDrag
 
   const built = useMemo(
     () =>
@@ -1696,6 +1898,8 @@ function ConnectionDiagramCanvasInner(
         onHandleAnchorChangeEnd: handleAnchorChangeEnd,
         onSlotsReorder: handleSlotsReorder,
         onRedistributePorts: handleRedistributePorts,
+        onPortConnectDrag: (deviceId, params) =>
+          portConnectDragRef.current(deviceId, params),
       }),
     [
       inventory,
@@ -1743,14 +1947,6 @@ function ConnectionDiagramCanvasInner(
               ...n.style,
               width,
               height,
-            },
-            data: {
-              ...n.data,
-              handleAnchors: {
-                ...((n.data?.handleAnchors as Record<string, DiagramHandleAnchor>) ?? {}),
-                ...((existing.data?.handleAnchors as Record<string, DiagramHandleAnchor>) ??
-                  {}),
-              },
             },
           }
         }
@@ -1886,15 +2082,12 @@ function ConnectionDiagramCanvasInner(
     [focusCameraOnLink]
   )
 
-  useEffect(() => {
-    if (didFitRef.current || nodes.length === 0) return
-    didFitRef.current = true
-    requestAnimationFrame(() => rfInstanceRef.current?.fitView({ padding: 0.15 }))
-  }, [nodes])
-
-  const rerouteCables = useCallback(() => {
+  const rerouteCables = useCallback((options?: { affectedNodeIds?: ReadonlySet<string> }) => {
     const currentNodes = nodesRef.current
     const currentEdges = edgesRef.current
+    const affected = options?.affectedNodeIds
+    const touches = (edge: { source: string; target: string }) =>
+      !affected || affected.has(edge.source) || affected.has(edge.target)
 
     const obstacles = collectRouteObstacles(currentNodes)
     const corridorYs = collectStackCorridorYs(currentNodes)
@@ -1909,6 +2102,7 @@ function ConnectionDiagramCanvasInner(
     const anchors = handleAnchorsRef.current
     const requests: DiagramRouteRequest[] = []
     for (const e of currentEdges) {
+      if (!touches(e)) continue
       const sourceAbs = absolutePos(currentNodes, e.source)
       const targetAbs = absolutePos(currentNodes, e.target)
       if (!sourceAbs || !targetAbs) continue
@@ -1959,6 +2153,7 @@ function ConnectionDiagramCanvasInner(
         : {}
 
     for (const e of currentEdges) {
+      if (!touches(e)) continue
       if (!(e.data?.routeManual && e.data.routePoints && e.data.routePoints.length >= 2)) continue
       const ep = endpointByEdgeId[e.id]
       if (!ep) continue
@@ -1969,34 +2164,61 @@ function ConnectionDiagramCanvasInner(
 
     if (Object.keys(routes).length === 0 && currentEdges.length === 0) return
 
-    const edgesWithRoutes = currentEdges.map((e) => ({
-      id: e.id,
-      routePoints: routes[e.id]?.points ?? e.data?.routePoints,
-      labelOffsetX: e.data?.labelOffsetX,
-      labelOffsetY: e.data?.labelOffsetY,
-      labelPathT: e.data?.labelPathT,
-    }))
+    const changedIds = new Set<string>()
+    const edgesWithRoutes = []
+    for (const e of currentEdges) {
+      if (!touches(e)) continue
+      const next = routes[e.id]?.points
+      if (!next?.length || sameRoutePoints(next, e.data?.routePoints)) continue
+      changedIds.add(e.id)
+      edgesWithRoutes.push({
+        id: e.id,
+        routePoints: next,
+        labelOffsetX: e.data?.labelOffsetX,
+        labelOffsetY: e.data?.labelOffsetY,
+        labelPathT: e.data?.labelPathT,
+      })
+    }
     const labelObstacles = collectLabelObstacles(currentNodes)
-    const labelOffsets = computeClearLabelOffsets(edgesWithRoutes, labelObstacles)
+    const labelOffsets =
+      edgesWithRoutes.length > 0
+        ? computeClearLabelOffsets(edgesWithRoutes, labelObstacles)
+        : {}
 
     const staleIds: string[] = []
+    for (const e of currentEdges) {
+      if (!touches(e)) {
+        if (e.data?.routeStale) staleIds.push(e.id)
+        continue
+      }
+      const next = routes[e.id]?.points
+      const points = next?.length ? next : e.data?.routePoints
+      const manual = e.data?.routeManual === true
+      const stale =
+        manual && points && points.length >= 2
+          ? isRouteStale(points, obstacles, { ignoreIds: [e.source, e.target] })
+          : false
+      if (stale) staleIds.push(e.id)
+    }
+
     setEdges((prev) =>
       prev.map((e) => {
+        if (!touches(e)) return e
         const next = routes[e.id]?.points
-        const off = labelOffsets[e.id]
+        const changed = changedIds.has(e.id)
+        const off = changed ? labelOffsets[e.id] : undefined
         const points = next?.length ? next : e.data?.routePoints
         const manual = e.data?.routeManual === true
         const stale =
           manual && points && points.length >= 2
             ? isRouteStale(points, obstacles, { ignoreIds: [e.source, e.target] })
             : false
-        if (stale) staleIds.push(e.id)
-        if (!next?.length && !off && e.data?.routeStale === stale) return e
+        if (!changed && e.data?.routeStale === stale) return e
         return {
           ...e,
           data: {
             ...e.data,
-            ...(next?.length ? { routePoints: next } : {}),
+            ...(changed && next?.length ? { routePoints: next } : {}),
             routeManual: manual,
             routeStale: stale,
             labelOffsetX: off?.x ?? e.data?.labelOffsetX ?? 0,
@@ -2148,6 +2370,12 @@ function ConnectionDiagramCanvasInner(
         if (!(bounds.width > 0) || !(bounds.height > 0)) return null
         return bounds
       },
+      getExportScene: () =>
+        buildExportScene(
+          nodesRef.current,
+          edgesRef.current,
+          diagram.layoutMode ?? 'free',
+        ),
       getStaleLinkIds: () =>
         edgesRef.current
           .filter((e) => e.data?.routeStale === true)
@@ -2300,6 +2528,7 @@ function ConnectionDiagramCanvasInner(
       selectLink,
       captureDiagramPng,
       diagram.containers,
+      diagram.layoutMode,
       diagram.settings,
       printFrame,
       setEdges,
@@ -2314,11 +2543,14 @@ function ConnectionDiagramCanvasInner(
 
   /** Keep orthogonal routes stuck to device handles while containers move. */
   const dragRerouteRaf = useRef<number | null>(null)
-  const scheduleRerouteDuringDrag = useCallback(() => {
+  const pendingDragNodesRef = useRef<Set<string> | null>(null)
+  const scheduleRerouteDuringDrag = useCallback((nodeId: string) => {
+    pendingDragNodesRef.current = collectMovedNodeIds(nodeId, nodesRef.current)
     if (dragRerouteRaf.current != null) return
     dragRerouteRaf.current = window.requestAnimationFrame(() => {
       dragRerouteRaf.current = null
-      rerouteCables()
+      const affectedNodeIds = pendingDragNodesRef.current ?? undefined
+      rerouteCables(affectedNodeIds ? { affectedNodeIds } : undefined)
     })
   }, [rerouteCables])
 
@@ -2358,7 +2590,7 @@ function ConnectionDiagramCanvasInner(
         next = expandAncestorsToFit(dragged, next, hidePickerForPrint)
         nodesRef.current = next
         setNodes(next)
-        scheduleRerouteDuringDrag()
+        scheduleRerouteDuringDrag(node.id)
         return
       }
 
@@ -2381,12 +2613,12 @@ function ConnectionDiagramCanvasInner(
             n.id === node.id ? { ...n, position: clamped.position } : n
           )
         )
-        scheduleRerouteDuringDrag()
+        scheduleRerouteDuringDrag(node.id)
         return
       }
 
       syncDraggedNodePosition(node)
-      scheduleRerouteDuringDrag()
+      scheduleRerouteDuringDrag(node.id)
     },
     [
       hidePickerForPrint,
@@ -2505,15 +2737,9 @@ function ConnectionDiagramCanvasInner(
     [onConnectDevices, readOnly]
   )
 
-  const onInit = useCallback(
-    (instance: ReactFlowInstance) => {
-      rfInstanceRef.current = instance
-      if (didFitRef.current || nodesRef.current.length === 0) return
-      didFitRef.current = true
-      requestAnimationFrame(() => instance.fitView({ padding: 0.15 }))
-    },
-    []
-  )
+  const onInit = useCallback((instance: ReactFlowInstance) => {
+    rfInstanceRef.current = instance
+  }, [])
 
   return (
     <div
@@ -2544,6 +2770,7 @@ function ConnectionDiagramCanvasInner(
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         elementsSelectable
+        deleteKeyCode={null}
         minZoom={0.15}
         maxZoom={1.5}
         defaultEdgeOptions={{ type: 'routedLink', zIndex: 1000 }}
@@ -2563,6 +2790,25 @@ function ConnectionDiagramCanvasInner(
           maskColor={theme === 'dark' ? 'rgba(15, 23, 42, 0.7)' : 'rgba(15, 23, 42, 0.08)'}
           nodeStrokeWidth={2}
         />
+        {portConnectPreview ? (
+          <ViewportPortal>
+            <svg
+              className="pointer-events-none"
+              style={{ overflow: 'visible', position: 'absolute', left: 0, top: 0, zIndex: 2000 }}
+              aria-hidden
+            >
+              <line
+                x1={portConnectPreview.x1}
+                y1={portConnectPreview.y1}
+                x2={portConnectPreview.x2}
+                y2={portConnectPreview.y2}
+                stroke="#3b82f6"
+                strokeWidth={2}
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          </ViewportPortal>
+        ) : null}
         <PrintFrameOverlay
           enabled={showPrintMargins && !hideMarginsForCapture}
           frame={printFrame}
