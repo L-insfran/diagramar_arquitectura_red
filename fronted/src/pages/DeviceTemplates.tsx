@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Plus, Pencil, Trash2, Box, Cable, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, Box, Cable, FileText, Search } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { Button } from '../components/Button'
@@ -11,6 +11,7 @@ import { useApi } from '../hooks/useApi'
 import { deviceTemplatesService } from '../services/device-templates.service'
 import { deviceTypesService } from '../services/device-types.service'
 import { portTypesService } from '../services/port-types.service'
+import { ObjectDocsPanel } from '../components/ObjectDocsPanel'
 import type { DeviceTemplate, DeviceTemplatePort } from '../types'
 
 const initialForm = {
@@ -79,6 +80,7 @@ export default function DeviceTemplates() {
 
   const [portsModalOpen, setPortsModalOpen] = useState(false)
   const [portsTemplate, setPortsTemplate] = useState<DeviceTemplate | null>(null)
+  const [docsTemplate, setDocsTemplate] = useState<DeviceTemplate | null>(null)
   const [ports, setPorts] = useState<DeviceTemplatePort[]>([])
   const [portForm, setPortForm] = useState(initialPortForm)
   const [editingPortId, setEditingPortId] = useState<string | null>(null)
@@ -362,6 +364,20 @@ export default function DeviceTemplates() {
             variant="ghost"
             size="sm"
             className="!p-2"
+            icon={<FileText className="w-4 h-4" />}
+            onClick={(ev) => {
+              ev.stopPropagation()
+              setDocsTemplate(tpl)
+            }}
+            aria-label={`Documentación de ${tpl.name}`}
+          >
+            Documentación
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="!p-2"
             icon={<Pencil className="w-4 h-4" />}
             onClick={(ev) => {
               ev.stopPropagation()
@@ -524,6 +540,22 @@ export default function DeviceTemplates() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={docsTemplate !== null}
+        onClose={() => setDocsTemplate(null)}
+        title={docsTemplate ? `Documentación — ${docsTemplate.name}` : 'Documentación'}
+        size="lg"
+      >
+        {docsTemplate && (
+          <ObjectDocsPanel
+            attachableType="device_template"
+            attachableId={docsTemplate.id}
+            title={docsTemplate.name}
+            hideSecrets
+          />
+        )}
       </Modal>
 
       <Modal

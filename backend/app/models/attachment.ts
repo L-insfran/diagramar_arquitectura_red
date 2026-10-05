@@ -9,7 +9,7 @@ export default class Attachment extends BaseModel {
   declare id: string
 
   @column()
-  declare projectId: string
+  declare projectId: string | null
 
   @column()
   declare attachableType: AttachableType

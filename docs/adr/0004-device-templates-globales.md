@@ -23,4 +23,4 @@ Los catálogos `port_types` y `cable_types` ya son globales. Los dispositivos si
 - Un template creado una vez se reutiliza al alta de equipos en cualquier proyecto.
 - Borrar un proyecto ya no cascada-borra templates.
 - Pueden quedar duplicados históricos del backfill por-proyecto; limpieza manual vía UI.
-- Attachments/secrets sobre un template siguen llevando `project_id` del contexto; el attachable solo valida que el template exista y no esté soft-deleted.
+- Los adjuntos de un template son globales (`attachments.project_id` nulo, migración `0062_`) y se ven en todos los proyectos. La API no acepta adjuntos nuevos sobre `device`. Los secretos siguen en la instancia.

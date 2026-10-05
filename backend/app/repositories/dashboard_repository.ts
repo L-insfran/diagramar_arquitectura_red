@@ -138,9 +138,9 @@ export default class DashboardRepository {
       .whereNull('d.deleted_at')
       .whereNotExists((q) => {
         q.from('attachments as a')
-          .whereRaw('a.attachable_id = d.id')
-          .where('a.attachable_type', 'device')
-          .where('a.project_id', projectId)
+          .whereRaw('a.attachable_id = d.device_template_id')
+          .where('a.attachable_type', 'device_template')
+          .whereNull('a.project_id')
           .whereNull('a.deleted_at')
       })
       .count('* as total')
@@ -238,15 +238,16 @@ export default class DashboardRepository {
       .whereNull('d.deleted_at')
       .whereNotExists((q) => {
         q.from('attachments as a')
-          .whereRaw('a.attachable_id = d.id')
-          .where('a.attachable_type', 'device')
-          .where('a.project_id', projectId)
+          .whereRaw('a.attachable_id = d.device_template_id')
+          .where('a.attachable_type', 'device_template')
+          .whereNull('a.project_id')
           .whereNull('a.deleted_at')
       })
-      .select('d.id', 'd.name')
+      .join('device_templates as t', 't.id', 'd.device_template_id')
+      .select('d.id', 'd.name', 't.name as template_name')
       .orderBy('d.name', 'asc')
       .limit(limit)
-    return rows as Array<{ id: string; name: string }>
+    return rows as Array<{ id: string; name: string; template_name: string }>
   }
 
   buildRackSummaries(

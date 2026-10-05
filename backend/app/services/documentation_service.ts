@@ -68,8 +68,12 @@ function serializeSecret(row: Secret) {
 export default class DocumentationService {
   private docs = new DocumentationRepository()
 
-  async listAttachments(projectId: string, attachableType: AttachableType, attachableId: string) {
-    await assertAttachableInProject(projectId, attachableType, attachableId)
+  async listAttachments(
+    projectId: string | null,
+    attachableType: AttachableType,
+    attachableId: string
+  ) {
+    await assertAttachableInProject(projectId ?? '', attachableType, attachableId)
     const rows = await this.docs.listAttachments(projectId, { attachableType, attachableId })
     return rows.map(serializeAttachment)
   }
@@ -88,7 +92,21 @@ export default class DocumentationService {
     actorId: string,
     file?: MultipartFile | null
   ) {
-    await assertAttachableInProject(data.projectId, data.attachableType, data.attachableId)
+    if (data.attachableType === 'device') {
+      throw new Exception(
+        'La documentación se carga en el template, no en cada dispositivo',
+        { status: 422 }
+      )
+    }
+
+    await assertAttachableInProject(data.projectId ?? '', data.attachableType, data.attachableId)
+
+    const isTemplateDoc = data.attachableType === 'device_template'
+    const stored: CreateAttachmentInput = {
+      ...data,
+      projectId: isTemplateDoc ? null : data.projectId,
+    }
+    const storageScope = isTemplateDoc ? 'catalog' : data.projectId
 
     if (data.kind === 'link' && !data.url?.trim()) {
       throw new Exception('Los adjuntos tipo link requieren url', { status: 422 })
@@ -98,6 +116,9 @@ export default class DocumentationService {
     }
 
     if (file) {
+      if (!storageScope) {
+        throw new Exception('El adjunto requiere un proyecto', { status: 422 })
+      }
       file.sizeLimit = '20mb'
       file.allowedExtensions = ALLOWED_EXT
       file.validate()
@@ -108,10 +129,10 @@ export default class DocumentationService {
         )
       }
 
-      const kind = inferKindFromFile(file, data.kind)
+      const kind = inferKindFromFile(file, stored.kind)
       const created = await this.docs.createAttachment(
         {
-          ...data,
+          ...stored,
           kind,
           storagePath: null,
           mimeType: file.headers['content-type'] || null,
@@ -122,7 +143,7 @@ export default class DocumentationService {
       )
 
       const safeName = sanitizeFilename(file.clientName)
-      const dir = join(storageRoot(), data.projectId, created.id)
+      const dir = join(storageRoot(), storageScope, created.id)
       await mkdir(dir, { recursive: true })
       await file.move(dir, { name: safeName, overwrite: true })
       if (!file.fileName) {
@@ -130,13 +151,13 @@ export default class DocumentationService {
         throw new Exception('No se pudo guardar el archivo', { status: 500 })
       }
 
-      created.storagePath = join(data.projectId, created.id, file.fileName).replace(/\\/g, '/')
+      created.storagePath = join(storageScope, created.id, file.fileName).replace(/\\/g, '/')
       created.kind = kind
       await created.save()
       return serializeAttachment(created)
     }
 
-    const created = await this.docs.createAttachment(data, actorId)
+    const created = await this.docs.createAttachment(stored, actorId)
     return serializeAttachment(created)
   }
 

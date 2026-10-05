@@ -96,7 +96,7 @@ export default class DashboardService {
       alerts.push({
         severity: 'warning',
         code: 'device_undocumented',
-        message: `Sin documentación adjunta: ${d.name}`,
+        message: `Sin documentación en el template ${d.template_name}: ${d.name}`,
         entityType: 'device',
         entityId: d.id,
       })

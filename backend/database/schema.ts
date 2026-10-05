@@ -83,7 +83,7 @@ export class AttachmentSchema extends BaseModel {
   @column()
   declare originalFilename: string | null
   @column()
-  declare projectId: string
+  declare projectId: string | null
   @column()
   declare sizeBytes: bigint | number | null
   @column()

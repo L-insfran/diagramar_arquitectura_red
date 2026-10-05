@@ -486,10 +486,25 @@ export default function DeviceDetail() {
         </Card>
       )}
 
+      {device.deviceTemplateId && (
+        <ObjectDocsPanel
+          attachableType="device_template"
+          attachableId={device.deviceTemplateId}
+          title={
+            device.deviceTemplate?.name
+              ? `Documentación — ${device.deviceTemplate.name}`
+              : 'Documentación del template'
+          }
+          hideSecrets
+          readOnly
+        />
+      )}
+
       <ObjectDocsPanel
         attachableType="device"
         attachableId={device.id}
-        title="Documentación del dispositivo"
+        title="Secretos del dispositivo"
+        hideAttachments
       />
 
       <div>

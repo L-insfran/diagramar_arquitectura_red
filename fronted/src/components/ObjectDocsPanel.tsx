@@ -64,14 +64,24 @@ export function ObjectDocsPanel({
   attachableType,
   attachableId,
   title = 'Documentación',
+  hideSecrets = false,
+  hideAttachments = false,
+  readOnly = false,
 }: {
   attachableType: AttachableType
   attachableId: string
   title?: string
+  /** Oculta la pestaña de secretos (documentación de template). */
+  hideSecrets?: boolean
+  /** Oculta la pestaña de adjuntos (secretos de la instancia). */
+  hideAttachments?: boolean
+  /** Sin alta ni borrado. La descarga y los links siguen disponibles. */
+  readOnly?: boolean
 }) {
   const { canMutate } = usePermissions()
+  const canEdit = canMutate && !readOnly
   const { activeProjectId } = useProject()
-  const [tab, setTab] = useState<Tab>('attachments')
+  const [tab, setTab] = useState<Tab>(hideAttachments ? 'secrets' : 'attachments')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [secrets, setSecrets] = useState<ObjectSecret[]>([])
   const [loading, setLoading] = useState(true)
@@ -105,8 +115,12 @@ export function ObjectDocsPanel({
     setError(null)
     try {
       const [atts, secs] = await Promise.all([
-        documentationService.listAttachments(attachableType, attachableId),
-        documentationService.listSecrets(attachableType, attachableId),
+        hideAttachments
+          ? Promise.resolve([])
+          : documentationService.listAttachments(attachableType, attachableId),
+        hideSecrets
+          ? Promise.resolve([])
+          : documentationService.listSecrets(attachableType, attachableId),
       ])
       setAttachments(atts)
       setSecrets(secs)
@@ -115,7 +129,7 @@ export function ObjectDocsPanel({
     } finally {
       setLoading(false)
     }
-  }, [attachableType, attachableId])
+  }, [attachableType, attachableId, hideAttachments, hideSecrets])
 
   useEffect(() => {
     void reload()
@@ -199,9 +213,14 @@ export function ObjectDocsPanel({
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{title}</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Archivos, links y secretos cifrados del objeto
+            {hideAttachments
+              ? 'Secretos cifrados de este equipo'
+              : hideSecrets
+                ? 'Archivos y links del template, visibles en todos los proyectos'
+                : 'Archivos, links y secretos cifrados del objeto'}
           </p>
         </div>
+        {!hideSecrets && !hideAttachments && (
         <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-xs">
           <button
             type="button"
@@ -218,6 +237,7 @@ export function ObjectDocsPanel({
             Secretos ({secrets.length})
           </button>
         </div>
+        )}
       </div>
 
       <div className="p-4 space-y-3">
@@ -233,7 +253,7 @@ export function ObjectDocsPanel({
           </div>
         ) : tab === 'attachments' ? (
           <>
-            {canMutate && (
+            {canEdit && (
               <div className="flex justify-end">
                 <Button
                   type="button"
@@ -297,7 +317,7 @@ export function ObjectDocsPanel({
                           <Download className="w-4 h-4" />
                         </button>
                       )}
-                      {canMutate && (
+                      {canEdit && (
                         <button
                           type="button"
                           className="p-1.5 rounded hover:bg-red-500/10 text-red-500"

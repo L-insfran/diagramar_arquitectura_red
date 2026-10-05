@@ -18,9 +18,6 @@ export default class AttachmentsController {
   private docs = new DocumentationService()
 
   async index(ctx: HttpContext) {
-    const context = await requireProjectContext(ctx)
-    if (!context) return
-
     const attachableType = ctx.request.input('attachableType') as AttachableType | undefined
     const attachableId = ctx.request.input('attachableId') as string | undefined
     if (!attachableType || !attachableId) {
@@ -30,12 +27,17 @@ export default class AttachmentsController {
       })
     }
 
+    let projectId: string | null = null
+    if (attachableType === 'device_template') {
+      ctx.auth.getUserOrFail()
+    } else {
+      const context = await requireProjectContext(ctx)
+      if (!context) return
+      projectId = context.projectId
+    }
+
     try {
-      const rows = await this.docs.listAttachments(
-        context.projectId,
-        attachableType,
-        attachableId
-      )
+      const rows = await this.docs.listAttachments(projectId, attachableType, attachableId)
       return ctx.response.ok({ success: true, data: rows })
     } catch (error: any) {
       if (error?.status === 422 || error?.code === 'E_ROW_NOT_FOUND') {
@@ -79,22 +81,23 @@ export default class AttachmentsController {
     }
   }
 
-  async show({ auth, params, response }: HttpContext) {
-    const user = auth.getUserOrFail() as SystemUser
-    const model = await this.docs.getAttachmentForDownload(params.id)
-    if (!(await canAccessProject(user, model.projectId))) {
-      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+  async show(ctx: HttpContext) {
+    const user = ctx.auth.getUserOrFail() as SystemUser
+    const model = await this.docs.getAttachmentForDownload(ctx.params.id)
+    if (!(await this.canReadAttachment(user, model))) {
+      return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
-    const row = await this.docs.getAttachment(params.id)
-    return response.ok({ success: true, data: row })
+    const row = await this.docs.getAttachment(ctx.params.id)
+    return ctx.response.ok({ success: true, data: row })
   }
 
-  async download({ auth, params, response }: HttpContext) {
-    const user = auth.getUserOrFail() as SystemUser
-    const row = await this.docs.getAttachmentForDownload(params.id)
-    if (!(await canAccessProject(user, row.projectId))) {
-      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+  async download(ctx: HttpContext) {
+    const user = ctx.auth.getUserOrFail() as SystemUser
+    const row = await this.docs.getAttachmentForDownload(ctx.params.id)
+    if (!(await this.canReadAttachment(user, row))) {
+      return ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
     }
+    const { response } = ctx
     if (!row.storagePath) {
       return response.notFound({ success: false, message: 'Este adjunto no tiene archivo' })
     }
@@ -113,24 +116,49 @@ export default class AttachmentsController {
     return response.stream(createReadStream(abs))
   }
 
-  async update({ auth, params, request, response }: HttpContext) {
-    const user = auth.getUserOrFail() as SystemUser
-    const existing = await this.docs.getAttachmentForDownload(params.id)
-    if (!(await canMutateInProject(user, existing.projectId))) {
-      return response.forbidden({ success: false, message: 'Insufficient permissions' })
-    }
-    const data = await request.validateUsing(updateAttachmentValidator)
-    const updated = await this.docs.updateAttachment(params.id, data, user.id)
-    return response.ok({ success: true, data: updated })
+  async update(ctx: HttpContext) {
+    const user = ctx.auth.getUserOrFail() as SystemUser
+    const existing = await this.docs.getAttachmentForDownload(ctx.params.id)
+    if (!(await this.canMutateAttachment(ctx, user, existing))) return
+    const data = await ctx.request.validateUsing(updateAttachmentValidator)
+    const updated = await this.docs.updateAttachment(ctx.params.id, data, user.id)
+    return ctx.response.ok({ success: true, data: updated })
   }
 
-  async destroy({ auth, params, response }: HttpContext) {
-    const user = auth.getUserOrFail() as SystemUser
-    const existing = await this.docs.getAttachmentForDownload(params.id)
-    if (!(await canMutateInProject(user, existing.projectId))) {
-      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+  async destroy(ctx: HttpContext) {
+    const user = ctx.auth.getUserOrFail() as SystemUser
+    const existing = await this.docs.getAttachmentForDownload(ctx.params.id)
+    if (!(await this.canMutateAttachment(ctx, user, existing))) return
+    await this.docs.deleteAttachment(ctx.params.id, user.id)
+    return ctx.response.ok({ success: true, message: 'Attachment deleted', data: null })
+  }
+
+  private async canReadAttachment(
+    user: SystemUser,
+    row: { attachableType: AttachableType; projectId: string | null }
+  ) {
+    if (row.attachableType === 'device_template') return true
+    if (!row.projectId) return false
+    return canAccessProject(user, row.projectId)
+  }
+
+  /**
+   * Template docs follow catalog mutation (`requireMutateProjectContext`).
+   * Returns false when the response was already sent.
+   */
+  private async canMutateAttachment(
+    ctx: HttpContext,
+    user: SystemUser,
+    row: { attachableType: AttachableType; projectId: string | null }
+  ) {
+    if (row.attachableType === 'device_template') {
+      const context = await requireMutateProjectContext(ctx)
+      return Boolean(context)
     }
-    await this.docs.deleteAttachment(params.id, user.id)
-    return response.ok({ success: true, message: 'Attachment deleted', data: null })
+    if (!row.projectId || !(await canMutateInProject(user, row.projectId))) {
+      ctx.response.forbidden({ success: false, message: 'Insufficient permissions' })
+      return false
+    }
+    return true
   }
 }

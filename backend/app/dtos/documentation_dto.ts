@@ -39,7 +39,8 @@ export type AttachmentFilters = {
 }
 
 export type CreateAttachmentInput = {
-  projectId: string
+  /** Nulo cuando el adjunto pertenece al catálogo global (`device_template`). */
+  projectId: string | null
   attachableType: AttachableType
   attachableId: string
   kind: AttachmentKind

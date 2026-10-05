@@ -10,13 +10,22 @@ import type {
 } from '#dtos/documentation_dto'
 
 export default class DocumentationRepository {
-  listAttachments(projectId: string, filters: AttachmentFilters) {
-    return Attachment.query()
-      .where('project_id', projectId)
+  listAttachments(projectId: string | null, filters: AttachmentFilters) {
+    const query = Attachment.query()
       .whereNull('deleted_at')
       .where('attachable_type', filters.attachableType)
       .where('attachable_id', filters.attachableId)
       .orderBy('created_at', 'desc')
+
+    if (filters.attachableType === 'device_template') {
+      query.whereNull('project_id')
+    } else if (projectId) {
+      query.where('project_id', projectId)
+    } else {
+      query.whereRaw('1 = 0')
+    }
+
+    return query
   }
 
   findAttachmentOrFail(id: string) {

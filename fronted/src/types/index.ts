@@ -166,7 +166,7 @@ export type SecretKind = 'password' | 'api_key' | 'snmp' | 'wifi' | 'console' | 
 
 export interface Attachment {
   id: string
-  projectId: string
+  projectId: string | null
   attachableType: AttachableType
   attachableId: string
   kind: AttachmentKind
