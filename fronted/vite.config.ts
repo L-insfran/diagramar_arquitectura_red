@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     host: '0.0.0.0', // accesible desde otras PCs en la LAN
-    port: 5173,
+    port: 5280,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3333',
@@ -16,7 +16,7 @@ export default defineConfig({
   },
   preview: {
     host: '0.0.0.0',
-    port: 5173,
+    port: 5280,
   },
   resolve: {
     alias: {
