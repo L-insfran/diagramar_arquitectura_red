@@ -10,6 +10,7 @@ import {
   getNodesBounds,
   useEdgesState,
   useNodesState,
+  applyNodeChanges,
   type ColorMode,
   type Connection,
   type Edge,
@@ -596,17 +597,43 @@ function preserveContainerExtent(
   return { width: prevW, height: prevH }
 }
 
+function extentFromDimensionChange(change: {
+  type: string
+  dimensions?: { width?: number; height?: number } | null
+}): { width: number; height: number } | null {
+  if (change.type !== 'dimensions') return null
+  const width = Number(change.dimensions?.width)
+  const height = Number(change.dimensions?.height)
+  if (!(width > 0) || !(height > 0)) return null
+  return { width, height }
+}
+
+/** Write the resizer's final box onto every field readers consult. */
+function commitNodeExtent(node: Node, width: number, height: number): Node {
+  const measured = node.measured as { width?: number; height?: number } | undefined
+  return {
+    ...node,
+    width,
+    height,
+    measured: { ...measured, width, height },
+    style: { ...node.style, width, height },
+  }
+}
+
 function preserveDeviceExtent(
   built: Node,
   existing: Node,
 ): { width: number; height: number } {
-  const builtW = Number(built.style?.width ?? built.width ?? SIMPLE_DEVICE_WIDTH)
-  const builtH = Number(built.style?.height ?? built.height ?? 0)
-  const prevW = Number(existing.style?.width ?? existing.width ?? 0)
-  const prevH = Number(existing.style?.height ?? existing.height ?? 0)
+  const builtSize = flowNodeSize(built)
+  const live = flowNodeSize(existing)
+  const builtW = builtSize.width > 0 ? builtSize.width : SIMPLE_DEVICE_WIDTH
+  const builtH = builtSize.height
+  // `style` stays at the pre-resize size: NodeResizer writes `width` / `measured`
+  // and only sets style when we commit the gesture. Prefer that live box.
+  const liveW = live.width > 0 ? live.width : builtW
+  const liveH = live.height > 0 ? live.height : builtH
   const label = (built.data?.label as string) ?? ''
   const slots = (built.data?.slots as DiagramPortSlot[] | undefined) ?? []
-  const liveW = prevW > 0 ? prevW : builtW
   const portRows =
     slots.length > 0
       ? Math.max(
@@ -623,8 +650,8 @@ function preserveDeviceExtent(
     slots.length > 0 && slots.every((s) => !s.connected)
   )
   return {
-    width: liveW,
-    height: Math.max(contentMinH, prevH > 0 ? prevH : builtH, builtH),
+    width: Math.max(SIMPLE_DEVICE_MIN_WIDTH, liveW),
+    height: Math.max(contentMinH, liveH),
   }
 }
 
@@ -2687,35 +2714,44 @@ function ConnectionDiagramCanvasInner(
 
   const onNodesChangeWithResize = useCallback(
     (changes: Parameters<typeof onNodesChange>[0]) => {
-      onNodesChange(changes)
       const resizeEnded = changes.some(
         (c) => c.type === 'dimensions' && 'resizing' in c && c.resizing === false
       )
-      if (resizeEnded) {
-        setNodes((prev) => {
-          let next = prev
-          for (const c of changes) {
-            if (c.type !== 'dimensions' || !('id' in c)) continue
-            const resized = next.find((n) => n.id === c.id)
-            if (
-              resized?.type === 'areaContainer' ||
-              resized?.type === 'rackContainer' ||
-              resized?.type === 'boardContainer'
-            ) {
-              next = clampChildrenInParent(next, c.id, hidePickerForPrint)
-            } else if (resized?.type === 'simpleDevice') {
-              next = next.map((n) =>
-                n.id === c.id
-                  ? clampDeviceSizeInParent(n, next, hidePickerForPrint)
-                  : n
-              )
-            }
-          }
-          nodesRef.current = next
-          return next
-        })
-        window.setTimeout(() => rerouteCables(), 40)
+      if (!resizeEnded) {
+        onNodesChange(changes)
+        return
       }
+      // One update: apply the gesture, then store its box on width/height/style.
+      // The resize-end event updates `measured` only, so a later rebuild was
+      // restoring the previous style size and dropping the shrink.
+      setNodes((prev) => {
+        let next = applyNodeChanges(changes, prev)
+        for (const c of changes) {
+          if (c.type !== 'dimensions' || !('resizing' in c) || c.resizing !== false) continue
+          const extent = extentFromDimensionChange(c)
+          if (!extent) continue
+          next = next.map((n) =>
+            n.id === c.id ? commitNodeExtent(n, extent.width, extent.height) : n
+          )
+          const resized = next.find((n) => n.id === c.id)
+          if (
+            resized?.type === 'areaContainer' ||
+            resized?.type === 'rackContainer' ||
+            resized?.type === 'boardContainer'
+          ) {
+            next = clampChildrenInParent(next, c.id, hidePickerForPrint)
+          } else if (resized?.type === 'simpleDevice') {
+            next = next.map((n) =>
+              n.id === c.id
+                ? clampDeviceSizeInParent(n, next, hidePickerForPrint)
+                : n
+            )
+          }
+        }
+        nodesRef.current = next
+        return next
+      })
+      window.setTimeout(() => rerouteCables(), 40)
     },
     [hidePickerForPrint, onNodesChange, rerouteCables, setNodes]
   )
