@@ -63,7 +63,10 @@ import {
   resolveDeviceNodeSize,
   type PortConnectDragParams,
 } from './SimpleDeviceNode'
-import { accentColorForNodeId } from '../../utils/diagram/diagramAccent'
+import {
+  accentColorForDeviceType,
+  accentColorsByDeviceType,
+} from '../../utils/diagram/diagramAccent'
 import { areaFlowNodeId } from '../../utils/areaPlacement'
 import { boardFlowNodeId } from '../../utils/boardPlacement'
 import { rackFlowNodeId } from '../../utils/diagram/rackLayout'
@@ -721,6 +724,9 @@ function buildGraph(params: {
   const sizeOpts = { hidePicker, deviceGap }
 
   const deviceById = new Map(inventory.map((d) => [d.id, d]))
+  const accentByDeviceType = accentColorsByDeviceType(
+    inventory.map((d) => d.data.deviceType)
+  )
   const rackContainerIds = new Set(racks.map((r) => r.id))
   const boardContainerIds = new Set(boards.map((b) => b.id))
   const shownDeviceIds = new Set<string>()
@@ -923,7 +929,7 @@ function buildGraph(params: {
           status: dev.data.status,
           portsInUse: usedPortsByDevice.get(did)?.size ?? 0,
           portCount: dev.data.portCount ?? dev.data.ports?.length ?? 0,
-          accentColor: accentColorForNodeId(did),
+          accentColor: accentColorForDeviceType(accentByDeviceType, dev.data.deviceType),
           readOnly: readOnly || hidePicker,
           slots,
           handleAnchors: deviceHandleAnchors,

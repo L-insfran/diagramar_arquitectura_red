@@ -1,4 +1,4 @@
-/** Distinct accent colors for diagram nodes / port labels (WCAG-friendly saturation). */
+/** Distinct accent colors for diagram device nodes (saturated, readable on light and dark). */
 const ACCENT_PALETTE = [
   '#3b82f6',
   '#10b981',
@@ -14,16 +14,39 @@ const ACCENT_PALETTE = [
   '#a855f7',
 ] as const
 
-function hashString(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) {
-    h = (h << 5) - h + s.charCodeAt(i)
-    h |= 0
-  }
-  return Math.abs(h)
+/** Equipos sin tipo de catálogo: un solo acento, para no parecer aleatorios. */
+export const UNTYPED_DEVICE_ACCENT = '#64748b'
+
+export function deviceTypeColorKey(deviceType: string | null | undefined): string {
+  return (deviceType ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-/** Stable color per device id so the same node keeps the same hue across reloads. */
-export function accentColorForNodeId(nodeId: string): string {
-  return ACCENT_PALETTE[hashString(nodeId) % ACCENT_PALETTE.length]!
+/**
+ * Un color por tipo de equipo.
+ * El orden alfabético del nombre reparte la paleta sin depender del id de cada equipo,
+ * así dos switches comparten color y un firewall no hereda el de un servidor por azar.
+ */
+export function accentColorsByDeviceType(
+  deviceTypes: Iterable<string | null | undefined>
+): Map<string, string> {
+  const keys = new Set<string>()
+  for (const deviceType of deviceTypes) {
+    const key = deviceTypeColorKey(deviceType)
+    if (key) keys.add(key)
+  }
+  const sorted = [...keys].sort((a, b) => a.localeCompare(b, 'es'))
+  const colors = new Map<string, string>()
+  sorted.forEach((key, index) => {
+    colors.set(key, ACCENT_PALETTE[index % ACCENT_PALETTE.length]!)
+  })
+  return colors
+}
+
+export function accentColorForDeviceType(
+  colors: Map<string, string>,
+  deviceType: string | null | undefined
+): string {
+  const key = deviceTypeColorKey(deviceType)
+  if (!key) return UNTYPED_DEVICE_ACCENT
+  return colors.get(key) ?? UNTYPED_DEVICE_ACCENT
 }
