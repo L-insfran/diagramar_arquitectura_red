@@ -51,6 +51,22 @@ export const devicesService = {
     return data.data
   },
 
+  async downloadConnectionSheet(id: string): Promise<void> {
+    const response = await api.get(`/devices/${id}/connection-sheet`, {
+      responseType: 'blob',
+    })
+    const disposition = response.headers['content-disposition']
+    const match =
+      typeof disposition === 'string' ? /filename="([^"]+)"/.exec(disposition) : null
+    const filename = match?.[1] || 'conexiones.xlsx'
+    const url = window.URL.createObjectURL(response.data)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.click()
+    window.URL.revokeObjectURL(url)
+  },
+
   async create(payload: Partial<Device>): Promise<Device> {
     const { data } = await api.post<ApiResponse<Device>>('/devices', payload)
     return data.data

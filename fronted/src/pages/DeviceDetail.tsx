@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
-import { ArrowLeft, Server, Cpu, MapPin, Hash, Clock, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, Server, Cpu, MapPin, Hash, Clock, Pencil, Plus, Download } from 'lucide-react'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
 import { DataTable, type Column } from '../components/DataTable'
@@ -69,6 +69,7 @@ export default function DeviceDetail() {
   const [portSubmitting, setPortSubmitting] = useState(false)
   const [portFormError, setPortFormError] = useState<string | null>(null)
   const [bulkPassthroughSubmitting, setBulkPassthroughSubmitting] = useState(false)
+  const [sheetDownloading, setSheetDownloading] = useState(false)
 
   const portsSorted = useMemo(
     () => [...(device?.ports ?? [])].sort((a, b) => a.portNumber - b.portNumber),
@@ -508,12 +509,38 @@ export default function DeviceDetail() {
       />
 
       <div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Puertos ({portsSorted.length})
-          </h2>
-          {canMutate && (
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Puertos ({portsSorted.length})
+            </h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Una fila por puerto. El destino es el otro extremo del enlace.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              icon={<Download className="w-4 h-4" />}
+              isLoading={sheetDownloading}
+              disabled={sheetDownloading || !device?.id}
+              onClick={() => {
+                if (!device?.id) return
+                setSheetDownloading(true)
+                void devicesService
+                  .downloadConnectionSheet(device.id)
+                  .catch(() => {
+                    toast.error('No se pudo descargar la planilla de conexiones')
+                  })
+                  .finally(() => setSheetDownloading(false))
+              }}
+            >
+              Planilla de conexiones
+            </Button>
+            {canMutate && (
+              <>
               {portsSorted.length > 0 && (
                 <Button
                   type="button"
@@ -535,8 +562,9 @@ export default function DeviceDetail() {
               >
                 Agregar puerto
               </Button>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
         <DataTable
           columns={portColumns}

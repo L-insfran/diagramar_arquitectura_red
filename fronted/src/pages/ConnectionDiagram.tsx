@@ -1875,6 +1875,15 @@ export default function ConnectionDiagramPage() {
     })
   }, [])
 
+  const handleDownloadConnectionSheet = useCallback(
+    (deviceId: string) => {
+      void devicesService.downloadConnectionSheet(deviceId).catch(() => {
+        toast.error('No se pudo descargar la planilla de conexiones')
+      })
+    },
+    [toast],
+  )
+
   const handleOpenCreateLink = useCallback(() => {
     setLinkModal({ open: true })
   }, [])
@@ -2688,6 +2697,7 @@ export default function ConnectionDiagramPage() {
               onCreateLinkFromPorts={canMutate ? handleCreateLinkFromPorts : undefined}
               onPortClick={canMutate ? handlePortClick : undefined}
               onDeviceDoubleClick={canMutate ? handleDeviceDoubleClick : undefined}
+              onDownloadConnectionSheet={handleDownloadConnectionSheet}
               onNavigateToLink={
                 canMutate ? (id) => setLinkModal({ open: true, edgeId: id }) : undefined
               }

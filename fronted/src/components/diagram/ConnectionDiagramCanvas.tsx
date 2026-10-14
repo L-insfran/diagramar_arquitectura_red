@@ -244,6 +244,8 @@ type Props = {
   }) => void
   /** Doble clic en equipo → abrir modal de nuevo enlace. */
   onDeviceDoubleClick?: (deviceId: string) => void
+  /** Menú del equipo → descargar la planilla de conexiones. */
+  onDownloadConnectionSheet?: (deviceId: string) => void
   onNavigateToLink?: (linkId: string) => void
   /** Enlace resaltado desde la lista de referencia (o clic en edge). */
   focusedLinkId?: string | null
@@ -679,6 +681,7 @@ function buildGraph(params: {
     side: 'source' | 'target'
   }) => void
   onDeviceDoubleClick?: (deviceId: string) => void
+  onDownloadConnectionSheet?: (deviceId: string) => void
   handleAnchors?: Record<string, DiagramHandleAnchor>
   onHandleAnchorChange?: (
     deviceId: string,
@@ -709,6 +712,7 @@ function buildGraph(params: {
     onPickerOpenChange,
     onPortClick,
     onDeviceDoubleClick,
+    onDownloadConnectionSheet,
     handleAnchors = {},
     onHandleAnchorChange,
     onHandleAnchorChangeEnd,
@@ -959,6 +963,10 @@ function buildGraph(params: {
             readOnly || hidePicker || !parentId
               ? undefined
               : () => onRemoveDeviceFromContainer?.(parentId, did),
+          onDownloadConnectionSheet:
+            hidePicker || !onDownloadConnectionSheet
+              ? undefined
+              : () => onDownloadConnectionSheet(did),
           onPortClick:
             readOnly || hidePicker || !onPortClick
               ? undefined
@@ -1640,6 +1648,7 @@ function ConnectionDiagramCanvasInner(
     onCreateLinkFromPorts,
     onPortClick,
     onDeviceDoubleClick,
+    onDownloadConnectionSheet,
     onNavigateToLink,
     focusedLinkId = null,
     onFocusedLinkChange,
@@ -1658,6 +1667,7 @@ function ConnectionDiagramCanvasInner(
     onReorderDevicesInContainer,
     onPortClick,
     onDeviceDoubleClick,
+    onDownloadConnectionSheet,
     onFocusedLinkChange,
     onStaleLinkIdsChange,
     onPrintDiagnostics,
@@ -1668,6 +1678,7 @@ function ConnectionDiagramCanvasInner(
     onReorderDevicesInContainer,
     onPortClick,
     onDeviceDoubleClick,
+    onDownloadConnectionSheet,
     onFocusedLinkChange,
     onStaleLinkIdsChange,
     onPrintDiagnostics,
@@ -1926,6 +1937,8 @@ function ConnectionDiagramCanvasInner(
         onPortClick: (params) => callbacksRef.current.onPortClick?.(params),
         onDeviceDoubleClick: (deviceId) =>
           callbacksRef.current.onDeviceDoubleClick?.(deviceId),
+        onDownloadConnectionSheet: (deviceId) =>
+          callbacksRef.current.onDownloadConnectionSheet?.(deviceId),
         handleAnchors,
         onHandleAnchorChange: handleAnchorChange,
         onHandleAnchorChangeEnd: handleAnchorChangeEnd,

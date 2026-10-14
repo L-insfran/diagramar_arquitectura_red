@@ -2,13 +2,14 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Handle,
   NodeResizer,
+  NodeToolbar,
   Position,
   useStore,
   useUpdateNodeInternals,
   type Node,
   type NodeProps,
 } from '@xyflow/react'
-import { MoreVertical } from 'lucide-react'
+import { Download, MoreVertical } from 'lucide-react'
 import {
   DIAGRAM_CONNECT_SOURCE_HANDLE,
   DIAGRAM_CONNECT_TARGET_HANDLE,
@@ -98,6 +99,7 @@ export type SimpleDeviceNodeData = {
   slots?: DiagramPortSlot[]
   handleAnchors?: Record<string, DiagramHandleAnchor>
   onRemove?: () => void
+  onDownloadConnectionSheet?: () => void
   onPortClick?: (params: SimpleDevicePortClick) => void
   onDeviceDoubleClick?: () => void
   onHandleAnchorChange?: (handleId: string, anchor: DiagramHandleAnchor) => void
@@ -520,6 +522,23 @@ function SimpleDeviceNodeComponent({
           : undefined
       }
     >
+      {data.onDownloadConnectionSheet ? (
+        <NodeToolbar position={Position.Top} offset={8} className="nodrag nopan">
+          <button
+            type="button"
+            title="Descargar la planilla de conexiones de este equipo"
+            className="nodrag nopan flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-lg hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+            onClick={(e) => {
+              e.stopPropagation()
+              data.onDownloadConnectionSheet?.()
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Planilla de conexiones
+          </button>
+        </NodeToolbar>
+      ) : null}
       {canResize ? (
         <NodeResizer
           minWidth={SIMPLE_DEVICE_MIN_WIDTH}
@@ -602,7 +621,8 @@ function SimpleDeviceNodeComponent({
           >
             {data.label}
           </div>
-          {!data.readOnly && (data.onRemove || data.onRedistributePorts) ? (
+          {data.onDownloadConnectionSheet ||
+          (!data.readOnly && (data.onRemove || data.onRedistributePorts)) ? (
             <div className="relative shrink-0">
               <button
                 type="button"
@@ -618,6 +638,19 @@ function SimpleDeviceNodeComponent({
               </button>
               {menuOpen ? (
                 <div className="nodrag nopan absolute right-0 top-full z-50 mt-0.5 min-w-[10rem] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                  {data.onDownloadConnectionSheet ? (
+                    <button
+                      type="button"
+                      className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMenuOpen(false)
+                        data.onDownloadConnectionSheet?.()
+                      }}
+                    >
+                      Planilla de conexiones
+                    </button>
+                  ) : null}
                   {data.onRedistributePorts ? (
                     <button
                       type="button"

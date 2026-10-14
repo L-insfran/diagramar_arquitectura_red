@@ -1,6 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { Readable } from 'node:stream'
 import SystemUser from '#models/system_user'
 import DeviceService, { DiagramRelocationRequiredError } from '#services/device_service'
+import DeviceConnectionSheetService from '#services/device_connection_sheet_service'
 import DeviceTemplateService from '#services/device_template_service'
 import PortService from '#services/port_service'
 import {
@@ -28,6 +30,7 @@ export default class DevicesController {
   private deviceService = new DeviceService()
   private templateService = new DeviceTemplateService()
   private portService = new PortService()
+  private connectionSheetService = new DeviceConnectionSheetService()
 
   async index(ctx: HttpContext) {
     const context = await requireProjectContext(ctx)
@@ -124,6 +127,20 @@ export default class DevicesController {
       })
     }
     return response.ok({ success: true, data })
+  }
+
+  async connectionSheet({ auth, params, response }: HttpContext) {
+    const user = auth.getUserOrFail() as SystemUser
+    const device = await this.deviceService.getActiveSummary(params.id)
+    if (!(await canAccessProject(user, device.projectId))) {
+      return response.forbidden({ success: false, message: 'Insufficient permissions' })
+    }
+    const file = await this.connectionSheetService.build(device.id)
+    response.header('Content-Type', file.mimeType)
+    response.header('Content-Disposition', `attachment; filename="${file.filename}"`)
+    response.header('Content-Length', String(file.buffer.length))
+    response.header('Cache-Control', 'no-store')
+    return response.stream(Readable.from(file.buffer))
   }
 
   async relocationImpact({ auth, params, request, response }: HttpContext) {
