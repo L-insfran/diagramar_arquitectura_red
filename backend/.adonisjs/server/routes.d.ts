@@ -23,6 +23,7 @@ export type ScannedRoutes = {
     'devices.filter_options': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.connection_sheet': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.assign_container': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -104,6 +105,11 @@ export type ScannedRoutes = {
     'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.index': { paramsTuple?: []; params?: {} }
+    'diagram_link_types.store': { paramsTuple?: []; params?: {} }
+    'diagram_link_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.index': { paramsTuple?: []; params?: {} }
     'diagram_links.store': { paramsTuple?: []; params?: {} }
     'diagram_links.bulk_delete': { paramsTuple?: []; params?: {} }
@@ -171,6 +177,7 @@ export type ScannedRoutes = {
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.filter_options': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.connection_sheet': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
     'ports.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -202,6 +209,8 @@ export type ScannedRoutes = {
     'connection_diagrams.index': { paramsTuple?: []; params?: {} }
     'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.index': { paramsTuple?: []; params?: {} }
+    'diagram_link_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.index': { paramsTuple?: []; params?: {} }
     'diagram_links.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
@@ -237,6 +246,7 @@ export type ScannedRoutes = {
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.filter_options': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'devices.connection_sheet': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.relocation_impact': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.index': { paramsTuple?: []; params?: {} }
     'ports.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -268,6 +278,8 @@ export type ScannedRoutes = {
     'connection_diagrams.index': { paramsTuple?: []; params?: {} }
     'connection_diagrams.graph': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.index': { paramsTuple?: []; params?: {} }
+    'diagram_link_types.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.index': { paramsTuple?: []; params?: {} }
     'diagram_links.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.index': { paramsTuple?: []; params?: {} }
@@ -315,6 +327,7 @@ export type ScannedRoutes = {
     'containers.move_devices': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.store': { paramsTuple?: []; params?: {} }
     'connection_diagrams.duplicate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.store': { paramsTuple?: []; params?: {} }
     'diagram_links.store': { paramsTuple?: []; params?: {} }
     'diagram_links.bulk_delete': { paramsTuple?: []; params?: {} }
     'rack_accessory_templates.store': { paramsTuple?: []; params?: {} }
@@ -348,6 +361,7 @@ export type ScannedRoutes = {
     'boards.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'containers.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessories.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -378,6 +392,7 @@ export type ScannedRoutes = {
     'boards.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'containers.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'connection_diagrams.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'diagram_link_types.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'diagram_links.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessory_templates.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'rack_accessories.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }

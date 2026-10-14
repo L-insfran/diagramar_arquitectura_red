@@ -1,4 +1,4 @@
-import { Sun, Moon, Users, ChevronRight, Tags, Cable, Box, Building2, HardDrive, Network, Image } from 'lucide-react'
+import { Sun, Moon, Users, ChevronRight, Tags, Cable, Box, Building2, HardDrive, Network, Image, Spline } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
@@ -360,6 +360,33 @@ export default function SettingsPage() {
                 variant="secondary"
                 icon={<ChevronRight className="w-4 h-4" />}
                 onClick={() => navigate('/settings/port-types')}
+              >
+                Administrar
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {canMutate && (
+          <Card title="Tipos de enlace">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-sky-500/10 flex items-center justify-center">
+                  <Spline className="w-5 h-5 text-sky-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    Color por función
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Anillo, acceso, troncal y otros tipos del diagrama
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => navigate('/settings/diagram-link-types')}
               >
                 Administrar
               </Button>

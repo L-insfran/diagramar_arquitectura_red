@@ -11,6 +11,7 @@ export type CreateDiagramLinkPayload = {
   targetPortLabel: string
   description?: string | null
   cableTypeId?: string | null
+  linkTypeId?: string | null
 }
 
 export type UpdateDiagramLinkPayload = {
@@ -22,6 +23,7 @@ export type UpdateDiagramLinkPayload = {
   targetPortLabel?: string
   description?: string | null
   cableTypeId?: string | null
+  linkTypeId?: string | null
 }
 
 export const diagramLinksService = {

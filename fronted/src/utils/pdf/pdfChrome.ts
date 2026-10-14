@@ -1,6 +1,13 @@
 import type { jsPDF } from 'jspdf'
 import { FOOTER_H, HEADER_H, MARGIN, SECTOR_HEADER_H } from './a4Geometry'
 
+export type PdfLegendItem = {
+  label: string
+  color: string
+  /** Guion y hueco en mm. Vacío o ausente = continua. */
+  dash?: number[] | null
+}
+
 export type PdfHeaderBranding = {
   logoDataUrl?: string
   reportTagline?: string
@@ -230,56 +237,70 @@ export function drawGridIndicator(
   }
 }
 
+function hexToRgb(hex: string): [number, number, number] {
+  const value = hex.replace('#', '')
+  if (value.length !== 6) return [59, 130, 246]
+  return [
+    Number.parseInt(value.slice(0, 2), 16),
+    Number.parseInt(value.slice(2, 4), 16),
+    Number.parseInt(value.slice(4, 6), 16),
+  ]
+}
+
+const LEGEND_TITLE = 'TIPOS DE ENLACE'
+const LEGEND_TITLE_GAP = 32
+
+/** Alto reservado bajo el diagrama para la leyenda de tipos (mm). */
+export function legendBlockHeight(itemCount: number, pageW: number): number {
+  if (itemCount <= 0) return 0
+  const usable = Math.max(40, pageW - MARGIN - LEGEND_TITLE_GAP - MARGIN)
+  const slot = 42
+  const cols = Math.max(1, Math.floor(usable / slot))
+  const rows = Math.ceil(itemCount / cols)
+  return 4 + rows * 4.2
+}
+
 /**
- * Dibuja la leyenda de medios/estados.
+ * Dibuja la leyenda de tipos de enlace presentes en el diagrama.
  * @param legendY baseline Y en mm; por defecto justo encima del footer.
  */
-export function drawLegend(pdf: jsPDF, _pageW: number, pageH: number, legendY?: number) {
+export function drawLegend(
+  pdf: jsPDF,
+  pageW: number,
+  pageH: number,
+  items: PdfLegendItem[],
+  legendY?: number,
+) {
+  if (items.length === 0) return
   const y = legendY ?? pageH - FOOTER_H - 6
   pdf.setFontSize(6)
   pdf.setFont('helvetica', 'bold')
   pdf.setTextColor(100, 100, 100)
-  pdf.text('LEYENDA:', MARGIN, y)
+  pdf.text(LEGEND_TITLE, MARGIN, y)
 
-  const items = [
-    { color: [59, 130, 246] as [number, number, number], label: 'Cable UTP', dash: false },
-    { color: [249, 115, 22] as [number, number, number], label: 'Fibra óptica', dash: false },
-    { color: [34, 197, 94] as [number, number, number], label: 'WiFi', dash: true },
-  ]
+  const startX = MARGIN + LEGEND_TITLE_GAP
+  const usable = Math.max(40, pageW - startX - MARGIN)
+  const slot = 42
+  const cols = Math.max(1, Math.floor(usable / slot))
 
-  let x = MARGIN + 17
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(6)
-  for (const item of items) {
-    pdf.setDrawColor(item.color[0], item.color[1], item.color[2])
+  items.forEach((item, index) => {
+    const col = index % cols
+    const row = Math.floor(index / cols)
+    const x = startX + col * slot
+    const lineY = y + row * 4.2
+    const [r, g, b] = hexToRgb(item.color)
+    pdf.setDrawColor(r, g, b)
     pdf.setLineWidth(0.8)
-    if (item.dash) {
-      for (let dx = 0; dx < 8; dx += 3) pdf.line(x + dx, y - 1.2, x + dx + 1.5, y - 1.2)
-    } else {
-      pdf.line(x, y - 1.2, x + 8, y - 1.2)
-    }
+    const dash = item.dash?.filter((part) => part > 0) ?? []
+    pdf.setLineDashPattern(dash, 0)
+    pdf.line(x, lineY - 1.2, x + 8, lineY - 1.2)
+    pdf.setLineDashPattern([], 0)
     pdf.setTextColor(80, 80, 80)
-    pdf.text(item.label, x + 11, y)
-    x += 32
-  }
-
-  x += 2
-  pdf.setTextColor(80, 80, 80)
-  pdf.text('Trunk / Access', x, y)
-  x += 28
-
-  const statusItems = [
-    { color: [250, 204, 21] as [number, number, number], label: 'Planificada' },
-    { color: [96, 165, 250] as [number, number, number], label: 'Implementada' },
-    { color: [52, 211, 153] as [number, number, number], label: 'Verificada' },
-  ]
-  for (const item of statusItems) {
-    pdf.setFillColor(item.color[0], item.color[1], item.color[2])
-    pdf.circle(x + 1, y - 1.2, 1, 'F')
-    pdf.setTextColor(80, 80, 80)
-    pdf.text(item.label, x + 4, y)
-    x += 24
-  }
+    const label = item.label.length > 22 ? `${item.label.slice(0, 21)}...` : item.label
+    pdf.text(label, x + 10, lineY)
+  })
 }
 
 export function drawFooter(

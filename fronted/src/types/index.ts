@@ -141,6 +141,18 @@ export interface CableType {
   sortOrder: number
 }
 
+/** Función del enlace en el diagrama (anillo, acceso, troncal). El color vive acá. */
+export interface DiagramLinkType {
+  id: string
+  projectId: string
+  name: string
+  color: string
+  description: string | null
+  sortOrder: number
+  isDefault: boolean
+  lineStyle: 'solid' | 'long_dash' | 'short_dash' | 'dotted' | 'dash_dot' | 'dash_dot_dot'
+}
+
 export type AttachableType =
   | 'project'
   | 'site'
@@ -863,6 +875,10 @@ export interface DiagramLink {
   description: string | null
   cableTypeId: string | null
   cableTypeName?: string | null
+  linkTypeId: string | null
+  linkTypeName?: string | null
+  linkTypeColor?: string | null
+  linkTypeLineStyle?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -881,6 +897,10 @@ export interface DiagramLinkEdge {
   description: string | null
   cableTypeId: string | null
   cableTypeName: string | null
+  linkTypeId: string | null
+  linkTypeName: string | null
+  linkTypeColor: string | null
+  linkTypeLineStyle: string | null
 }
 
 export interface TopologyNode {

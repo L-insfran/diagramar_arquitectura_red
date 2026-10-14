@@ -2,6 +2,7 @@ import { Exception } from '@adonisjs/core/exceptions'
 import db from '@adonisjs/lucid/services/db'
 import DiagramLinkRepository from '#repositories/diagram_link_repository'
 import CableType from '#models/cable_type'
+import DiagramLinkTypeService from '#services/diagram_link_type_service'
 import type {
   CreateDiagramLinkInput,
   DiagramLinkEdge,
@@ -25,6 +26,7 @@ export function formatDiagramLinkEndpoint(device: Device, portLabel: string): st
 
 export default class DiagramLinkService {
   private links = new DiagramLinkRepository()
+  private linkTypes = new DiagramLinkTypeService()
 
   async getAllByProject(projectId: string) {
     return this.links.findAllByProject(projectId)
@@ -48,6 +50,10 @@ export default class DiagramLinkService {
       description: link.description,
       cableTypeId: link.cableTypeId ?? null,
       cableTypeName: link.cableType?.name ?? null,
+      linkTypeId: link.linkTypeId ?? null,
+      linkTypeName: link.linkType?.name ?? null,
+      linkTypeColor: link.linkType?.color ?? null,
+      linkTypeLineStyle: link.linkType?.lineStyle ?? null,
       createdAt: link.createdAt?.toISO?.() ?? null,
       updatedAt: link.updatedAt?.toISO?.() ?? null,
     }
@@ -59,6 +65,11 @@ export default class DiagramLinkService {
     if (!cableType) {
       throw new Exception('Tipo de cable no encontrado', { status: 422 })
     }
+  }
+
+  private async assertLinkType(projectId: string, linkTypeId: string | null | undefined) {
+    if (linkTypeId === undefined || linkTypeId === null) return
+    await this.linkTypes.assertActiveInProject(linkTypeId, projectId)
   }
 
   async getById(id: string) {
@@ -184,6 +195,7 @@ export default class DiagramLinkService {
 
   async create(data: CreateDiagramLinkInput, actorId: string) {
     await this.assertCableTypeExists(data.cableTypeId)
+    await this.assertLinkType(data.projectId, data.linkTypeId)
     await this.assertDevicesAndPorts(
       data.projectId,
       data.sourceDeviceId,
@@ -252,6 +264,9 @@ export default class DiagramLinkService {
     const existing = await this.links.findByIdOrFail(id)
     if (data.cableTypeId !== undefined) {
       await this.assertCableTypeExists(data.cableTypeId)
+    }
+    if (data.linkTypeId !== undefined) {
+      await this.assertLinkType(existing.projectId, data.linkTypeId)
     }
     const sourceDeviceId = data.sourceDeviceId ?? existing.sourceDeviceId
     const targetDeviceId = data.targetDeviceId ?? existing.targetDeviceId
@@ -328,6 +343,10 @@ export default class DiagramLinkService {
       description: link.description,
       cableTypeId: link.cableTypeId ?? null,
       cableTypeName: link.cableType?.name ?? null,
+      linkTypeId: link.linkTypeId ?? null,
+      linkTypeName: link.linkType?.name ?? null,
+      linkTypeColor: link.linkType?.color ?? null,
+      linkTypeLineStyle: link.linkType?.lineStyle ?? null,
     }
   }
 

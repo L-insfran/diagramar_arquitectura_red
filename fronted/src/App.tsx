@@ -25,6 +25,7 @@ import Racks from './pages/Racks'
 import Containers from './pages/Containers'
 import PortTypes from './pages/PortTypes'
 import CableTypes from './pages/CableTypes'
+import DiagramLinkTypes from './pages/DiagramLinkTypes'
 import Projects from './pages/Projects'
 import SelectProject from './pages/SelectProject'
 
@@ -137,6 +138,7 @@ function AppRoutes() {
         <Route path="/settings/racks" element={<Navigate to="/containers" replace />} />
         <Route path="/settings/port-types" element={<AdminOnly><PortTypes /></AdminOnly>} />
         <Route path="/settings/cable-types" element={<AdminOnly><CableTypes /></AdminOnly>} />
+        <Route path="/settings/diagram-link-types" element={<MutateOnly><DiagramLinkTypes /></MutateOnly>} />
       </Route>
       <Route path="/select-client" element={<Navigate to="/select-project" replace />} />
       <Route path="/clients" element={<Navigate to="/projects" replace />} />

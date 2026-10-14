@@ -3,7 +3,6 @@ import type { jsPDF } from 'jspdf'
 import {
   FOOTER_H,
   HEADER_H,
-  LEGEND_H,
   MARGIN,
   SECTOR_NOTE_H,
   getPaperGeometry,
@@ -18,7 +17,9 @@ import {
   drawHeader,
   drawLegend,
   drawSectorHeader,
+  legendBlockHeight,
   type PdfHeaderBranding,
+  type PdfLegendItem,
 } from './pdfChrome'
 
 export type CapturedDiagram = {
@@ -50,6 +51,8 @@ export async function appendDiagramPagesAsync(
     branding?: PdfHeaderBranding
     /** Si es false, no dibuja la leyenda y usa el espacio extra para el diagrama. Default true. */
     includeLegend?: boolean
+    /** Tipos de enlace presentes. Sin ítems no se reserva espacio de leyenda. */
+    legendItems?: PdfLegendItem[]
     /** Encabezado claro (texto oscuro) para impresión B/N. */
     invertColors?: boolean
   },
@@ -70,6 +73,7 @@ export async function appendDiagramPagesAsync(
   } = opts
   const format: PaperFormat = opts.format ?? 'a4'
   const includeLegend = opts.includeLegend !== false
+  const legendItems = includeLegend ? (opts.legendItems ?? []) : []
   const invertColors = opts.invertColors === true
 
   const { imgData, imgW, imgH, plan } = captured
@@ -77,8 +81,9 @@ export async function appendDiagramPagesAsync(
   const totalDiagramPages = cols * rows
   const geom = getPaperGeometry(format, orientation)
   const includeSectorNote = totalDiagramPages > 1
+  const legendH = legendBlockHeight(legendItems.length, geom.pageW)
   const reservedBelow =
-    (includeSectorNote ? SECTOR_NOTE_H : 0) + (includeLegend ? LEGEND_H : 0)
+    (includeSectorNote ? SECTOR_NOTE_H : 0) + legendH
   const cover: PaperRectMm = {
     x: MARGIN,
     y: HEADER_H + 2,
@@ -127,9 +132,9 @@ export async function appendDiagramPagesAsync(
     )
   }
 
-  if (includeLegend) {
+  if (legendItems.length > 0) {
     const legendY = includeSectorNote ? belowDiagramY + SECTOR_NOTE_H - 2 : belowDiagramY
-    drawLegend(pdf, pw, ph, legendY)
+    drawLegend(pdf, pw, ph, legendItems, legendY)
   }
   drawFooter(pdf, pw, ph, startingPageNumber, totalPages, dateStr, 'Vista general')
 

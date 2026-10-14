@@ -51,6 +51,7 @@ import { racksService } from '../services/racks.service'
 import { sitesService } from '../services/sites.service'
 import { systemBrandingService } from '../services/systemBranding.service'
 import { exportConnectionDiagramPdf } from '../utils/exportConnectionDiagramPdf'
+import { collectLinkTypeLegend, linkLineStyleDef } from '../utils/diagram/linkTypeStyle'
 import { exportConnectionDiagramDxf } from '../utils/exportConnectionDiagramDxf'
 import type { LinkTableFormat } from '../utils/pdf/linkReferencePdf'
 import type { PaperFormat, PrintOrientation } from '../utils/pdf/a4Geometry'
@@ -1570,6 +1571,9 @@ export default function ConnectionDiagramPage() {
             { mirrored: true }
           ),
           description: e.description?.trim() || '',
+          linkTypeName: e.linkTypeName,
+          linkTypeColor: e.linkTypeColor,
+          linkTypeLineStyle: e.linkTypeLineStyle,
         }))
       const linkPathReferences = buildLinkPathRows(
         visibleLinkEdges,
@@ -1589,6 +1593,9 @@ export default function ConnectionDiagramPage() {
         destinationArea: row.destination.area ?? '',
         destinationSite: row.destination.site ?? '',
         description: row.edge.description?.trim() || '',
+        linkTypeName: row.edge.linkTypeName,
+        linkTypeColor: row.edge.linkTypeColor,
+        linkTypeLineStyle: row.edge.linkTypeLineStyle,
       }))
 
       // Captura el layout actual (sin reempaquetar contenedores).
@@ -1601,6 +1608,11 @@ export default function ConnectionDiagramPage() {
         orientation: printOrientation,
         format: paperSize,
         includeLegend,
+        legendItems: collectLinkTypeLegend(visibleLinkEdges).map((item) => ({
+          label: item.label,
+          color: item.color,
+          dash: linkLineStyleDef(item.lineStyle).pdfDash,
+        })),
         includeLinkTable,
         linkTableFormat,
         invertColors,

@@ -26,3 +26,4 @@ Los ADR documentan decisiones de arquitectura significativas: contexto, opciones
 | [0010](0010-diagram-links-simplificados.md) | Enlaces simplificados de diagrama | Aceptado |
 | [0015](0015-cache-de-lecturas-en-cliente.md) | Caché de lecturas en el cliente | Aceptado |
 | [0016](0016-exportacion-dxf.md) | Exportación DXF del diagrama de conexión | Aceptado |
+| [0017](0017-tipos-de-enlace-de-diagrama.md) | Tipos de enlace de diagrama (función + color) | Aceptado |

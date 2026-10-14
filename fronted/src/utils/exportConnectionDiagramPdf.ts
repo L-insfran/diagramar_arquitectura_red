@@ -4,7 +4,7 @@ import {
   countDiagramPdfPages,
   type CapturedDiagram,
 } from './pdf/diagramCapturePdf'
-import { safePdfFilename, invertLogoForPrint, type PdfHeaderBranding } from './pdf/pdfChrome'
+import { safePdfFilename, invertLogoForPrint, type PdfHeaderBranding, type PdfLegendItem } from './pdf/pdfChrome'
 import type { PaperFormat, PrintOrientation } from './pdf/a4Geometry'
 import {
   countLinkReferencePages,
@@ -31,6 +31,8 @@ export type ExportConnectionDiagramOptions = {
   format: PaperFormat
   /** Si es false, el PDF no incluye la leyenda. Default true. */
   includeLegend?: boolean
+  /** Tipos de enlace a imprimir en la leyenda. */
+  legendItems?: PdfLegendItem[]
   /** Si es false, el PDF no incluye la tabla de referencia de enlaces. Default true. */
   includeLinkTable?: boolean
   /** Formato de la tabla de enlaces. Default `table`. */
@@ -60,6 +62,7 @@ export async function exportConnectionDiagramPdf(
     orientation,
     format,
     includeLegend = true,
+    legendItems = [],
     includeLinkTable = true,
     linkTableFormat = 'table',
     invertColors = false,
@@ -115,6 +118,7 @@ export async function exportConnectionDiagramPdf(
     firstPageExists: true,
     branding: printBranding,
     includeLegend,
+    legendItems,
     invertColors,
   })
 

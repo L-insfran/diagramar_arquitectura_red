@@ -204,6 +204,7 @@ export function filterDiagramLinkReferences(
       edge.targetPort,
       edge.description ?? '',
       edge.cableTypeName ?? '',
+      edge.linkTypeName ?? '',
       containerByDeviceId[edge.source] ?? '',
       containerByDeviceId[edge.target] ?? '',
       deviceSearchText(byId.get(edge.source)),

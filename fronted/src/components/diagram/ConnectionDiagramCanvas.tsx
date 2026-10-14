@@ -3,6 +3,7 @@ import {
   BackgroundVariant,
   Controls,
   MiniMap,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   ViewportPortal,
@@ -50,6 +51,7 @@ import {
   resolveContainerDevicePositions,
 } from '../../utils/diagram/containerLayout'
 import { RoutedLinkEdge, type RoutedLinkEdgeData } from './RoutedLinkEdge'
+import { DiagramLinkLegend } from './DiagramLinkLegend'
 import {
   SimpleDeviceNode,
   simpleDeviceHeight,
@@ -117,6 +119,7 @@ import {
 import type { PaperFormat, PrintOrientation } from '../../utils/pdf/a4Geometry'
 import { planFromFrame } from '../../utils/pdf/printFrame'
 import { buildExportScene, type DiagramExportScene } from '../../utils/diagram/exportScene'
+import { collectLinkTypeLegend } from '../../utils/diagram/linkTypeStyle'
 import { PrintFrameOverlay } from './PrintFrameOverlay'
 import type {
   ConnectionDiagram,
@@ -1506,6 +1509,10 @@ function buildGraph(params: {
           targetLabel,
           cableTypeId: e.cableTypeId,
           cableTypeName: e.cableTypeName,
+          linkTypeId: e.linkTypeId,
+          linkTypeName: e.linkTypeName,
+          linkTypeColor: e.linkTypeColor,
+          linkTypeLineStyle: e.linkTypeLineStyle,
           routePoints: route?.points,
           routeManual: route?.manual === true,
           labelOffsetX: labelOff?.x,
@@ -1687,6 +1694,20 @@ function ConnectionDiagramCanvasInner(
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[])
   const [edges, setEdges, onEdgesChange] = useEdgesState(
     [] as Edge<RoutedLinkEdgeData>[]
+  )
+  const linkTypeLegend = useMemo(
+    () =>
+      collectLinkTypeLegend(
+        edges
+          .filter((edge) => !edge.hidden)
+          .map((edge) => ({
+            linkTypeId: edge.data?.linkTypeId,
+            linkTypeName: edge.data?.linkTypeName,
+            linkTypeColor: edge.data?.linkTypeColor,
+            linkTypeLineStyle: edge.data?.linkTypeLineStyle,
+          }))
+      ),
+    [edges]
   )
   /** Compacta contenedores sin buscador durante captura PDF. */
   const [hidePickerForPrint, setHidePickerForPrint] = useState(false)
@@ -2845,6 +2866,11 @@ function ConnectionDiagramCanvasInner(
           maskColor={theme === 'dark' ? 'rgba(15, 23, 42, 0.7)' : 'rgba(15, 23, 42, 0.08)'}
           nodeStrokeWidth={2}
         />
+        {!hideMarginsForCapture ? (
+          <Panel position="top-left" className="!m-3">
+            <DiagramLinkLegend items={linkTypeLegend} />
+          </Panel>
+        ) : null}
         {portConnectPreview ? (
           <ViewportPortal>
             <svg

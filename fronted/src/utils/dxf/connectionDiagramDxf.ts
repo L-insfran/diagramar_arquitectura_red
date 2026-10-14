@@ -21,6 +21,7 @@ import {
   DIAGRAM_PORT_LABEL_PX,
 } from '../diagram/diagramTypography'
 import { TARGET_MM_PER_FLOW_PX } from '../pdf/diagramScale'
+import { STALE_LINK_DASH, linkLineStyleDef } from '../diagram/linkTypeStyle'
 import type {
   DiagramExportScene,
   ExportBounds,
@@ -55,6 +56,13 @@ const LTYPE = {
   wifi: 'WIFI',
   internet: 'INTERNET',
 } as const
+
+/**
+ * El visor de AutoCAD ignora el LTYPE de una polilínea con ancho y la pinta continua.
+ * El patrón del catálogo (pensado para el papel) se agranda y se dibuja como tramos.
+ */
+const DXF_LINE_STYLE_SCALE = 5
+const STALE_DXF_PATTERN = [0.91, -0.65]
 
 const MARGIN_MM = 12
 const TITLE_LINE_MM = 4.2
@@ -101,10 +109,84 @@ function linkLayer(medium: MediumType): string {
   }
 }
 
-function linkLineType(link: ExportLink): string | undefined {
-  if (link.medium === 'wifi') return LTYPE.wifi
-  if (link.medium === 'internet') return LTYPE.internet
-  return undefined
+function linkDashPattern(link: ExportLink): number[] | null {
+  if (link.strokeDasharray === STALE_LINK_DASH) {
+    return STALE_DXF_PATTERN.map((value) => value * DXF_LINE_STYLE_SCALE)
+  }
+  const pattern = linkLineStyleDef(link.lineStyle).dxfPattern
+  if (!pattern) return null
+  return pattern.map((value) => value * DXF_LINE_STYLE_SCALE)
+}
+
+function segmentLength(a: CadPoint, b: CadPoint): number {
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+function polylineLength(points: CadPoint[]): number {
+  let total = 0
+  for (let index = 1; index < points.length; index += 1) {
+    total += segmentLength(points[index - 1], points[index])
+  }
+  return total
+}
+
+function pointAtDistance(
+  points: CadPoint[],
+  distance: number,
+): { point: CadPoint; nextVertex: number } {
+  let left = Math.max(0, distance)
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const length = segmentLength(points[index], points[index + 1])
+    if (left <= length + 1e-6 || index === points.length - 2) {
+      const t = length <= 1e-6 ? 0 : Math.min(1, left / length)
+      return {
+        point: {
+          x: points[index].x + (points[index + 1].x - points[index].x) * t,
+          y: points[index].y + (points[index + 1].y - points[index].y) * t,
+        },
+        nextVertex: index + 1,
+      }
+    }
+    left -= length
+  }
+  return { point: points[points.length - 1], nextVertex: points.length }
+}
+
+function slicePolyline(points: CadPoint[], from: number, to: number): CadPoint[] {
+  if (to - from < 0.05) return []
+  const start = pointAtDistance(points, from)
+  const end = pointAtDistance(points, to)
+  const sliced: CadPoint[] = [start.point]
+  for (let index = start.nextVertex; index < end.nextVertex; index += 1) {
+    sliced.push(points[index])
+  }
+  const tail = sliced[sliced.length - 1]
+  if (segmentLength(tail, end.point) > 0.05) sliced.push(end.point)
+  return sliced.length >= 2 ? sliced : []
+}
+
+/** Parte el recorrido en los tramos visibles del patrón. El hueco no se dibuja. */
+function dashPolylines(points: CadPoint[], pattern: number[]): CadPoint[][] {
+  const total = polylineLength(points)
+  if (total < 0.05) return []
+  const period = pattern.reduce((sum, value) => sum + Math.abs(value), 0)
+  if (period < 0.05) return [points]
+  const runs: CadPoint[][] = []
+  let cursor = 0
+  let guard = 0
+  while (cursor < total - 0.05 && guard < 10000) {
+    guard += 1
+    for (const element of pattern) {
+      const next = Math.min(total, cursor + Math.abs(element))
+      if (element > 0) {
+        const slice = slicePolyline(points, cursor, next)
+        if (slice.length >= 2) runs.push(slice)
+      }
+      cursor = next
+      if (cursor >= total - 0.05) break
+    }
+  }
+  return runs.length > 0 ? runs : [points]
 }
 
 type CadPoint = { x: number; y: number }
@@ -287,18 +369,21 @@ function addPorts(dxf: DxfWriter, device: ExportDevice, cad: (x: number, y: numb
 
 function addLink(dxf: DxfWriter, link: ExportLink, cad: (x: number, y: number) => CadPoint) {
   const layerName = linkLayer(link.medium)
-  dxf.addLWPolyline(
-    link.points.map((p) => {
-      const at = cad(p.x, p.y)
-      return { point: point2d(at.x, at.y) }
-    }),
-    {
-      layerName,
-      trueColor: hexToTrueColor(link.color),
-      lineType: linkLineType(link),
-      constantWidth: LINK_STROKE_MM,
-    },
-  )
+  const cadPoints = link.points.map((point) => cad(point.x, point.y))
+  const pattern = linkDashPattern(link)
+  const strokes = pattern ? dashPolylines(cadPoints, pattern) : [cadPoints]
+  for (const stroke of strokes) {
+    if (stroke.length < 2) continue
+    dxf.addLWPolyline(
+      stroke.map((point) => ({ point: point2d(point.x, point.y) })),
+      {
+        layerName,
+        trueColor: hexToTrueColor(link.color),
+        lineType: 'Continuous',
+        constantWidth: LINK_STROKE_MM,
+      },
+    )
+  }
   addLabel(dxf, cad(link.label.x, link.label.y), pxToMm(DIAGRAM_LINK_REF_PX), link.code, {
     layerName: LAYER.labels,
     horizontal: TextHorizontalAlignment.Center,

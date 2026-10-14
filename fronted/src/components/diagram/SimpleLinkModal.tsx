@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '../Modal'
 import { Button } from '../Button'
 import { Input } from '../Input'
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect'
 import { diagramLinksService } from '../../services/diagram-links.service'
 import { cableTypesService } from '../../services/cable-types.service'
+import { diagramLinkTypesService } from '../../services/diagram-link-types.service'
 import { formatLinkCode } from '../../utils/diagram/linkLabel'
 import {
   swapLinkEndpoints,
@@ -12,10 +13,45 @@ import {
 } from '../../utils/diagram/linkEndpoints'
 import type {
   DiagramLinkEdge,
+  DiagramLinkType,
   TopologyBoardSummary,
   TopologyNode,
   TopologyRackSummary,
 } from '../../types'
+
+const LINK_TYPE_CHIP_LIMIT = 8
+
+function chipUsesLightText(hex: string): boolean {
+  const raw = hex.replace('#', '')
+  if (raw.length !== 6) return true
+  const r = Number.parseInt(raw.slice(0, 2), 16)
+  const g = Number.parseInt(raw.slice(2, 4), 16)
+  const b = Number.parseInt(raw.slice(4, 6), 16)
+  return (r * 299 + g * 587 + b * 114) / 1000 < 160
+}
+
+function lastLinkTypeStorageKey(projectId: string) {
+  return `diagram-link-type:last:${projectId}`
+}
+
+function readLastLinkTypeId(projectId: string, types: DiagramLinkType[]): string {
+  try {
+    const stored = window.localStorage.getItem(lastLinkTypeStorageKey(projectId))
+    if (stored && types.some((type) => type.id === stored)) return stored
+  } catch {
+    /* storage no disponible */
+  }
+  return ''
+}
+
+function rememberLinkTypeId(projectId: string, linkTypeId: string) {
+  if (!linkTypeId) return
+  try {
+    window.localStorage.setItem(lastLinkTypeStorageKey(projectId), linkTypeId)
+  } catch {
+    /* storage no disponible */
+  }
+}
 
 type Props = {
   isOpen: boolean
@@ -184,6 +220,81 @@ type ModalLinkEnd = LinkEndpointDraft & {
   deviceLocked: boolean
 }
 
+function LinkTypeField({
+  types,
+  value,
+  onChange,
+  disabled,
+}: {
+  types: DiagramLinkType[]
+  value: string
+  onChange: (next: string) => void
+  disabled?: boolean
+}) {
+  const useChips = types.length > 0 && types.length <= LINK_TYPE_CHIP_LIMIT
+  const options: SearchableSelectOption[] = types.map((type) => ({
+    value: type.id,
+    label: type.name,
+    description: type.description ?? undefined,
+    swatch: type.color,
+  }))
+
+  return (
+    <div className="space-y-2">
+      <div className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        Tipo de enlace
+      </div>
+      {types.length === 0 ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Sin tipos en este proyecto. Podés crearlos en Ajustes → Tipos de enlace.
+        </p>
+      ) : useChips ? (
+        <div className="flex flex-wrap gap-2" role="listbox" aria-label="Tipo de enlace">
+          {types.map((type) => {
+            const selected = value === type.id
+            const lightText = chipUsesLightText(type.color)
+            return (
+              <button
+                key={type.id}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                disabled={disabled}
+                onClick={() => onChange(selected ? '' : type.id)}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                  selected
+                    ? lightText
+                      ? 'border-transparent text-white'
+                      : 'border-transparent text-gray-900'
+                    : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200'
+                }`}
+                style={selected ? { backgroundColor: type.color } : undefined}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full border border-black/20"
+                  style={{ backgroundColor: type.color }}
+                  aria-hidden
+                />
+                {type.name}
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <SearchableSelect
+          options={options}
+          value={value}
+          onChange={onChange}
+          placeholder="Sin tipo…"
+          searchPlaceholder="Buscar tipo de enlace…"
+          emptyOptionLabel="Sin tipo…"
+          disabled={disabled}
+        />
+      )}
+    </div>
+  )
+}
+
 function emptyLinkEnd(deviceLocked = false): ModalLinkEnd {
   return { deviceId: '', portId: '', portLabel: '', deviceLocked }
 }
@@ -225,6 +336,9 @@ export function SimpleLinkModal({
   const [description, setDescription] = useState('')
   const [cableTypeId, setCableTypeId] = useState('')
   const [cableTypeOptions, setCableTypeOptions] = useState<SearchableSelectOption[]>([])
+  const [linkTypeId, setLinkTypeId] = useState('')
+  const [linkTypes, setLinkTypes] = useState<DiagramLinkType[]>([])
+  const linkTypeTouchedRef = useRef(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -261,6 +375,7 @@ export function SimpleLinkModal({
       })
       setDescription(edge.description ?? '')
       setCableTypeId(edge.cableTypeId ?? '')
+      setLinkTypeId(edge.linkTypeId ?? '')
       return
     }
     const srcId = initialSourcePortId ?? ''
@@ -299,6 +414,29 @@ export function SimpleLinkModal({
     initialTargetPortLabel,
     inventory,
   ])
+
+  useEffect(() => {
+    if (!isOpen) return
+    linkTypeTouchedRef.current = false
+    let cancelled = false
+    if (edge?.id) setLinkTypeId(edge.linkTypeId ?? '')
+    void diagramLinkTypesService
+      .getAll()
+      .then((types) => {
+        if (cancelled) return
+        setLinkTypes(types)
+        if (edge?.id || linkTypeTouchedRef.current) return
+        const preferred =
+          types.find((type) => type.isDefault)?.id ?? readLastLinkTypeId(projectId, types)
+        setLinkTypeId(preferred)
+      })
+      .catch(() => {
+        if (!cancelled) setLinkTypes([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, edge?.id, edge?.linkTypeId, projectId])
 
   useEffect(() => {
     if (!isOpen) return
@@ -486,6 +624,7 @@ export function SimpleLinkModal({
         targetPortLabel: tgtLabel,
         description: description.trim() || null,
         cableTypeId: cableTypeId || null,
+        linkTypeId: linkTypeId || null,
       }
       if (isEdit && edge?.id) {
         await diagramLinksService.update(edge.id, payload)
@@ -495,6 +634,7 @@ export function SimpleLinkModal({
           ...payload,
         })
       }
+      rememberLinkTypeId(projectId, linkTypeId)
       await onSaved()
       onClose()
     } catch (err: unknown) {
@@ -654,8 +794,18 @@ export function SimpleLinkModal({
 
         <div className="border-t border-gray-200 dark:border-gray-700" role="separator" />
 
+        <LinkTypeField
+          types={linkTypes}
+          value={linkTypeId}
+          onChange={(next) => {
+            linkTypeTouchedRef.current = true
+            setLinkTypeId(next)
+          }}
+          disabled={saving || deleting}
+        />
+
         <SearchableSelect
-          label="Tipo de enlace (opcional)"
+          label="Tipo de cable (opcional)"
           options={cableTypeOptions}
           value={cableTypeId}
           onChange={setCableTypeId}
@@ -665,10 +815,10 @@ export function SimpleLinkModal({
         />
 
         <Input
-          label="Descripción (opcional)"
+          label="Etiqueta"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Notas del enlace"
+          placeholder="Etiqueta del enlace"
         />
 
         {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}

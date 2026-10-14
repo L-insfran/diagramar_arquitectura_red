@@ -1,5 +1,6 @@
 import { Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { LinkEndpointCell } from './LinkEndpointCell'
+import { LinkLineSample } from './LinkLineSample'
 import {
   buildLinkEndpointPath,
   formatLinkCode,
@@ -40,8 +41,9 @@ export function LinkReferenceTable({
         <thead className="sticky top-0 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
           <tr>
             <th className="w-14 px-3 py-1.5">ID</th>
-            <th className="w-[30%] px-3 py-1.5">Origen</th>
-            <th className="w-[30%] px-3 py-1.5">Destino</th>
+            <th className="px-3 py-1.5">Tipo</th>
+            <th className="w-[26%] px-3 py-1.5">Origen</th>
+            <th className="w-[26%] px-3 py-1.5">Destino</th>
             <th className="w-[20%] px-3 py-1.5">Descripción</th>
             {showActions ? (
               <th className="w-20 px-3 py-1.5 text-right">Acciones</th>
@@ -112,6 +114,27 @@ export function LinkReferenceTable({
                       </span>
                     ) : null}
                   </span>
+                </td>
+                <td className="px-3 py-1.5 align-top">
+                  {edge.linkTypeName ? (
+                    <span className="inline-flex max-w-[9rem] items-center gap-1.5">
+                      <LinkLineSample
+                        lineStyle={edge.linkTypeLineStyle}
+                        color={edge.linkTypeColor ?? '#3b82f6'}
+                      />
+                      <span
+                        className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-black/20"
+                        style={{ backgroundColor: edge.linkTypeColor ?? '#3b82f6' }}
+                        aria-hidden
+                      />
+                      <span className="truncate">{edge.linkTypeName}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-slate-400">
+                      <LinkLineSample lineStyle="solid" color="#3b82f6" />
+                      Sin tipo
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-1.5 align-top">
                   <LinkEndpointCell path={originPath} />

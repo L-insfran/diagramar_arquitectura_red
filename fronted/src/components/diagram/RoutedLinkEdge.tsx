@@ -6,7 +6,7 @@ import {
   type Edge,
   type EdgeProps,
 } from '@xyflow/react'
-import { MEDIUM_EDGE_STYLES, type MediumInfo, type MediumType } from '../../types'
+import { type MediumInfo } from '../../types'
 import {
   clampLabelPathT,
   closestPointOnPath,
@@ -18,6 +18,7 @@ import {
   type DiagramPoint,
 } from '../../utils/diagram/orthogonalPath'
 import { formatLinkCode } from '../../utils/diagram/linkLabel'
+import { linkStrokeColor, linkStrokeDasharray } from '../../utils/diagram/linkTypeStyle'
 import { DIAGRAM_LINK_REF } from '../../utils/diagram/diagramTypography'
 import {
   dragOrthogonalCorner,
@@ -39,6 +40,10 @@ export type RoutedLinkEdgeData = {
   targetLabel?: string
   cableTypeId?: string | null
   cableTypeName?: string | null
+  linkTypeId?: string | null
+  linkTypeName?: string | null
+  linkTypeColor?: string | null
+  linkTypeLineStyle?: string | null
   medium?: MediumInfo
   connectionType?: 'physical' | 'logical'
   routePoints?: DiagramPoint[]
@@ -120,9 +125,6 @@ function RoutedLinkEdgeComponent({
 
   const labelPos = useMemo(() => pointAtPathT(points, labelT), [points, labelT])
 
-  const mediumType = (data?.medium?.mediumType ?? 'utp') as MediumType
-  const mediumStyle = MEDIUM_EDGE_STYLES[mediumType] ?? MEDIUM_EDGE_STYLES.utp
-
   const sourceText = data?.sourceLabel || data?.sourcePort || null
   const targetText = data?.targetLabel || data?.targetPort || null
   const fullLabel =
@@ -134,6 +136,7 @@ function RoutedLinkEdgeComponent({
   const label = codeLabel ?? fullLabel
 
   const stale = data?.routeStale === true
+  const stroke = linkStrokeColor(data?.linkTypeColor, stale)
   const editable = Boolean(selected && !data?.readOnly)
   const canDragLabel = !data?.readOnly
   const segmentHandles = useMemo(
@@ -246,8 +249,8 @@ function RoutedLinkEdgeComponent({
         interactionWidth={24}
         style={{
           ...style,
-          stroke: stale ? '#f59e0b' : mediumStyle.stroke,
-          strokeDasharray: stale ? '7 5' : mediumStyle.strokeDasharray,
+          stroke: stroke,
+          strokeDasharray: linkStrokeDasharray(data?.linkTypeLineStyle, stale),
           strokeWidth: selected ? 4 : stale ? 2.5 : 2,
           filter: selected
             ? 'drop-shadow(0 0 5px rgba(56, 189, 248, 0.95))'
@@ -262,12 +265,14 @@ function RoutedLinkEdgeComponent({
             className={`nodrag nopan absolute z-[5000] select-none rounded-md border px-2 py-1 ${DIAGRAM_LINK_REF} shadow-lg ${
               stale
                 ? 'border-amber-400/90 bg-amber-950/95 text-amber-50 ring-1 ring-amber-500/40'
-                : 'border-sky-300/80 bg-slate-950/95 text-sky-50 ring-1 ring-sky-500/30 dark:border-sky-600/80'
+                : 'bg-slate-950/95 text-sky-50 dark:border-sky-600/80'
             } ${canDragLabel ? 'cursor-grab hover:ring-2 hover:ring-sky-400/70 active:cursor-grabbing' : ''}`}
             style={{
               transform: `translate(-50%, -50%) translate(${labelPos.x}px, ${labelPos.y}px)`,
               pointerEvents: 'auto',
               touchAction: 'none',
+              borderColor: stale ? undefined : stroke,
+              boxShadow: stale ? undefined : `0 0 0 1px ${stroke}`,
             }}
             title={
               stale

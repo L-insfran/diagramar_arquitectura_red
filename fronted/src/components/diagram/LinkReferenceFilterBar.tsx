@@ -79,7 +79,7 @@ export function LinkReferenceFilterBar({ filters, onChange, options, disabled = 
           type="search"
           value={filters.query}
           onChange={(e) => onChange({ ...filters, query: e.target.value })}
-          placeholder="Buscar por ID, equipo, puerto, cable, rack o descripción…"
+          placeholder="Buscar por ID, equipo, puerto, tipo, cable, rack o descripción…"
           aria-label="Buscar enlaces"
           className={`${compactFieldClass} pl-8`}
         />

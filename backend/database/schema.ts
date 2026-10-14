@@ -478,8 +478,41 @@ export class DeviceSchema extends BaseModel {
   declare updatedBy: string | null
 }
 
+export class DiagramLinkTypeSchema extends BaseModel {
+  static $columns = ['color', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'id', 'isDefault', 'lineStyle', 'name', 'projectId', 'sortOrder', 'updatedAt', 'updatedBy'] as const
+  $columns = DiagramLinkTypeSchema.$columns
+  @column()
+  declare color: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare deletedBy: string | null
+  @column()
+  declare description: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare isDefault: boolean
+  @column()
+  declare lineStyle: string
+  @column()
+  declare name: string
+  @column()
+  declare projectId: string
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
 export class DiagramLinkSchema extends BaseModel {
-  static $columns = ['cableTypeId', 'code', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'id', 'projectId', 'sourceDeviceId', 'sourcePortId', 'sourcePortLabel', 'targetDeviceId', 'targetPortId', 'targetPortLabel', 'updatedAt', 'updatedBy'] as const
+  static $columns = ['cableTypeId', 'code', 'createdAt', 'createdBy', 'deletedAt', 'deletedBy', 'description', 'id', 'linkTypeId', 'projectId', 'sourceDeviceId', 'sourcePortId', 'sourcePortLabel', 'targetDeviceId', 'targetPortId', 'targetPortLabel', 'updatedAt', 'updatedBy'] as const
   $columns = DiagramLinkSchema.$columns
   @column()
   declare cableTypeId: string | null
@@ -497,6 +530,8 @@ export class DiagramLinkSchema extends BaseModel {
   declare description: string | null
   @column({ isPrimary: true })
   declare id: string
+  @column()
+  declare linkTypeId: string | null
   @column()
   declare projectId: string
   @column()

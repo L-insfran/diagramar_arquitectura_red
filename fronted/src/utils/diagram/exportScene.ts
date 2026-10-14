@@ -14,7 +14,7 @@ import type {
   TopologyBoardSummary,
   TopologyRackSummary,
 } from '../../types'
-import { MEDIUM_EDGE_STYLES } from '../../types'
+import { linkStrokeColor, linkStrokeDasharray, normalizeLinkLineStyle } from './linkTypeStyle'
 import type { RoutedLinkEdgeData } from '../../components/diagram/RoutedLinkEdge'
 import { SIMPLE_DEVICE_WIDTH, devicePortAreaTop, simpleDeviceHeight } from '../../components/diagram/SimpleDeviceNode'
 import { DIAGRAM_CONNECT_SOURCE_HANDLE, DIAGRAM_CONNECT_TARGET_HANDLE } from './diagramPortHandles'
@@ -73,7 +73,9 @@ export type ExportLink = {
   points: DiagramPoint[]
   medium: MediumType
   color: string
-  /** CSS dash pattern from the canvas stroke, when the medium is not solid. */
+  /** Código del estilo del tipo. Continua cuando el enlace no tiene tipo. */
+  lineStyle: string
+  /** Patrón CSS del trazo. Null = continua. La ruta desactualizada usa `7 5`. */
   strokeDasharray: string | null
   label: { x: number; y: number }
   sourcePort: string
@@ -324,7 +326,8 @@ export function buildExportScene(
     if (points.length < 2) continue
 
     const medium = (edge.data?.medium?.mediumType ?? 'utp') as MediumType
-    const style = MEDIUM_EDGE_STYLES[medium] ?? MEDIUM_EDGE_STYLES.utp
+    const lineStyle = normalizeLinkLineStyle(edge.data?.linkTypeLineStyle)
+    const color = linkStrokeColor(edge.data?.linkTypeColor, false)
     const code =
       edge.data?.code != null ? formatLinkCode(edge.data.code) : formatLinkCode(null)
 
@@ -333,8 +336,9 @@ export function buildExportScene(
       code,
       points,
       medium,
-      color: style.stroke,
-      strokeDasharray: style.strokeDasharray ?? null,
+      color,
+      lineStyle,
+      strokeDasharray: linkStrokeDasharray(lineStyle, edge.data?.routeStale === true) ?? null,
       label: labelPoint(edge.data, points),
       sourcePort: edge.data?.sourcePort?.trim() || '',
       targetPort: edge.data?.targetPort?.trim() || '',

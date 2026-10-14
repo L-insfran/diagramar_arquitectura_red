@@ -11,6 +11,7 @@ export const createDiagramLinkValidator = vine.compile(
     targetPortLabel: vine.string().trim().minLength(1).maxLength(255),
     description: vine.string().trim().nullable().optional(),
     cableTypeId: vine.string().uuid().nullable().optional(),
+    linkTypeId: vine.string().uuid().nullable().optional(),
   })
 )
 
@@ -30,5 +31,6 @@ export const updateDiagramLinkValidator = vine.compile(
     targetPortLabel: vine.string().trim().minLength(1).maxLength(255).optional(),
     description: vine.string().trim().nullable().optional(),
     cableTypeId: vine.string().uuid().nullable().optional(),
+    linkTypeId: vine.string().uuid().nullable().optional(),
   })
 )

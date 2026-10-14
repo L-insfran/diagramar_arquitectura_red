@@ -205,6 +205,11 @@ export function occupancyEdgesFromDiagramLinks(
         cableTypeId: asId(link.cableTypeId ?? link.cable_type_id),
         cableTypeName:
           asText(link.cableTypeName ?? link.cable_type_name) || null,
+        linkTypeId: asId(link.linkTypeId ?? link.link_type_id),
+        linkTypeName: asText(link.linkTypeName ?? link.link_type_name) || null,
+        linkTypeColor: asText(link.linkTypeColor ?? link.link_type_color) || null,
+        linkTypeLineStyle:
+          asText(link.linkTypeLineStyle ?? link.link_type_line_style) || null,
       },
     ]
   })

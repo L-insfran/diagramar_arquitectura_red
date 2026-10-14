@@ -85,6 +85,7 @@ export default class DiagramLinkRepository {
       .preload('sourcePort')
       .preload('targetPort')
       .preload('cableType')
+      .preload('linkType')
       .orderBy('code', 'asc')
       .orderBy('created_at', 'asc')
   }
@@ -98,6 +99,7 @@ export default class DiagramLinkRepository {
       .preload('sourcePort')
       .preload('targetPort')
       .preload('cableType')
+      .preload('linkType')
       .firstOrFail()
   }
 
@@ -121,6 +123,7 @@ export default class DiagramLinkRepository {
         targetPortLabel: data.targetPortLabel,
         description: data.description ?? null,
         cableTypeId: data.cableTypeId ?? null,
+        linkTypeId: data.linkTypeId ?? null,
         createdBy: data.createdBy,
         updatedBy: data.updatedBy,
       },
@@ -168,6 +171,29 @@ export default class DiagramLinkRepository {
             .orWhere('target_device_id', deviceId)
         }),
     ).select('id', 'code')
+  }
+
+  /** Enlaces activos del equipo, con el otro extremo y el medio, para la planilla. */
+  async findActiveForDeviceSheet(projectId: string, deviceId: string) {
+    return whereBothEndpointsActive(
+      DiagramLink.query()
+        .where('project_id', projectId)
+        .whereNull('deleted_at')
+        .where((builder) => {
+          builder.where('source_device_id', deviceId).orWhere('target_device_id', deviceId)
+        }),
+    )
+      .preload('sourceDevice', (q) => {
+        q.preload('site').preload('area').preload('container')
+      })
+      .preload('targetDevice', (q) => {
+        q.preload('site').preload('area').preload('container')
+      })
+      .preload('sourcePort')
+      .preload('targetPort')
+      .preload('cableType')
+      .preload('linkType')
+      .orderBy('code', 'asc')
   }
 
   async softDeleteByDeviceIds(

@@ -9,6 +9,8 @@ export type SearchableSelectOption = {
   group?: string
   disabled?: boolean
   disabledReason?: string
+  /** Pastilla de color (hex) junto al nombre. */
+  swatch?: string
 }
 
 type PanelPos = { top: number; left: number; width: number }
@@ -27,6 +29,16 @@ type Props = {
   wrapLabel?: boolean
 }
 
+function OptionSwatch({ color }: { color?: string }) {
+  if (!color) return null
+  return (
+    <span
+      className="mt-0.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-black/20"
+      style={{ backgroundColor: color }}
+      aria-hidden
+    />
+  )
+}
 function matchesQuery(option: SearchableSelectOption, query: string): boolean {
   if (!query) return true
   const hay = [option.label, option.description, option.group, option.disabledReason]
@@ -241,13 +253,16 @@ export function SearchableSelect({
                         if (!option.disabled) pick(option.value)
                       }}
                     >
-                      <span
-                        className={`${
-                          wrapLabel ? 'break-words whitespace-normal' : 'truncate'
-                        } text-xs font-medium text-gray-800 dark:text-gray-100`}
-                      >
-                        {option.label}
-                        {option.disabled && option.disabledReason ? ` — ${option.disabledReason}` : ''}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <OptionSwatch color={option.swatch} />
+                        <span
+                          className={`${
+                            wrapLabel ? 'break-words whitespace-normal' : 'truncate'
+                          } text-xs font-medium text-gray-800 dark:text-gray-100`}
+                        >
+                          {option.label}
+                          {option.disabled && option.disabledReason ? ` — ${option.disabledReason}` : ''}
+                        </span>
                       </span>
                       {option.description ? (
                         <span
@@ -289,11 +304,12 @@ export function SearchableSelect({
         title={selected?.description ? `${selected.label} · ${selected.description}` : selected?.label}
       >
         <span
-          className={`min-w-0 flex-1 ${
+          className={`flex min-w-0 flex-1 items-center gap-2 ${
             wrapLabel ? 'break-words whitespace-normal leading-snug' : 'truncate'
           }`}
         >
-          {selected?.label || placeholder}
+          <OptionSwatch color={selected?.swatch} />
+          <span className="min-w-0 flex-1 truncate">{selected?.label || placeholder}</span>
         </span>
         <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
       </button>

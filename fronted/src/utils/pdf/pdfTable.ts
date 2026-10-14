@@ -20,10 +20,20 @@ export type PdfTableLayout = {
   startX: number
 }
 
+/** Muestra de trazo dibujada a la izquierda del texto de una celda. */
+export type PdfStrokeMark = {
+  rgb: [number, number, number]
+  dash?: number[] | null
+}
+
 export type PdfTableDrawOptions = {
   fontSize?: number
   /** Altura total del encabezado (grupo + hoja, o solo hoja). */
   headerHeight?: number
+  /** mm extra a la izquierda del texto, por columna. */
+  textInsets?: number[]
+  /** Muestra de trazo por celda. Se dibuja dentro del inset de esa columna. */
+  strokeMarks?: Array<Array<PdfStrokeMark | null>>
 }
 
 const TABLE_HEADER_H = 8
@@ -69,13 +79,24 @@ export function wrapPdfCells(
   cells: string[],
   colWidths: number[],
   fontSize = TABLE_FONT_SIZE,
+  textInsets?: number[],
 ): string[][] {
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(fontSize)
   return cells.map((cell, i) => {
-    const maxW = Math.max(4, colWidths[i] - 2.5)
+    const maxW = Math.max(4, colWidths[i] - 2.5 - (textInsets?.[i] ?? 0))
     return pdf.splitTextToSize(cell, maxW) as string[]
   })
+}
+
+function drawStrokeSample(pdf: jsPDF, x: number, y: number, width: number, mark: PdfStrokeMark) {
+  pdf.setDrawColor(mark.rgb[0], mark.rgb[1], mark.rgb[2])
+  pdf.setLineWidth(0.7)
+  const dash = mark.dash?.filter((part) => part > 0) ?? []
+  pdf.setLineDashPattern(dash, 0)
+  pdf.line(x, y, x + Math.max(3, width), y)
+  pdf.setLineDashPattern([], 0)
+  pdf.setLineWidth(GRID_LINE_W)
 }
 
 export function measurePdfRowHeight(wrapped: string[][], fontSize = TABLE_FONT_SIZE): number {
@@ -99,13 +120,14 @@ export function paginatePdfRows<T>(
 ): T[][] {
   const headerH = options?.headerHeight ?? TABLE_HEADER_H
   const fontSize = options?.fontSize ?? TABLE_FONT_SIZE
+  const textInsets = options?.textInsets
   const { colWidths } = getPdfTableLayout(pageW, columns)
   const pages: T[][] = []
   let current: T[] = []
   let y = bodyStartY + headerH
 
   for (const row of rows) {
-    const wrapped = wrapPdfCells(pdf, toCells(row), colWidths, fontSize)
+    const wrapped = wrapPdfCells(pdf, toCells(row), colWidths, fontSize, textInsets)
     const rowH = measurePdfRowHeight(wrapped, fontSize)
     if (current.length > 0 && y + rowH > maxY) {
       pages.push(current)
@@ -215,12 +237,14 @@ export function drawPdfTableBody(
 ): number {
   const headerH = options?.headerHeight ?? TABLE_HEADER_H
   const fontSize = options?.fontSize ?? TABLE_FONT_SIZE
+  const textInsets = options?.textInsets
+  const strokeMarks = options?.strokeMarks
   const { lineH, padY } = rowMetrics(fontSize)
   const { colWidths, tableW, startX } = layout
   let y = startY + headerH
 
   for (let ei = 0; ei < rows.length; ei++) {
-    const wrapped = wrapPdfCells(pdf, rows[ei], colWidths, fontSize)
+    const wrapped = wrapPdfCells(pdf, rows[ei], colWidths, fontSize, textInsets)
     const rowH = measurePdfRowHeight(wrapped, fontSize)
 
     if (ei % 2 === 0) {
@@ -233,6 +257,11 @@ export function drawPdfTableBody(
     pdf.setFont('helvetica', 'normal')
 
     for (let i = 0; i < wrapped.length; i++) {
+      const inset = textInsets?.[i] ?? 0
+      const mark = strokeMarks?.[ei]?.[i]
+      if (mark && inset > 2) {
+        drawStrokeSample(pdf, cx + 1.2, y + rowH / 2, inset - 2.4, mark)
+      }
       const color = cellColors?.[ei]?.[i]
       if (color) {
         pdf.setTextColor(color[0], color[1], color[2])
@@ -240,7 +269,7 @@ export function drawPdfTableBody(
         pdf.setTextColor(15, 23, 42)
       }
       const lines = wrapped[i]
-      const textX = cx + 1.5
+      const textX = cx + 1.5 + inset
       let textY = y + padY + lineH
       for (const line of lines) {
         pdf.text(line, textX, textY)
@@ -281,6 +310,8 @@ export function drawPdfMergedTableBody(
 ): number {
   const headerH = options?.headerHeight ?? TABLE_HEADER_H
   const fontSize = options?.fontSize ?? TABLE_FONT_SIZE
+  const textInsets = options?.textInsets
+  const strokeMarks = options?.strokeMarks
   const { lineH } = rowMetrics(fontSize)
   const { colWidths, tableW, startX } = layout
   const colCount = colWidths.length
@@ -291,7 +322,7 @@ export function drawPdfMergedTableBody(
       const span = spans[ei]?.[ci]
       return span && 'skip' in span ? '' : cell
     })
-    const wrapped = wrapPdfCells(pdf, measureCells, colWidths, fontSize)
+    const wrapped = wrapPdfCells(pdf, measureCells, colWidths, fontSize, textInsets)
     rowHeights.push(measurePdfRowHeight(wrapped, fontSize))
   }
 
@@ -327,15 +358,30 @@ export function drawPdfMergedTableBody(
       }
 
       const text = rows[ei][ci] ?? ''
-      const lines = wrapPdfCells(pdf, [text], [colWidths[ci]], fontSize)[0]
+      const inset = textInsets?.[ci] ?? 0
+      const lines = wrapPdfCells(pdf, [text], [colWidths[ci]], fontSize, [inset])[0]
       const textH = Math.max(lineH, lines.length * lineH)
       const blockTop = rowYs[ei]
       let textY = blockTop + (blockH - textH) / 2 + lineH * 0.85
-      const centerX = cx + colWidths[ci] / 2
-
-      for (const line of lines) {
-        pdf.text(line, centerX, textY, { align: 'center' })
-        textY += lineH
+      const mark = strokeMarks?.[ei]?.[ci]
+      if (mark && inset > 2) {
+        drawStrokeSample(pdf, cx + 1.2, blockTop + blockH / 2, inset - 2.4, mark)
+        pdf.setFontSize(fontSize)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setTextColor(15, 23, 42)
+      }
+      if (inset > 0) {
+        const textX = cx + 1.5 + inset
+        for (const line of lines) {
+          pdf.text(line, textX, textY)
+          textY += lineH
+        }
+      } else {
+        const centerX = cx + colWidths[ci] / 2
+        for (const line of lines) {
+          pdf.text(line, centerX, textY, { align: 'center' })
+          textY += lineH
+        }
       }
       cx += colWidths[ci]
     }

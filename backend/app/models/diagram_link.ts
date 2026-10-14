@@ -5,6 +5,7 @@ import Project from './project.js'
 import Device from './device.js'
 import Port from './port.js'
 import CableType from './cable_type.js'
+import DiagramLinkType from './diagram_link_type.js'
 
 export default class DiagramLink extends BaseModel {
   @column({ isPrimary: true })
@@ -41,6 +42,9 @@ export default class DiagramLink extends BaseModel {
   declare cableTypeId: string | null
 
   @column()
+  declare linkTypeId: string | null
+
+  @column()
   declare createdBy: string | null
 
   @column()
@@ -75,4 +79,7 @@ export default class DiagramLink extends BaseModel {
 
   @belongsTo(() => CableType)
   declare cableType: BelongsTo<typeof CableType>
+
+  @belongsTo(() => DiagramLinkType, { foreignKey: 'linkTypeId' })
+  declare linkType: BelongsTo<typeof DiagramLinkType>
 }

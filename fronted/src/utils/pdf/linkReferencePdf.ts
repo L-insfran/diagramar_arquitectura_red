@@ -1,6 +1,7 @@
 import type { jsPDF } from 'jspdf'
 import { getPaperGeometry, type PaperFormat, type PrintOrientation } from './a4Geometry'
 import { drawFooter, drawHeader, type PdfHeaderBranding } from './pdfChrome'
+import { linkLineStyleDef } from '../diagram/linkTypeStyle'
 import {
   drawPdfGroupedTableHeader,
   drawPdfMergedTableBody,
@@ -10,7 +11,9 @@ import {
   getPdfTableLayout,
   paginatePdfRows,
   type PdfMergedCellSpan,
+  type PdfStrokeMark,
   type PdfTableColumn,
+  type PdfTableDrawOptions,
   type PdfTableGroup,
 } from './pdfTable'
 
@@ -23,6 +26,9 @@ export type LinkReferenceRow = {
   origin: string
   destination: string
   description: string
+  linkTypeName?: string | null
+  linkTypeColor?: string | null
+  linkTypeLineStyle?: string | null
 }
 
 /** Fila de ruta lineal (segmentos por columna, como en pantalla). */
@@ -40,32 +46,38 @@ export type LinkPathReferenceRow = {
   destinationArea: string
   destinationSite: string
   description: string
+  linkTypeName?: string | null
+  linkTypeColor?: string | null
+  linkTypeLineStyle?: string | null
 }
 
 const LINK_REF_COLUMNS: PdfTableColumn[] = [
-  { header: 'ID', proportion: 0.08 },
-  { header: 'Origen', proportion: 0.31 },
-  { header: 'Destino', proportion: 0.31 },
-  { header: 'Descripción', proportion: 0.3 },
+  { header: 'ID', proportion: 0.07 },
+  { header: 'Tipo', proportion: 0.2 },
+  { header: 'Origen', proportion: 0.25 },
+  { header: 'Destino', proportion: 0.25 },
+  { header: 'Descripción', proportion: 0.23 },
 ]
 
 const LINK_PATH_COLUMNS: PdfTableColumn[] = [
-  { header: 'ID', proportion: 0.05 },
-  { header: 'Sitio', proportion: 0.09 },
-  { header: 'Área', proportion: 0.08 },
-  { header: 'Cont.', proportion: 0.08 },
-  { header: 'Equipo', proportion: 0.08 },
-  { header: 'Puerto', proportion: 0.055 },
-  { header: 'Enlace', proportion: 0.07 },
-  { header: 'Puerto', proportion: 0.055 },
-  { header: 'Equipo', proportion: 0.08 },
-  { header: 'Cont.', proportion: 0.08 },
-  { header: 'Área', proportion: 0.08 },
-  { header: 'Sitio', proportion: 0.09 },
-  { header: 'Desc.', proportion: 0.11 },
+  { header: 'ID', proportion: 0.045 },
+  { header: 'Tipo', proportion: 0.12 },
+  { header: 'Sitio', proportion: 0.08 },
+  { header: 'Área', proportion: 0.07 },
+  { header: 'Cont.', proportion: 0.065 },
+  { header: 'Equipo', proportion: 0.07 },
+  { header: 'Puerto', proportion: 0.05 },
+  { header: 'Enlace', proportion: 0.06 },
+  { header: 'Puerto', proportion: 0.05 },
+  { header: 'Equipo', proportion: 0.07 },
+  { header: 'Cont.', proportion: 0.065 },
+  { header: 'Área', proportion: 0.07 },
+  { header: 'Sitio', proportion: 0.08 },
+  { header: 'Desc.', proportion: 0.105 },
 ]
 
 const LINK_PATH_GROUPS: PdfTableGroup[] = [
+  { label: '', span: 1 },
   { label: '', span: 1 },
   { label: 'ORIGEN', span: 5 },
   { label: 'ENLACE', span: 1 },
@@ -75,6 +87,20 @@ const LINK_PATH_GROUPS: PdfTableGroup[] = [
 
 const PATH_FONT_SIZE = 6
 const PATH_COL_COUNT = LINK_PATH_COLUMNS.length
+/** Columna Tipo: la muestra de trazo ocupa este margen izquierdo. */
+const TYPE_COL = 1
+const TYPE_TEXT_INSET = 9
+const UNTAGGED_TYPE_COLOR = '#3b82f6'
+
+const CLASSIC_DRAW: PdfTableDrawOptions = {
+  textInsets: LINK_REF_COLUMNS.map((_, index) => (index === TYPE_COL ? TYPE_TEXT_INSET : 0)),
+}
+
+const PATH_DRAW: PdfTableDrawOptions = {
+  fontSize: PATH_FONT_SIZE,
+  headerHeight: getPdfGroupedHeaderHeight(),
+  textInsets: LINK_PATH_COLUMNS.map((_, index) => (index === TYPE_COL ? TYPE_TEXT_INSET : 0)),
+}
 
 function cellOrDash(value: string | null | undefined): string {
   const t = value?.trim()
@@ -85,13 +111,50 @@ function samePathText(a: string | null | undefined, b: string | null | undefined
   return cellOrDash(a).localeCompare(cellOrDash(b), 'es', { sensitivity: 'accent' }) === 0
 }
 
+function typeLabel(name: string | null | undefined): string {
+  const value = name?.trim()
+  return value || 'Sin tipo'
+}
+
+function hexToRgb(hex: string | null | undefined): [number, number, number] {
+  const value = (hex ?? UNTAGGED_TYPE_COLOR).replace('#', '')
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) return [59, 130, 246]
+  return [
+    Number.parseInt(value.slice(0, 2), 16),
+    Number.parseInt(value.slice(2, 4), 16),
+    Number.parseInt(value.slice(4, 6), 16),
+  ]
+}
+
+function typeStrokeMark(row: {
+  linkTypeColor?: string | null
+  linkTypeLineStyle?: string | null
+}): PdfStrokeMark {
+  return {
+    rgb: hexToRgb(row.linkTypeColor),
+    dash: linkLineStyleDef(row.linkTypeLineStyle).pdfDash,
+  }
+}
+
+function strokeMarksFor(
+  rows: Array<{ linkTypeColor?: string | null; linkTypeLineStyle?: string | null }>,
+  colCount: number,
+): Array<Array<PdfStrokeMark | null>> {
+  return rows.map((row) => {
+    const marks: Array<PdfStrokeMark | null> = Array.from({ length: colCount }, () => null)
+    marks[TYPE_COL] = typeStrokeMark(row)
+    return marks
+  })
+}
+
 function toClassicCells(row: LinkReferenceRow): string[] {
-  return [row.code, row.origin, row.destination, row.description || '—']
+  return [row.code, typeLabel(row.linkTypeName), row.origin, row.destination, row.description || '—']
 }
 
 function toPathCells(row: LinkPathReferenceRow): string[] {
   return [
     row.code,
+    typeLabel(row.linkTypeName),
     cellOrDash(row.originSite),
     cellOrDash(row.originArea),
     cellOrDash(row.originContainer),
@@ -109,7 +172,7 @@ function toPathCells(row: LinkPathReferenceRow): string[] {
 
 /**
  * Matriz de rowspan por página: cascada Sitio→Área→Cont→Equipo (origen/destino) + cable.
- * ID, puertos y descripción nunca se fusionan.
+ * ID, tipo, puertos y descripción nunca se fusionan. La columna Tipo es la 1.
  */
 export function computePathCellSpans(rows: LinkPathReferenceRow[]): PdfMergedCellSpan[][] {
   const n = rows.length
@@ -125,24 +188,24 @@ export function computePathCellSpans(rows: LinkPathReferenceRow[]): PdfMergedCel
 
   const rules: MergeRule[] = [
     {
-      col: 1,
+      col: 2,
       isContinuation: (prev, curr) => samePathText(prev.originSite, curr.originSite),
     },
     {
-      col: 2,
+      col: 3,
       isContinuation: (prev, curr) =>
         samePathText(prev.originSite, curr.originSite) &&
         samePathText(prev.originArea, curr.originArea),
     },
     {
-      col: 3,
+      col: 4,
       isContinuation: (prev, curr) =>
         samePathText(prev.originSite, curr.originSite) &&
         samePathText(prev.originArea, curr.originArea) &&
         samePathText(prev.originContainer, curr.originContainer),
     },
     {
-      col: 4,
+      col: 5,
       isContinuation: (prev, curr) =>
         samePathText(prev.originSite, curr.originSite) &&
         samePathText(prev.originArea, curr.originArea) &&
@@ -150,7 +213,7 @@ export function computePathCellSpans(rows: LinkPathReferenceRow[]): PdfMergedCel
         samePathText(prev.originDevice, curr.originDevice),
     },
     {
-      col: 6,
+      col: 7,
       isContinuation: (prev, curr) =>
         samePathText(prev.originSite, curr.originSite) &&
         samePathText(prev.originArea, curr.originArea) &&
@@ -159,7 +222,7 @@ export function computePathCellSpans(rows: LinkPathReferenceRow[]): PdfMergedCel
         samePathText(prev.cable, curr.cable),
     },
     {
-      col: 8,
+      col: 9,
       isContinuation: (prev, curr) =>
         samePathText(prev.destinationSite, curr.destinationSite) &&
         samePathText(prev.destinationArea, curr.destinationArea) &&
@@ -167,20 +230,20 @@ export function computePathCellSpans(rows: LinkPathReferenceRow[]): PdfMergedCel
         samePathText(prev.destinationDevice, curr.destinationDevice),
     },
     {
-      col: 9,
+      col: 10,
       isContinuation: (prev, curr) =>
         samePathText(prev.destinationSite, curr.destinationSite) &&
         samePathText(prev.destinationArea, curr.destinationArea) &&
         samePathText(prev.destinationContainer, curr.destinationContainer),
     },
     {
-      col: 10,
+      col: 11,
       isContinuation: (prev, curr) =>
         samePathText(prev.destinationSite, curr.destinationSite) &&
         samePathText(prev.destinationArea, curr.destinationArea),
     },
     {
-      col: 11,
+      col: 12,
       isContinuation: (prev, curr) => samePathText(prev.destinationSite, curr.destinationSite),
     },
   ]
@@ -222,7 +285,7 @@ export function countLinkReferencePages(
       LINK_PATH_COLUMNS,
       pathRows,
       toPathCells,
-      { fontSize: PATH_FONT_SIZE, headerHeight: getPdfGroupedHeaderHeight() },
+      PATH_DRAW,
     )
     return pages.length
   }
@@ -237,6 +300,7 @@ export function countLinkReferencePages(
     LINK_REF_COLUMNS,
     rows,
     toClassicCells,
+    CLASSIC_DRAW,
   )
   return pages.length
 }
@@ -303,6 +367,7 @@ export function drawLinkReferencePages(
     LINK_REF_COLUMNS,
     rows,
     toClassicCells,
+    CLASSIC_DRAW,
   )
 
   for (let i = 0; i < pages.length; i++) {
@@ -329,12 +394,11 @@ export function drawLinkReferencePages(
 
     const layout = getPdfTableLayout(pw, LINK_REF_COLUMNS)
     drawPdfTableHeader(pdf, geom.table.y, layout, LINK_REF_COLUMNS)
-    drawPdfTableBody(
-      pdf,
-      geom.table.y,
-      layout,
-      pages[i].map(toClassicCells),
-    )
+    const pageRows = pages[i]
+    drawPdfTableBody(pdf, geom.table.y, layout, pageRows.map(toClassicCells), undefined, {
+      ...CLASSIC_DRAW,
+      strokeMarks: strokeMarksFor(pageRows, LINK_REF_COLUMNS.length),
+    })
     drawFooter(
       pdf,
       pw,
@@ -381,7 +445,6 @@ function drawPathPages(
   if (!rows.length) return 0
 
   const geom = getPaperGeometry(format, orientation)
-  const headerH = getPdfGroupedHeaderHeight()
   const pages = paginatePdfRows(
     pdf,
     geom.pageW,
@@ -390,7 +453,7 @@ function drawPathPages(
     LINK_PATH_COLUMNS,
     rows,
     toPathCells,
-    { fontSize: PATH_FONT_SIZE, headerHeight: headerH },
+    PATH_DRAW,
   )
 
   for (let i = 0; i < pages.length; i++) {
@@ -424,7 +487,10 @@ function drawPathPages(
       layout,
       pageRows.map(toPathCells),
       computePathCellSpans(pageRows),
-      { fontSize: PATH_FONT_SIZE, headerHeight: headerH },
+      {
+        ...PATH_DRAW,
+        strokeMarks: strokeMarksFor(pageRows, LINK_PATH_COLUMNS.length),
+      },
     )
     drawFooter(
       pdf,

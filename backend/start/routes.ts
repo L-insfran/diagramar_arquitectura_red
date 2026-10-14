@@ -15,6 +15,7 @@ const RacksController = () => import('#controllers/racks_controller')
 const BoardsController = () => import('#controllers/boards_controller')
 const ConnectionDiagramsController = () => import('#controllers/connection_diagrams_controller')
 const DiagramLinksController = () => import('#controllers/diagram_links_controller')
+const DiagramLinkTypesController = () => import('#controllers/diagram_link_types_controller')
 const RackAccessoriesController = () => import('#controllers/rack_accessories_controller')
 const RackAccessoryTemplatesController = () =>
   import('#controllers/rack_accessory_templates_controller')
@@ -181,6 +182,12 @@ router
     router.get('/connection-diagrams/:id', [ConnectionDiagramsController, 'show'])
     router.put('/connection-diagrams/:id', [ConnectionDiagramsController, 'update'])
     router.delete('/connection-diagrams/:id', [ConnectionDiagramsController, 'destroy'])
+
+    router.get('/diagram-link-types', [DiagramLinkTypesController, 'index'])
+    router.post('/diagram-link-types', [DiagramLinkTypesController, 'store'])
+    router.get('/diagram-link-types/:id', [DiagramLinkTypesController, 'show'])
+    router.put('/diagram-link-types/:id', [DiagramLinkTypesController, 'update'])
+    router.delete('/diagram-link-types/:id', [DiagramLinkTypesController, 'destroy'])
 
     router.get('/diagram-links', [DiagramLinksController, 'index'])
     router.post('/diagram-links', [DiagramLinksController, 'store'])
