@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Cable,
   ChevronLeft,
-  Download,
   ChevronRight,
   Copy,
   MoreVertical,
   Pencil,
   Plus,
-  Printer,
   Save,
   Search,
   Trash2,
@@ -22,7 +20,6 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { TruncatedText } from '../components/Tooltip'
 import { SimpleLinkModal } from '../components/diagram/SimpleLinkModal'
 import { DiagramLinkReferenceList } from '../components/diagram/DiagramLinkReferenceList'
-import { PrintModePanel } from '../components/diagram/PrintModePanel'
 import { DiagramCanvasOptionsMenu } from '../components/diagram/DiagramCanvasOptionsMenu'
 import { DiagramViewMenu } from '../components/diagram/DiagramViewMenu'
 import { SIMPLE_DEVICE_GAP, simpleDeviceHeight, resolveDeviceGap, resolveDeviceNodeSize, SIMPLE_DEVICE_WIDTH, CONTAINER_PAD } from '../components/diagram/SimpleDeviceNode'
@@ -37,7 +34,6 @@ import {
   type ConnectionDiagramCanvasHandle,
 } from '../components/diagram/ConnectionDiagramCanvas'
 import { useApi } from '../hooks/useApi'
-import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { useToast } from '../contexts/ToastContext'
@@ -51,26 +47,14 @@ import { devicesService } from '../services/devices.service'
 import { boardsService } from '../services/boards.service'
 import { racksService } from '../services/racks.service'
 import { sitesService } from '../services/sites.service'
-import { systemBrandingService } from '../services/systemBranding.service'
-import { exportConnectionDiagramPdf } from '../utils/exportConnectionDiagramPdf'
-import { collectLinkTypeLegend, linkLineStyleDef } from '../utils/diagram/linkTypeStyle'
-import { exportConnectionDiagramDxf } from '../utils/exportConnectionDiagramDxf'
 import type { LinkTableFormat } from '../utils/pdf/linkReferencePdf'
 import type { PaperFormat, PrintOrientation } from '../utils/pdf/a4Geometry'
+import { parsePrintFrame } from '../utils/pdf/printFrame'
 import {
-  centerFrameOnBounds,
-  fitContentIntoFrame,
-  frameFromBounds,
-  parsePrintFrame,
-} from '../utils/pdf/printFrame'
-import {
-  buildLinkEndpointPath,
-  formatEndpointPathText,
   formatLinkCode,
   formatLinkReference,
   occupancyEdgesFromDiagramLinks,
 } from '../utils/diagram/linkLabel'
-import { buildLinkPathRows } from '../utils/diagram/linkPathRows'
 import { boardFlowNodeId } from '../utils/boardPlacement'
 import { areaFlowNodeId } from '../utils/areaPlacement'
 import { rackFlowNodeId } from '../utils/diagram/rackLayout'
@@ -203,8 +187,7 @@ function createViewErrorMessage(error: unknown): string {
 }
 
 export default function ConnectionDiagramPage() {
-  const { activeProjectId: projectId, activeProject } = useProject()
-  const { user } = useAuth()
+  const { activeProjectId: projectId } = useProject()
   const { canMutate } = usePermissions()
   const toast = useToast()
   const canvasRef = useRef<ConnectionDiagramCanvasHandle>(null)
@@ -217,10 +200,8 @@ export default function ConnectionDiagramPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [exporting, setExporting] = useState(false)
   const [paperSize, setPaperSize] = useState<PaperFormat>('a4')
   const [printOrientation, setPrintOrientation] = useState<PrintOrientation>('landscape')
-  const [showPrintMargins, setShowPrintMargins] = useState(false)
   const [includeLegend, setIncludeLegend] = useState(true)
   const [includeLinkTable, setIncludeLinkTable] = useState(true)
   const [linkTableFormat, setLinkTableFormat] = useState<LinkTableFormat>(() => {
@@ -234,10 +215,6 @@ export default function ConnectionDiagramPage() {
   })
   const [invertColors, setInvertColors] = useState(false)
   const [printFrame, setPrintFrame] = useState<DiagramPrintFrame | null>(null)
-  const [printFrameLocked, setPrintFrameLocked] = useState(false)
-  const [printModeOpen, setPrintModeOpen] = useState(false)
-  const [highlightedPrintSector, setHighlightedPrintSector] = useState({ col: 0, row: 0 })
-  const [printDiagnostics, setPrintDiagnostics] = useState({ outsideCount: 0, cutCount: 0 })
   const [staleLinkIds, setStaleLinkIds] = useState<string[]>([])
   const [referenceListCollapsed, setReferenceListCollapsed] = useState(false)
   const [scopePanelCollapsed, setScopePanelCollapsed] = useState(() => {
@@ -351,25 +328,8 @@ export default function ConnectionDiagramPage() {
 
   useEffect(() => {
     setFocusedLinkId(null)
-    setPrintModeOpen(false)
-    setShowPrintMargins(false)
-    setPrintFrameLocked(false)
-    setHighlightedPrintSector({ col: 0, row: 0 })
     setStaleLinkIds([])
-    setPrintDiagnostics({ outsideCount: 0, cutCount: 0 })
   }, [selectedId])
-
-  useEffect(() => {
-    if (!printFrame) return
-    const maxCol = Math.max(0, printFrame.cols - 1)
-    const maxRow = Math.max(0, printFrame.rows - 1)
-    setHighlightedPrintSector((prev) => {
-      const col = Math.min(Math.max(0, prev.col), maxCol)
-      const row = Math.min(Math.max(0, prev.row), maxRow)
-      if (col === prev.col && row === prev.row) return prev
-      return { col, row }
-    })
-  }, [printFrame?.cols, printFrame?.rows])
 
   const {
     data: graphPayload,
@@ -1413,66 +1373,6 @@ export default function ConnectionDiagramPage() {
     [persistPortSettingsSoon]
   )
 
-  const applyPrintFrame = useCallback(
-    (next: DiagramPrintFrame, persist = true) => {
-      setPrintFrame(next)
-      if (persist) {
-        persistSettingsSoon({ ...buildPrintSettings(), printFrame: next })
-      }
-    },
-    [buildPrintSettings, persistSettingsSoon],
-  )
-
-  const ensurePrintFrame = useCallback((): DiagramPrintFrame | null => {
-    if (printFrame) return printFrame
-    const bounds = canvasRef.current?.getContentBounds()
-    if (!bounds) return null
-    const next = frameFromBounds(bounds, paperSize, printOrientation)
-    setPrintFrame(next)
-    return next
-  }, [printFrame, paperSize, printOrientation])
-
-  const openPrintMode = () => {
-    setPrintModeOpen(true)
-    setShowPrintMargins(true)
-    setHighlightedPrintSector({ col: 0, row: 0 })
-    const frame = ensurePrintFrame()
-    if (frame) {
-      persistSettingsSoon({ ...buildPrintSettings(), printFrame: frame })
-    }
-  }
-
-  const closePrintMode = () => {
-    setPrintModeOpen(false)
-    setShowPrintMargins(false)
-  }
-
-  const handleFitFrameToContent = () => {
-    const bounds = canvasRef.current?.getContentBounds()
-    if (!bounds) {
-      toast.error('No hay objetos para ajustar el marco')
-      return
-    }
-    applyPrintFrame(frameFromBounds(bounds, paperSize, printOrientation))
-  }
-
-  const handleFitContentIntoFrame = () => {
-    const frame = ensurePrintFrame()
-    const bounds = canvasRef.current?.getContentBounds()
-    if (!frame || !bounds) {
-      toast.error('No hay objetos para encajar en el marco')
-      return
-    }
-    applyPrintFrame(fitContentIntoFrame(bounds, frame, paperSize, printOrientation))
-  }
-
-  const handleCenterFrame = () => {
-    const frame = ensurePrintFrame()
-    const bounds = canvasRef.current?.getContentBounds()
-    if (!frame || !bounds) return
-    applyPrintFrame(centerFrameOnBounds(bounds, frame, paperSize, printOrientation))
-  }
-
   const handleAutorouteLinks = (ids: string[]) => {
     canvasRef.current?.autorouteLinks(ids)
   }
@@ -1511,123 +1411,6 @@ export default function ConnectionDiagramPage() {
       toast.error(e?.response?.data?.message ?? 'No se pudo guardar el layout')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const handleExportDxf = () => {
-    if (!selectedId || !canvasRef.current || !diagram || exporting) return
-    setExporting(true)
-    try {
-      const scene = canvasRef.current.getExportScene()
-      if (!scene) {
-        toast.error('No hay equipos ni contenedores en el diagrama para exportar.')
-        return
-      }
-      exportConnectionDiagramDxf({
-        title: diagram.name || 'Diagrama de conexión',
-        projectName: activeProject?.name,
-        clientName: activeProject?.clientName ?? undefined,
-        scene,
-      })
-      toast.success('DXF exportado')
-    } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudo exportar el DXF')
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  const handleExportPdf = async () => {
-    if (!selectedId || !canvasRef.current || !diagram) return
-    setExporting(true)
-    try {
-      const authorName = user?.firstName
-        ? `${user.firstName} ${user.lastName ?? ''}`.trim()
-        : undefined
-
-      let branding: { logoDataUrl?: string; reportTagline?: string } | undefined
-      try {
-        const meta = await systemBrandingService.get()
-        const logoDataUrl = meta.hasLogo
-          ? (await systemBrandingService.fetchLogoPngDataUrl()) ?? undefined
-          : undefined
-        branding = {
-          logoDataUrl,
-          reportTagline: meta.reportTagline ?? undefined,
-        }
-      } catch {
-        branding = undefined
-      }
-
-      const inventory = graphPayload?.inventory ?? []
-      const linkReferences = visibleLinkEdges
-        .slice()
-        .sort((a, b) => (a.code ?? 0) - (b.code ?? 0) || a.id.localeCompare(b.id))
-        .map((e) => ({
-          code: formatLinkCode(e.code),
-          origin: formatEndpointPathText(
-            buildLinkEndpointPath(e.source, e.sourcePort, inventory, containerByDeviceId)
-          ),
-          destination: formatEndpointPathText(
-            buildLinkEndpointPath(e.target, e.targetPort, inventory, containerByDeviceId),
-            { mirrored: true }
-          ),
-          description: e.description?.trim() || '',
-          linkTypeName: e.linkTypeName,
-          linkTypeColor: e.linkTypeColor,
-          linkTypeLineStyle: e.linkTypeLineStyle,
-        }))
-      const linkPathReferences = buildLinkPathRows(
-        visibleLinkEdges,
-        inventory,
-        containerByDeviceId,
-      ).map((row) => ({
-        code: row.code,
-        originSite: row.origin.site ?? '',
-        originArea: row.origin.area ?? '',
-        originContainer: row.origin.container ?? '',
-        originDevice: row.origin.device ?? '',
-        originPort: row.origin.port ?? '',
-        cable: row.cable ?? '',
-        destinationPort: row.destination.port ?? '',
-        destinationDevice: row.destination.device ?? '',
-        destinationContainer: row.destination.container ?? '',
-        destinationArea: row.destination.area ?? '',
-        destinationSite: row.destination.site ?? '',
-        description: row.edge.description?.trim() || '',
-        linkTypeName: row.edge.linkTypeName,
-        linkTypeColor: row.edge.linkTypeColor,
-        linkTypeLineStyle: row.edge.linkTypeLineStyle,
-      }))
-
-      // Captura el layout actual (sin reempaquetar contenedores).
-      await exportConnectionDiagramPdf({
-        title: diagram.name || 'Diagrama de conexión',
-        projectName: activeProject?.name,
-        clientName: activeProject?.clientName ?? undefined,
-        authorName,
-        branding,
-        orientation: printOrientation,
-        format: paperSize,
-        includeLegend,
-        legendItems: collectLinkTypeLegend(visibleLinkEdges).map((item) => ({
-          label: item.label,
-          color: item.color,
-          dash: linkLineStyleDef(item.lineStyle).pdfDash,
-        })),
-        includeLinkTable,
-        linkTableFormat,
-        invertColors,
-        linkReferences,
-        linkPathReferences,
-        captureDiagram: (format, orientation) =>
-          canvasRef.current!.captureDiagramPng(format, orientation, invertColors),
-      })
-      toast.success('PDF exportado')
-    } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudo exportar el PDF')
-    } finally {
-      setExporting(false)
     }
   }
 
@@ -2634,29 +2417,6 @@ export default function ConnectionDiagramPage() {
               </Button>
             )}
             {selectedId ? (
-              <Button
-                size="sm"
-                variant={printModeOpen ? 'primary' : 'secondary'}
-                icon={<Printer className="h-4 w-4" />}
-                aria-pressed={printModeOpen}
-                onClick={() => (printModeOpen ? closePrintMode() : openPrintMode())}
-              >
-                {printModeOpen ? 'Cerrar impresión' : 'Impresión'}
-              </Button>
-            ) : null}
-            {selectedId ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<Download className="h-4 w-4" />}
-                isLoading={exporting}
-                disabled={exporting}
-                onClick={handleExportDxf}
-              >
-                Exportar DXF
-              </Button>
-            ) : null}
-            {selectedId ? (
               <DiagramCanvasOptionsMenu
                 portDisplay={portDisplay}
                 onPortDisplayChange={canMutate ? handlePortDisplayChange : undefined}
@@ -2714,17 +2474,6 @@ export default function ConnectionDiagramPage() {
               visibleContainerIds={visibleContainerIds}
               diagram={diagramForCanvas}
               readOnly={!canMutate}
-              paperSize={paperSize}
-              printOrientation={printOrientation}
-              showPrintMargins={showPrintMargins}
-              printInvertColors={invertColors}
-              printFrame={printFrame}
-              printFrameLocked={printFrameLocked}
-              highlightedPrintCol={highlightedPrintSector.col}
-              highlightedPrintRow={highlightedPrintSector.row}
-              onPrintFrameChange={canMutate ? setPrintFrame : undefined}
-              onPrintFrameChangeEnd={canMutate ? (frame) => applyPrintFrame(frame) : undefined}
-              onPrintDiagnostics={setPrintDiagnostics}
               onStaleLinkIdsChange={setStaleLinkIds}
               focusedLinkId={focusedLinkId}
               onFocusedLinkChange={setFocusedLinkId}
@@ -2782,59 +2531,6 @@ export default function ConnectionDiagramPage() {
             />
           ) : null}
           </div>
-          {printModeOpen && selectedId ? (
-            <PrintModePanel
-              paperSize={paperSize}
-              printOrientation={printOrientation}
-              printFrame={printFrame}
-              frameLocked={printFrameLocked}
-              highlightedCol={highlightedPrintSector.col}
-              highlightedRow={highlightedPrintSector.row}
-              onHighlightedSectorChange={(col, row) =>
-                setHighlightedPrintSector({ col, row })
-              }
-              includeLegend={includeLegend}
-              includeLinkTable={includeLinkTable}
-              linkTableFormat={linkTableFormat}
-              invertColors={invertColors}
-              outsideCount={printDiagnostics.outsideCount}
-              cutCount={printDiagnostics.cutCount}
-              exporting={exporting}
-              readOnly={!canMutate}
-              onPaperSizeChange={(value) => {
-                setPaperSize(value)
-                persistSettingsSoon({ ...buildPrintSettings(), paperSize: value })
-              }}
-              onOrientationChange={(value) => {
-                setPrintOrientation(value)
-                persistSettingsSoon({ ...buildPrintSettings(), printOrientation: value })
-              }}
-              onFrameChange={setPrintFrame}
-              onFrameChangeEnd={(frame) => applyPrintFrame(frame)}
-              onToggleLock={() => setPrintFrameLocked((v) => !v)}
-              onFitToContent={handleFitFrameToContent}
-              onFitContentIntoFrame={handleFitContentIntoFrame}
-              onCenterFrame={handleCenterFrame}
-              onIncludeLegendChange={(value) => {
-                setIncludeLegend(value)
-                persistSettingsSoon({ ...buildPrintSettings(), printIncludeLegend: value })
-              }}
-              onIncludeLinkTableChange={(value) => {
-                setIncludeLinkTable(value)
-                persistSettingsSoon({ ...buildPrintSettings(), printIncludeLinkTable: value })
-              }}
-              onLinkTableFormatChange={(value) => {
-                setLinkTableFormat(value)
-                persistSettingsSoon({ ...buildPrintSettings(), printLinkTableFormat: value })
-              }}
-              onInvertColorsChange={(value) => {
-                setInvertColors(value)
-                persistSettingsSoon({ ...buildPrintSettings(), printInvertColors: value })
-              }}
-              onExport={() => void handleExportPdf()}
-              onClose={closePrintMode}
-            />
-          ) : null}
         </section>
       </div>
 

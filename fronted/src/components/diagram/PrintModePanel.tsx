@@ -53,7 +53,8 @@ type PrintModePanelProps = {
   onLinkTableFormatChange: (value: LinkTableFormat) => void
   onInvertColorsChange: (value: boolean) => void
   onExport: () => void
-  onClose: () => void
+  /** Si no se pasa, se oculta el botón de cerrar (p. ej. página dedicada). */
+  onClose?: () => void
 }
 
 function SegmentToggle<T extends string>({
@@ -163,6 +164,7 @@ export function PrintModePanel({
   onExport,
   onClose,
 }: PrintModePanelProps) {
+  const showClose = typeof onClose === 'function'
   const cols = printFrame?.cols ?? 1
   const rows = printFrame?.rows ?? 1
   const pages = cols * rows
@@ -213,14 +215,16 @@ export function PrintModePanel({
             {printOrientation === 'landscape' ? 'horizontal' : 'vertical'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          title="Cerrar modo impresión"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {showClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            title="Cerrar modo impresión"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto px-3 py-3">
