@@ -8,7 +8,8 @@ import { Topbar } from './Topbar'
 
 export function MainLayout() {
   const location = useLocation()
-  const isFullBleedCanvas = location.pathname === '/connection-diagram'
+  const isFullBleedCanvas =
+    location.pathname === '/connection-diagram' || location.pathname === '/print'
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [release, setRelease] = useState<ReleaseStatus | null>(null)
@@ -82,7 +83,7 @@ export function MainLayout() {
         onClose={closeNotice}
       />
       <div
-        className={`flex h-dvh min-h-0 flex-col overflow-hidden transition-[margin] duration-200 ease-out ${sidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}
+        className={`flex h-dvh min-h-0 flex-col overflow-hidden transition-[margin] duration-200 ease-out ${sidebarCollapsed ? 'lg:ml-20' : 'lg:ml-52'}`}
       >
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <main

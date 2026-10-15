@@ -8,8 +8,10 @@ import {
   Globe,
   Cable,
   FileSpreadsheet,
+  FileBox,
+  Download,
+  Printer,
   Settings,
-  Network,
   Building2,
   HardDrive,
   MapPin,
@@ -47,21 +49,21 @@ const OPEN_GROUPS_KEY = 'nm.sidebar.openGroups'
 const allNavEntries: NavEntry[] = [
   {
     kind: 'link',
-    id: 'dashboard',
-    to: '/',
-    icon: LayoutDashboard,
-    label: 'Panel',
-    viewerVisible: true,
-    adminOnly: false,
-  },
-  {
-    kind: 'link',
     id: 'projects',
     to: '/projects',
     icon: Building2,
     label: 'Proyectos',
     viewerVisible: false,
     adminOnly: true,
+  },
+  {
+    kind: 'link',
+    id: 'dashboard',
+    to: '/',
+    icon: LayoutDashboard,
+    label: 'Panel',
+    viewerVisible: true,
+    adminOnly: false,
   },
   {
     kind: 'group',
@@ -77,15 +79,6 @@ const allNavEntries: NavEntry[] = [
         to: '/connection-diagram',
         icon: Cable,
         label: 'Diagrama de conexión',
-        viewerVisible: true,
-        adminOnly: false,
-      },
-      {
-        kind: 'link',
-        id: 'connection-sheets',
-        to: '/connection-sheets',
-        icon: FileSpreadsheet,
-        label: 'Planillas de conexión',
         viewerVisible: true,
         adminOnly: false,
       },
@@ -146,6 +139,43 @@ const allNavEntries: NavEntry[] = [
       },
     ],
   },
+  {
+    kind: 'group',
+    id: 'exportar',
+    icon: Download,
+    label: 'Exportar',
+    viewerVisible: true,
+    adminOnly: false,
+    children: [
+      {
+        kind: 'link',
+        id: 'connection-sheets',
+        to: '/connection-sheets',
+        icon: FileSpreadsheet,
+        label: 'Exportar conexiones',
+        viewerVisible: true,
+        adminOnly: false,
+      },
+      {
+        kind: 'link',
+        id: 'export-dxf',
+        to: '/export/dxf',
+        icon: FileBox,
+        label: 'Exportar a DXF',
+        viewerVisible: true,
+        adminOnly: false,
+      },
+    ],
+  },
+  {
+    kind: 'link',
+    id: 'print',
+    to: '/print',
+    icon: Printer,
+    label: 'Imprimir',
+    viewerVisible: true,
+    adminOnly: false,
+  },
 ]
 
 function pathMatches(pathname: string, to: string): boolean {
@@ -199,11 +229,11 @@ function linkClassName(isActive: boolean, isCollapsed: boolean, nested = false):
 function readOpenGroups(): Record<string, boolean> {
   try {
     const raw = localStorage.getItem(OPEN_GROUPS_KEY)
-    if (!raw) return { infraestructura: true, 'capa-red': true }
+    if (!raw) return { infraestructura: true, exportar: true, 'capa-red': true }
     const parsed = JSON.parse(raw) as Record<string, boolean>
-    return { infraestructura: true, 'capa-red': true, ...parsed }
+    return { infraestructura: true, exportar: true, 'capa-red': true, ...parsed }
   } catch {
-    return { infraestructura: true, 'capa-red': true }
+    return { infraestructura: true, exportar: true, 'capa-red': true }
   }
 }
 
@@ -362,7 +392,7 @@ export function Sidebar({
       <aside
         className={`fixed top-0 left-0 z-50 h-full transform transition-transform duration-200 lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${isCollapsed ? 'lg:w-20' : 'lg:w-64'} w-64 transition-[width] duration-200 ease-out ${
+        } ${isCollapsed ? 'lg:w-20' : 'lg:w-52'} w-52 transition-[width] duration-200 ease-out ${
           isCollapsed
             ? 'bg-transparent dark:bg-transparent lg:bg-transparent lg:dark:bg-transparent'
             : 'bg-slate-50 dark:bg-slate-950'
@@ -378,23 +408,25 @@ export function Sidebar({
               isCollapsed
                 ? 'lg:border-b lg:border-slate-200/60 lg:dark:border-slate-800/50'
                 : 'border-b border-slate-200 dark:border-slate-800/80'
-            } ${isCollapsed ? 'px-3' : 'px-6'}`}
+            } px-3`}
           >
-            <div className={`flex flex-col ${isCollapsed ? 'gap-0' : 'gap-0.5'}`}>
-              <div className="flex items-center gap-3">
-                <div className="p-1.5 bg-blue-600 rounded-lg">
-                  <Network className="w-5 h-5 text-white" />
-                </div>
+            <div className={`min-w-0 flex-1 flex flex-col ${isCollapsed ? 'gap-0' : 'gap-0.5'}`}>
+              <div className="flex items-center gap-2">
+                <img
+                  src="/favicon.png"
+                  alt=""
+                  className="h-8 w-8 flex-shrink-0 rounded-lg object-cover"
+                />
                 <span
-                  className={`text-lg font-bold text-slate-900 dark:text-white origin-left transition-all duration-200 ${
-                    isCollapsed ? 'w-0 opacity-0 scale-95 ml-0 overflow-hidden' : 'opacity-100 scale-100'
+                  className={`text-base font-bold text-slate-900 dark:text-white origin-left transition-all duration-200 ${
+                    isCollapsed ? 'w-0 opacity-0 scale-95 ml-0 overflow-hidden' : 'opacity-100 scale-100 truncate'
                   }`}
                 >
-                  NetManager
+                  Insfrabyte
                 </span>
               </div>
               {!isCollapsed ? (
-                <p className="pl-[2.75rem] text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                <p className="pl-10 text-[10px] leading-tight text-slate-500 dark:text-slate-400">
                   Documentación de conexiones
                 </p>
               ) : null}
@@ -500,7 +532,7 @@ export function Sidebar({
         className={`hidden lg:flex fixed z-[60] items-center justify-center w-8 h-8 rounded-full border transition-all duration-200 ${
           isCollapsed
             ? 'left-[4.75rem] top-1/2 -translate-y-1/2 bg-white/70 dark:bg-slate-950/50 border-slate-200/70 dark:border-slate-800/60 text-slate-700 dark:text-slate-200 shadow-[0_10px_30px_rgba(0,0,0,0.20)] backdrop-blur-xl hover:scale-105 hover:bg-white/90 dark:hover:bg-slate-950/70'
-            : 'left-[15.5rem] top-[4.25rem] bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 shadow-md hover:bg-slate-50 dark:hover:bg-slate-900/60'
+            : 'left-[12.5rem] top-[4.25rem] bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 shadow-md hover:bg-slate-50 dark:hover:bg-slate-900/60'
         }`}
         aria-label={collapseButtonLabel}
         title={collapseButtonLabel}
