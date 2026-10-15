@@ -248,8 +248,12 @@ export function slotsPerSide(
 }
 
 /** Rows needed for vertical sides (left/right); tree top/bottom add one row each if used. */
-export function portSlotsVerticalRows(slots: Pick<DiagramPortSlot, 'side'>[]): number {
-  const counts = slotsPerSide(slots)
+export function portSlotsVerticalRows(
+  slots: Array<Pick<DiagramPortSlot, 'side'> & { anchor?: DiagramHandleAnchor }>
+): number {
+  const counts = slotsPerSide(
+    slots.map((slot) => ({ side: slot.anchor?.side ?? slot.side }))
+  )
   const vertical = Math.max(counts.left, counts.right)
   const horizUsed = counts.top > 0 || counts.bottom > 0 ? 1 : 0
   return Math.max(vertical, horizUsed)
@@ -292,13 +296,9 @@ export function assignSlotAnchors(
         portFlowInverted,
         side
       )
-      // En modo árbol, anclas guardadas del layout libre (laterales) no aplican.
-      const useSaved =
-        saved &&
-        (layoutMode === 'free' ||
-          (slot.connected && saved.side === slot.side) ||
-          (!slot.connected && saved.side === side))
-      const anchor = useSaved ? { ...saved } : defaultAnchor
+      // Cada vista guarda sus anclas por separado. Si el usuario movió el
+      // puerto a otro lado, esa posición tiene que sobrevivir al recalcular.
+      const anchor = saved ? { ...saved } : defaultAnchor
       result.push({ ...slot, anchor })
     })
   }

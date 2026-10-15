@@ -1744,7 +1744,10 @@ function ConnectionDiagramCanvasInner(
     const next = normalizeHandleAnchorKeys(diagram.handleAnchors ?? {})
     handleAnchorsRef.current = next
     setHandleAnchors(next)
-  }, [diagram.id])
+    // Solo al cambiar de diagrama o de vista. Cada modo trae su propio bucket
+    // de anclas; no rehidratar en cada render porque pisaría un arrastre sin guardar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram.id, diagram.layoutMode])
 
   const handleAnchorChange = useCallback(
     (deviceId: string, handleId: string, anchor: DiagramHandleAnchor) => {

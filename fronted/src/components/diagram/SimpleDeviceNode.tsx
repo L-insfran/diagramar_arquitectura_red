@@ -9,7 +9,7 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react'
-import { Download, MoreVertical } from 'lucide-react'
+import { MoreVertical, RotateCcw } from 'lucide-react'
 import {
   DIAGRAM_CONNECT_SOURCE_HANDLE,
   DIAGRAM_CONNECT_TARGET_HANDLE,
@@ -197,8 +197,12 @@ function nearestSlotId(
   return bestId
 }
 
-/** Screen px past the node border before a port drag becomes a link. */
-const PORT_CONNECT_OUTSIDE_SLOP_PX = 8
+/**
+ * Flow px past the node border before a port drag becomes a link.
+ * Has to clear the grab disc, which sits on the perimeter and hangs outside,
+ * so dropping a port on another side does not get thrown away as a link.
+ */
+const PORT_CONNECT_OUTSIDE_MARGIN = 36
 const ANCHOR_TRANSITION = 'top 180ms ease, left 180ms ease, bottom 180ms ease, right 180ms ease, transform 180ms ease'
 
 type PortGesture = 'pending' | 'anchor' | 'connect'
@@ -286,14 +290,14 @@ function PortAnchorHandle({
   }
 
   const pointerOutsideNode = (clientX: number, clientY: number): boolean => {
-    const rect = shellRef.current?.parentElement?.getBoundingClientRect()
-    if (!rect) return false
-    const slop = PORT_CONNECT_OUTSIDE_SLOP_PX
+    const { nodeWidth: width, nodeHeight: height } = metricsRef.current
+    const local = localFromClient(clientX, clientY)
+    if (!local) return false
     return (
-      clientX < rect.left - slop ||
-      clientY < rect.top - slop ||
-      clientX > rect.right + slop ||
-      clientY > rect.bottom + slop
+      local.x < -PORT_CONNECT_OUTSIDE_MARGIN ||
+      local.y < -PORT_CONNECT_OUTSIDE_MARGIN ||
+      local.x > width + PORT_CONNECT_OUTSIDE_MARGIN ||
+      local.y > height + PORT_CONNECT_OUTSIDE_MARGIN
     )
   }
 
@@ -359,10 +363,14 @@ function PortAnchorHandle({
       const mode = gestureRef.current
       const { nodeWidth: width, nodeHeight: height } = metricsRef.current
       const cbs = gestureCbsRef.current
-      if (mode === 'connect') {
+      const releaseOnNode = !pointerOutsideNode(ev.clientX, ev.clientY)
+      if (mode === 'connect' && !releaseOnNode) {
         cbs.onPortConnectDrag?.(connectParams(ev.clientX, ev.clientY, 'end'))
         cbs.onAnchorRevert?.()
-      } else if (mode === 'anchor') {
+      } else if (mode === 'anchor' || (mode === 'connect' && releaseOnNode)) {
+        if (mode === 'connect') {
+          cbs.onPortConnectDrag?.(connectParams(ev.clientX, ev.clientY, 'cancel'))
+        }
         const local = localFromClient(ev.clientX, ev.clientY)
         if (local) {
           cbs.onAnchorCommit?.(projectPointerToPerimeter(local.x, local.y, width, height))
@@ -651,20 +659,20 @@ function SimpleDeviceNodeComponent({
           : undefined
       }
     >
-      {data.onDownloadConnectionSheet ? (
+      {data.onRedistributePorts ? (
         <NodeToolbar position={Position.Top} offset={8} className="nodrag nopan">
           <button
             type="button"
-            title="Descargar la planilla de conexiones de este equipo"
+            title="Volver a distribuir los puertos en el borde del equipo"
             className="nodrag nopan flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-lg hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
             onClick={(e) => {
               e.stopPropagation()
-              data.onDownloadConnectionSheet?.()
+              data.onRedistributePorts?.()
             }}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <Download className="h-3.5 w-3.5" />
-            Planilla de conexiones
+            <RotateCcw className="h-3.5 w-3.5" />
+            Restaurar puertos
           </button>
         </NodeToolbar>
       ) : null}
