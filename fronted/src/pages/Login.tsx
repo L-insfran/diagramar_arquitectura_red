@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Network, AlertCircle } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
@@ -30,12 +30,14 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex p-3 bg-blue-600 rounded-2xl mb-4">
-            <Network className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">NetManager</h1>
+          <h1>
+            <img
+              src="/insfrabyte-logo.png"
+              alt="Insfrabyte"
+              className="mx-auto h-36 w-auto rounded-2xl dark:mix-blend-screen"
+            />
+          </h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             Documentá conexiones de comunicación de forma rápida
           </p>
