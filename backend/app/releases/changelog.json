@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "1.0.1",
+      "title": "Versión 1.0.1",
+      "highlights": [
+        "Permitir descargar las planillas de conexión de varios equipos a la vez.",
+        "Conservar la posición de los puertos al cambiar de vista y poder restaurarlos.",
+        "Automatizar el bump de versión y el changelog desde los commits."
+      ]
+    },
+    {
       "version": "1.0.0",
       "title": "Aviso de novedades",
       "highlights": [
