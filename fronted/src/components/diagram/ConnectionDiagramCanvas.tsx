@@ -103,7 +103,8 @@ import {
 } from '../../utils/diagram/handleAnchor'
 import { isTreeLayoutMode } from '../../utils/diagram/treeLayout'
 import {
-  hitTestPortHandle,
+  domPortDropTarget,
+  flowPortDropTarget,
   portHitRadiusForZoom,
   type PortHitNode,
 } from '../../utils/diagram/portHitTest'
@@ -1872,6 +1873,8 @@ function ConnectionDiagramCanvasInner(
 
   const onCreateLinkFromPortsRef = useRef(onCreateLinkFromPorts)
   onCreateLinkFromPortsRef.current = onCreateLinkFromPorts
+  const onConnectDevicesRef = useRef(onConnectDevices)
+  onConnectDevicesRef.current = onConnectDevices
   const [portConnectPreview, setPortConnectPreview] = useState<{
     x1: number
     y1: number
@@ -1907,30 +1910,67 @@ function ConnectionDiagramCanvasInner(
         x1 = endpoint.x
         y1 = endpoint.y
       }
-      const hit = hitTestPortHandle(
-        collectPortHitNodes(currentNodes),
-        flow,
-        portHitRadiusForZoom(instance.getZoom()),
-        deviceId
+      const slotsByDevice = new Map<string, DiagramPortSlot[]>()
+      for (const node of currentNodes) {
+        if (node.type !== 'simpleDevice') continue
+        slotsByDevice.set(node.id, (node.data?.slots as DiagramPortSlot[] | undefined) ?? [])
+      }
+      const domHit = domPortDropTarget(
+        params.clientX,
+        params.clientY,
+        deviceId,
+        slotsByDevice
       )
+      const flowHit = domHit
+        ? null
+        : flowPortDropTarget(
+            collectPortHitNodes(currentNodes),
+            flow,
+            portHitRadiusForZoom(instance.getZoom()),
+            deviceId
+          )
+      const targetDeviceId = domHit?.deviceId ?? flowHit?.deviceId ?? null
+      const targetHandleId = domHit ? domHit.handleId : (flowHit?.handleId ?? null)
+      const targetLabel = (domHit?.label || flowHit?.label || '').trim()
+      let x2 = flow.x
+      let y2 = flow.y
+      if (targetDeviceId && targetHandleId) {
+        const targetNode = currentNodes.find((node) => node.id === targetDeviceId)
+        const targetAbs = absolutePos(currentNodes, targetDeviceId)
+        if (targetNode && targetAbs) {
+          const endpoint = resolveNodeHandleEndpoint(
+            targetNode,
+            targetHandleId,
+            'target',
+            handleAnchorsRef.current,
+            targetAbs
+          )
+          x2 = endpoint.x
+          y2 = endpoint.y
+        }
+      }
       if (params.phase === 'move') {
-        setPortConnectPreview({
-          x1,
-          y1,
-          x2: hit?.x ?? flow.x,
-          y2: hit?.y ?? flow.y,
-        })
+        setPortConnectPreview({ x1, y1, x2, y2 })
         return
       }
       setPortConnectPreview(null)
-      if (!hit) return
+      if (!targetDeviceId) return
+      if (!targetHandleId) {
+        onConnectDevicesRef.current?.({
+          sourceDeviceId: deviceId,
+          targetDeviceId,
+          sourceHandle: params.handleId,
+          targetHandle: null,
+        })
+        return
+      }
       onCreateLinkFromPortsRef.current?.({
         sourceDeviceId: deviceId,
         sourceHandleId: params.handleId,
         sourceLabel: params.label,
-        targetDeviceId: hit.deviceId,
-        targetHandleId: hit.handleId,
-        targetLabel: hit.label,
+        targetDeviceId,
+        targetHandleId,
+        targetLabel,
       })
     },
     []
@@ -2833,6 +2873,7 @@ function ConnectionDiagramCanvasInner(
         edgeTypes={edgeTypes}
         colorMode={colorMode}
         connectionMode={ConnectionMode.Loose}
+        connectionRadius={40}
         onConnect={onConnect}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}

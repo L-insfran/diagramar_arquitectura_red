@@ -3,6 +3,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   useReactFlow,
+  useStore,
   type Edge,
   type EdgeProps,
 } from '@xyflow/react'
@@ -15,8 +16,10 @@ import {
   pointAtPathT,
   polylineLength,
   roundedOrthogonalPath,
+  trimPolylineEnds,
   type DiagramPoint,
 } from '../../utils/diagram/orthogonalPath'
+import { portCableClearancePx } from '../../utils/diagram/portHitTest'
 import { formatLinkCode } from '../../utils/diagram/linkLabel'
 import { linkStrokeColor, linkStrokeDasharray } from '../../utils/diagram/linkTypeStyle'
 import { DIAGRAM_LINK_REF } from '../../utils/diagram/diagramTypography'
@@ -108,6 +111,12 @@ function RoutedLinkEdgeComponent({
   pointsRef.current = points
 
   const path = useMemo(() => roundedOrthogonalPath(points, 8), [points])
+  const zoom = useStore((s) => s.transform[2] || 1)
+  const interactionPath = useMemo(() => {
+    const trimmed = trimPolylineEnds(points, portCableClearancePx(zoom))
+    if (polylineLength(trimmed) + 8 >= polylineLength(points)) return ''
+    return roundedOrthogonalPath(trimmed, 8)
+  }, [points, zoom])
 
   const labelT = useMemo(() => {
     if (data?.labelPathT != null && Number.isFinite(data.labelPathT)) {
@@ -246,12 +255,13 @@ function RoutedLinkEdgeComponent({
       <BaseEdge
         id={id}
         path={path}
-        interactionWidth={24}
+        interactionWidth={interactionPath ? 0 : 24}
         style={{
           ...style,
           stroke: stroke,
           strokeDasharray: linkStrokeDasharray(data?.linkTypeLineStyle, stale),
           strokeWidth: selected ? 4 : stale ? 2.5 : 2,
+          pointerEvents: interactionPath ? 'none' : undefined,
           filter: selected
             ? 'drop-shadow(0 0 5px rgba(56, 189, 248, 0.95))'
             : stale
@@ -259,6 +269,16 @@ function RoutedLinkEdgeComponent({
               : undefined,
         }}
       />
+      {interactionPath ? (
+        <path
+          d={interactionPath}
+          fill="none"
+          stroke="#000"
+          strokeOpacity={0}
+          strokeWidth={24}
+          className="react-flow__edge-interaction"
+        />
+      ) : null}
       {label ? (
         <EdgeLabelRenderer>
           <div

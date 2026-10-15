@@ -184,6 +184,28 @@ export function defaultLabelPathT(points: DiagramPoint[]): number {
   return closestPointOnPath(points, pathLabelAnchor(points)).t
 }
 
+/**
+ * Shorten a polyline by `insetPx` at both ends.
+ * Leaves the middle clickable; returns the original when the cable is too short to open a gap.
+ */
+export function trimPolylineEnds(points: DiagramPoint[], insetPx: number): DiagramPoint[] {
+  const pts = dedupePoints(points)
+  if (pts.length < 2 || insetPx <= 0) return pts
+  const total = polylineLength(pts)
+  const inset = Math.min(insetPx, Math.max(0, total / 2 - 10))
+  if (inset < 6) return pts
+  const start = pointAtPathT(pts, inset / total)
+  const end = pointAtPathT(pts, 1 - inset / total)
+  const out: DiagramPoint[] = [start]
+  let along = 0
+  for (let i = 1; i < pts.length - 1; i++) {
+    along += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+    if (along > inset + 0.5 && total - along > inset + 0.5) out.push(pts[i])
+  }
+  out.push(end)
+  return dedupePoints(out)
+}
+
 /** Keep the chip off the device handles at both ends. */
 export function clampLabelPathT(t: number, totalLen: number, insetPx = 20): number {
   if (totalLen <= insetPx * 2) return 0.5

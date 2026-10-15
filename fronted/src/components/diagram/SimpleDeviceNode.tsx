@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import {
   Handle,
   NodeResizer,
@@ -18,9 +18,11 @@ import type { DiagramPortSlot } from '../../utils/diagram/devicePortSlots'
 import {
   anchorToHandleStyle,
   anchorToLabelStyle,
+  anchorToLocalPoint,
   projectPointerToPerimeter,
   type DiagramHandleAnchor,
 } from '../../utils/diagram/handleAnchor'
+import { portGrabDiameterPx } from '../../utils/diagram/portHitTest'
 import {
   DIAGRAM_DEVICE_CHAR_PX,
   DIAGRAM_DEVICE_META,
@@ -175,19 +177,45 @@ export function resolveDeviceNodeSize(
 }
 
 const HANDLE_DRAG_THRESHOLD_PX = 4
-/** Local px past the border box before a port drag becomes a link gesture. */
-const PORT_CONNECT_OUTSIDE_MARGIN = 36
+
+function nearestSlotId(
+  slots: DiagramPortSlot[],
+  nodeWidth: number,
+  nodeHeight: number,
+  local: { x: number; y: number },
+): string | null {
+  let bestId: string | null = null
+  let best = Infinity
+  for (const slot of slots) {
+    const point = anchorToLocalPoint(slot.anchor, nodeWidth, nodeHeight)
+    const dist = Math.hypot(local.x - point.x, local.y - point.y)
+    if (dist < best) {
+      best = dist
+      bestId = slot.id
+    }
+  }
+  return bestId
+}
+
+/** Screen px past the node border before a port drag becomes a link. */
+const PORT_CONNECT_OUTSIDE_SLOP_PX = 8
 const ANCHOR_TRANSITION = 'top 180ms ease, left 180ms ease, bottom 180ms ease, right 180ms ease, transform 180ms ease'
 
 type PortGesture = 'pending' | 'anchor' | 'connect'
 
+type BeginGrab = (event: React.PointerEvent) => void
+
 type PortAnchorProps = {
   slot: DiagramPortSlot
+  peerSlots: DiagramPortSlot[]
   nodeWidth: number
   nodeHeight: number
   canDrag: boolean
   canClick: boolean
   draggingId: string | null
+  armed: boolean
+  onHoverPort?: (slotId: string | null) => void
+  beginGrabRef: React.RefObject<Map<string, BeginGrab>>
   onPortClick?: () => void
   onAnchorLive?: (anchor: DiagramHandleAnchor) => void
   onAnchorCommit?: (anchor: DiagramHandleAnchor) => void
@@ -197,9 +225,13 @@ type PortAnchorProps = {
 
 function PortAnchorHandle({
   slot,
+  peerSlots,
   canDrag,
   canClick,
   draggingId,
+  armed,
+  onHoverPort,
+  beginGrabRef,
   onPortClick,
   onAnchorLive,
   onAnchorCommit,
@@ -224,20 +256,46 @@ function PortAnchorHandle({
   const isDragging = draggingId === slot.id || gesture === 'anchor'
   const connected = slot.connected
 
-  const localFromEvent = useCallback(
-    (clientX: number, clientY: number): { x: number; y: number } | null => {
-      const shell = shellRef.current?.parentElement
-      if (!shell) return null
-      // shell is the padding box; convert screen px → border-box flow coords
-      const rect = shell.getBoundingClientRect()
-      const z = zoom > 0 ? zoom : 1
-      return {
-        x: (clientX - rect.left) / z + DEVICE_NODE_INSET.left,
-        y: (clientY - rect.top) / z + DEVICE_NODE_INSET.top,
-      }
-    },
-    [zoom]
-  )
+  const gestureCleanupRef = useRef<(() => void) | null>(null)
+  const metricsRef = useRef({ nodeWidth, nodeHeight, zoom, canDrag })
+  metricsRef.current = { nodeWidth, nodeHeight, zoom, canDrag }
+  const gestureCbsRef = useRef({
+    onAnchorLive,
+    onAnchorCommit,
+    onAnchorRevert,
+    onPortConnectDrag,
+  })
+  gestureCbsRef.current = {
+    onAnchorLive,
+    onAnchorCommit,
+    onAnchorRevert,
+    onPortConnectDrag,
+  }
+
+  useEffect(() => () => gestureCleanupRef.current?.(), [])
+
+  const localFromClient = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const shell = shellRef.current?.parentElement
+    if (!shell) return null
+    const rect = shell.getBoundingClientRect()
+    const z = metricsRef.current.zoom > 0 ? metricsRef.current.zoom : 1
+    return {
+      x: (clientX - rect.left) / z + DEVICE_NODE_INSET.left,
+      y: (clientY - rect.top) / z + DEVICE_NODE_INSET.top,
+    }
+  }
+
+  const pointerOutsideNode = (clientX: number, clientY: number): boolean => {
+    const rect = shellRef.current?.parentElement?.getBoundingClientRect()
+    if (!rect) return false
+    const slop = PORT_CONNECT_OUTSIDE_SLOP_PX
+    return (
+      clientX < rect.left - slop ||
+      clientY < rect.top - slop ||
+      clientX > rect.right + slop ||
+      clientY > rect.bottom + slop
+    )
+  }
 
   const connectParams = (clientX: number, clientY: number, phase: PortConnectDragPhase) => ({
     phase,
@@ -248,157 +306,217 @@ function PortAnchorHandle({
   })
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (!canDrag) return
+    if (!canDrag || e.button !== 0) return
     e.stopPropagation()
     e.preventDefault()
+    gestureCleanupRef.current?.()
     pointerDownRef.current = { x: e.clientX, y: e.clientY }
     gestureRef.current = 'pending'
     setGesture('pending')
-    const target = e.currentTarget as HTMLElement
-    try {
-      if (!target.hasPointerCapture(e.pointerId)) target.setPointerCapture(e.pointerId)
-    } catch {
-      // Synthetic events have no active pointer; the gesture still follows the target.
+
+    const onMove = (ev: PointerEvent) => {
+      if (!pointerDownRef.current) return
+      const dx = ev.clientX - pointerDownRef.current.x
+      const dy = ev.clientY - pointerDownRef.current.y
+      if (
+        gestureRef.current === 'pending' &&
+        Math.hypot(dx, dy) < HANDLE_DRAG_THRESHOLD_PX
+      ) {
+        return
+      }
+      const { nodeWidth: width, nodeHeight: height } = metricsRef.current
+      const cbs = gestureCbsRef.current
+      if (pointerOutsideNode(ev.clientX, ev.clientY)) {
+        if (gestureRef.current !== 'connect') {
+          gestureRef.current = 'connect'
+          setGesture('connect')
+          document.body.style.cursor = 'crosshair'
+          cbs.onAnchorRevert?.()
+        }
+        cbs.onPortConnectDrag?.(connectParams(ev.clientX, ev.clientY, 'move'))
+        return
+      }
+      const local = localFromClient(ev.clientX, ev.clientY)
+      if (!local) return
+      if (gestureRef.current === 'connect') {
+        cbs.onPortConnectDrag?.(connectParams(ev.clientX, ev.clientY, 'cancel'))
+      }
+      if (gestureRef.current !== 'anchor') {
+        gestureRef.current = 'anchor'
+        setGesture('anchor')
+        document.body.style.cursor = 'grabbing'
+      }
+      cbs.onAnchorLive?.(projectPointerToPerimeter(local.x, local.y, width, height))
+    }
+
+    const finish = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      gestureCleanupRef.current = null
+      document.body.style.cursor = ''
+      if (!pointerDownRef.current) return
+      const mode = gestureRef.current
+      const { nodeWidth: width, nodeHeight: height } = metricsRef.current
+      const cbs = gestureCbsRef.current
+      if (mode === 'connect') {
+        cbs.onPortConnectDrag?.(connectParams(ev.clientX, ev.clientY, 'end'))
+        cbs.onAnchorRevert?.()
+      } else if (mode === 'anchor') {
+        const local = localFromClient(ev.clientX, ev.clientY)
+        if (local) {
+          cbs.onAnchorCommit?.(projectPointerToPerimeter(local.x, local.y, width, height))
+        } else {
+          cbs.onAnchorRevert?.()
+        }
+      }
+      pointerDownRef.current = null
+      gestureRef.current = 'pending'
+      setGesture('pending')
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+    gestureCleanupRef.current = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      document.body.style.cursor = ''
     }
   }
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!canDrag || !pointerDownRef.current) return
-    const dx = e.clientX - pointerDownRef.current.x
-    const dy = e.clientY - pointerDownRef.current.y
-    if (
-      gestureRef.current === 'pending' &&
-      Math.hypot(dx, dy) < HANDLE_DRAG_THRESHOLD_PX
-    ) {
-      return
+  const beginRef = useRef<BeginGrab>(() => {})
+  beginRef.current = handlePointerDown
+  const hoverClearRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const map = beginGrabRef.current
+    if (!map) return
+    const id = slot.id
+    map.set(id, (event) => beginRef.current(event))
+    return () => {
+      map.delete(id)
+      if (hoverClearRef.current != null) window.clearTimeout(hoverClearRef.current)
     }
-    const local = localFromEvent(e.clientX, e.clientY)
+  }, [beginGrabRef, slot.id])
+
+  const grabPx = portGrabDiameterPx(zoom)
+  const portTitle = canDrag
+    ? `${slot.label} — arrastrá para mover el puerto, salí del equipo para crear un enlace`
+    : slot.label
+
+  const onGrabPointerDown = (e: React.PointerEvent) => {
+    if (!canDrag || e.button !== 0) return
+    const local = localFromClient(e.clientX, e.clientY)
+    const id = local ? nearestSlotId(peerSlots, nodeWidth, nodeHeight, local) : slot.id
+    const begin = (id && beginGrabRef.current?.get(id)) || beginRef.current
+    begin(e)
+  }
+
+  const onGrabPointerMove = (e: React.PointerEvent) => {
+    if (hoverClearRef.current != null) {
+      window.clearTimeout(hoverClearRef.current)
+      hoverClearRef.current = null
+    }
+    if (draggingId) return
+    const local = localFromClient(e.clientX, e.clientY)
     if (!local) return
-    const outside =
-      local.x < -PORT_CONNECT_OUTSIDE_MARGIN ||
-      local.y < -PORT_CONNECT_OUTSIDE_MARGIN ||
-      local.x > nodeWidth + PORT_CONNECT_OUTSIDE_MARGIN ||
-      local.y > nodeHeight + PORT_CONNECT_OUTSIDE_MARGIN
-
-    if (outside) {
-      if (gestureRef.current !== 'connect') {
-        gestureRef.current = 'connect'
-        setGesture('connect')
-        onAnchorRevert?.()
-      }
-      e.stopPropagation()
-      onPortConnectDrag?.(connectParams(e.clientX, e.clientY, 'move'))
-      return
-    }
-
-    if (gestureRef.current === 'connect') {
-      onPortConnectDrag?.(connectParams(e.clientX, e.clientY, 'cancel'))
-    }
-    if (gestureRef.current !== 'anchor') {
-      gestureRef.current = 'anchor'
-      setGesture('anchor')
-    }
-    e.stopPropagation()
-    onAnchorLive?.(projectPointerToPerimeter(local.x, local.y, nodeWidth, nodeHeight))
+    onHoverPort?.(nearestSlotId(peerSlots, nodeWidth, nodeHeight, local))
   }
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!canDrag || !pointerDownRef.current) return
-    e.stopPropagation()
-    const target = e.currentTarget as HTMLElement
-    if (target.hasPointerCapture?.(e.pointerId)) {
-      try {
-        target.releasePointerCapture(e.pointerId)
-      } catch {
-        // Already released, or the event was synthetic.
-      }
-    }
-    const mode = gestureRef.current
-    if (mode === 'connect') {
-      onPortConnectDrag?.(connectParams(e.clientX, e.clientY, 'end'))
-      onAnchorRevert?.()
-    } else if (mode === 'anchor') {
-      const local = localFromEvent(e.clientX, e.clientY)
-      if (local) {
-        onAnchorCommit?.(projectPointerToPerimeter(local.x, local.y, nodeWidth, nodeHeight))
-      } else {
-        onAnchorRevert?.()
-      }
-    }
-    pointerDownRef.current = null
-    gestureRef.current = 'pending'
-    setGesture('pending')
+  const onGrabPointerLeave = () => {
+    if (hoverClearRef.current != null) window.clearTimeout(hoverClearRef.current)
+    hoverClearRef.current = window.setTimeout(() => onHoverPort?.(null), 40)
   }
 
   const handleClass = connected
     ? '!bg-blue-500 !border-blue-600'
     : '!bg-white !border-slate-300 dark:!bg-slate-900 dark:!border-slate-500'
-  const handleSizeClass = connected ? '!h-2.5 !w-2.5' : '!h-2 !w-2'
+  const handleSizeClass = '!h-2.5 !w-2.5'
 
   const transitionStyle = isDragging ? {} : { transition: ANCHOR_TRANSITION }
+  const dotStyle = {
+    ...style,
+    ...transitionStyle,
+    pointerEvents: 'none' as const,
+    transform: armed ? 'translate(-50%, -50%) scale(1.8)' : 'translate(-50%, -50%)',
+    boxShadow: armed ? '0 0 0 4px rgba(59, 130, 246, 0.55)' : undefined,
+  }
 
   return (
-    <div ref={shellRef} className="pointer-events-none absolute inset-0">
-      <Handle
-        type="target"
-        position={position}
-        id={`${slot.id}::in`}
-        className={`!z-10 ${handleSizeClass} !border-2 !opacity-0 nodrag nopan`}
-        style={{ ...style, pointerEvents: 'none' }}
-        isConnectable
-      />
-      <Handle
-        type="source"
-        position={position}
-        id={slot.id}
-        className={`!z-20 ${handleSizeClass} !border-2 ${handleClass} nodrag nopan ${
-          canDrag
-            ? gesture === 'connect'
-              ? 'cursor-crosshair'
-              : gesture === 'anchor' || isDragging
-                ? 'cursor-grabbing'
-                : 'cursor-grab'
-            : ''
-        }`}
-        style={{ ...style, ...transitionStyle, pointerEvents: 'auto' }}
-        isConnectable
-        isConnectableStart={false}
-        title={
-          canDrag ? `${slot.label} — arrastrá para mover o conectar` : slot.label
-        }
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-      />
-      <button
-        type="button"
-        className={`nodrag nopan z-10 truncate rounded font-semibold leading-tight ${
-          canClick
-            ? connected
-              ? 'cursor-pointer text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40'
-              : 'cursor-pointer text-slate-400 hover:bg-slate-50 hover:text-blue-600 dark:text-slate-500 dark:hover:bg-slate-800/60 dark:hover:text-blue-400'
-            : connected
-              ? 'text-blue-600 dark:text-blue-400'
-              : 'text-slate-400 dark:text-slate-500'
-        }`}
-        style={{ ...labelStyle, ...transitionStyle }}
-        title={
-          canClick
-            ? slot.connected
-              ? `Nuevo enlace desde ${slot.label}`
-              : `Crear enlace en ${slot.label}`
-            : slot.label
-        }
-        disabled={!canClick}
-        onClick={(e) => {
-          e.stopPropagation()
-          onPortClick?.()
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
+    <>
+      <div className="pointer-events-none absolute inset-0 z-10">
+        <button
+          type="button"
+          className={`nodrag nopan pointer-events-auto truncate rounded font-semibold leading-tight ${
+            canClick
+              ? connected
+                ? 'cursor-pointer text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40'
+                : 'cursor-pointer text-slate-400 hover:bg-slate-50 hover:text-blue-600 dark:text-slate-500 dark:hover:bg-slate-800/60 dark:hover:text-blue-400'
+              : connected
+                ? 'text-blue-600 dark:text-blue-400'
+                : 'text-slate-400 dark:text-slate-500'
+          }`}
+          style={{ ...labelStyle, ...transitionStyle }}
+          title={
+            canClick
+              ? slot.connected
+                ? `Nuevo enlace desde ${slot.label}`
+                : `Crear enlace en ${slot.label}`
+              : slot.label
+          }
+          disabled={!canClick}
+          onClick={(e) => {
+            e.stopPropagation()
+            onPortClick?.()
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {slot.label}
+        </button>
+      </div>
+      <div
+        ref={shellRef}
+        className={`pointer-events-none absolute inset-0 ${armed ? 'z-30' : 'z-20'}`}
       >
-        {slot.label}
-      </button>
-    </div>
+        <Handle
+          type="target"
+          position={position}
+          id={`${slot.id}::in`}
+          className={`!z-10 ${handleSizeClass} !border-2 !opacity-0 nodrag nopan`}
+          style={{ ...style, pointerEvents: 'none' }}
+          isConnectable
+        />
+        <Handle
+          type="source"
+          position={position}
+          id={slot.id}
+          className={`!z-40 ${handleSizeClass} !border-2 ${handleClass} nodrag nopan`}
+          style={dotStyle}
+          isConnectable
+          isConnectableStart={false}
+        />
+        <div
+          className={`nodrag nopan absolute z-30 rounded-full ${
+            canDrag ? (draggingId ? 'cursor-grabbing' : 'cursor-grab') : ''
+          } ${armed ? 'bg-blue-500/20' : ''}`}
+          style={{
+            ...style,
+            ...transitionStyle,
+            width: grabPx,
+            height: grabPx,
+            pointerEvents: canDrag ? 'auto' : 'none',
+            touchAction: 'none',
+          }}
+          title={portTitle}
+          onPointerDown={onGrabPointerDown}
+          onPointerEnter={onGrabPointerMove}
+          onPointerMove={onGrabPointerMove}
+          onPointerLeave={onGrabPointerLeave}
+        />
+      </div>
+    </>
   )
 }
 
@@ -445,6 +563,8 @@ function SimpleDeviceNodeComponent({
 
   const [liveSlots, setLiveSlots] = useState<DiagramPortSlot[] | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [hoveredPortId, setHoveredPortId] = useState<string | null>(null)
+  const beginGrabRef = useRef(new Map<string, BeginGrab>())
   const displaySlots = liveSlots ?? slots
   /** Slots prop at the moment of a commit; cleared once the parent publishes new slots. */
   const pendingSlotsRef = useRef<DiagramPortSlot[] | null>(null)
@@ -555,11 +675,15 @@ function SimpleDeviceNodeComponent({
         <PortAnchorHandle
           key={slot.id}
           slot={slot}
+          peerSlots={displaySlots}
           nodeWidth={nodeWidth}
           nodeHeight={displayHeight}
           canDrag={canDragHandles}
           canClick={canClickPorts}
           draggingId={draggingId}
+          armed={draggingId === slot.id || hoveredPortId === slot.id}
+          onHoverPort={setHoveredPortId}
+          beginGrabRef={beginGrabRef}
           onPortClick={() => emitPortClick(slot)}
           onAnchorLive={(next) => {
             setDraggingId(slot.id)
