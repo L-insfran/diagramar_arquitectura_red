@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SystemUser from '#models/system_user'
+import { compareVersions, parseVersion } from '../releases/version.js'
 
 export interface ReleaseNote {
   version: string
@@ -13,25 +14,6 @@ export interface ReleaseStatus {
   current: ReleaseNote | null
   unseen: ReleaseNote[]
   history: ReleaseNote[]
-}
-
-const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/
-
-function parseVersion(value: string): [number, number, number] | null {
-  const match = VERSION_PATTERN.exec(value.trim())
-  if (!match) return null
-  return [Number(match[1]), Number(match[2]), Number(match[3])]
-}
-
-/** Positivo si `left` es más nueva que `right`. Null si alguna no es major.minor.patch. */
-function compareVersions(left: string, right: string): number | null {
-  const a = parseVersion(left)
-  const b = parseVersion(right)
-  if (!a || !b) return null
-  for (let index = 0; index < 3; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index]
-  }
-  return 0
 }
 
 function changelogPath() {
