@@ -528,6 +528,15 @@ function SimpleDeviceNodeComponent({
   height,
 }: NodeProps<SimpleDeviceNodeType>) {
   const updateNodeInternals = useUpdateNodeInternals()
+  const singleSelection = useStore((s) => {
+    let selectedCount = 0
+    for (const node of s.nodes) {
+      if (!node.selected) continue
+      selectedCount += 1
+      if (selectedCount > 1) return false
+    }
+    return selectedCount === 1
+  })
   const canReorder = !data.readOnly
   const slots = data.slots ?? []
   const showPortRows = slots.length > 0
@@ -663,7 +672,7 @@ function SimpleDeviceNodeComponent({
         <NodeResizer
           minWidth={SIMPLE_DEVICE_MIN_WIDTH}
           minHeight={contentMinH}
-          isVisible={selected}
+          isVisible={selected && singleSelection}
           keepAspectRatio={false}
           lineClassName="!pointer-events-none !opacity-0"
           lineStyle={{ opacity: 0, pointerEvents: 'none' }}

@@ -8,6 +8,7 @@ import {
   ReactFlowProvider,
   ViewportPortal,
   ConnectionMode,
+  SelectionMode,
   getNodesBounds,
   useEdgesState,
   useNodesState,
@@ -1499,6 +1500,7 @@ function buildGraph(params: {
         target: e.target,
         sourceHandle: edgeHandleId(e.sourcePortId, e.sourcePort),
         targetHandle: edgeTargetHandleId(e.targetPortId, e.targetPort),
+        selectable: !treeMode,
         zIndex: 1000,
         data: {
           code: e.code,
@@ -1669,6 +1671,7 @@ function ConnectionDiagramCanvasInner(
   const { theme } = useTheme()
   const toast = useToast()
   const colorMode: ColorMode = theme === 'dark' ? 'dark' : 'light'
+  const treeMode = isTreeLayoutMode(diagram.layoutMode)
   const callbacksRef = useRef({
     onAddDeviceToContainer,
     onRemoveDeviceFromContainer,
@@ -1735,7 +1738,7 @@ function ConnectionDiagramCanvasInner(
   const handleAnchorsRef = useRef(handleAnchors)
   handleAnchorsRef.current = handleAnchors
   const rerouteCablesRef = useRef<() => void>(() => {})
-  const scheduleRerouteRef = useRef<(nodeId: string) => void>(() => {})
+  const scheduleRerouteRef = useRef<(nodeIds: string | Iterable<string>) => void>(() => {})
 
   useEffect(() => {
     const next = normalizeHandleAnchorKeys(diagram.handleAnchors ?? {})
@@ -2651,8 +2654,15 @@ function ConnectionDiagramCanvasInner(
   /** Keep orthogonal routes stuck to device handles while containers move. */
   const dragRerouteRaf = useRef<number | null>(null)
   const pendingDragNodesRef = useRef<Set<string> | null>(null)
-  const scheduleRerouteDuringDrag = useCallback((nodeId: string) => {
-    pendingDragNodesRef.current = collectMovedNodeIds(nodeId, nodesRef.current)
+  const scheduleRerouteDuringDrag = useCallback((nodeIds: string | Iterable<string>) => {
+    const affected = new Set<string>()
+    const ids = typeof nodeIds === 'string' ? [nodeIds] : nodeIds
+    for (const id of ids) {
+      for (const moved of collectMovedNodeIds(id, nodesRef.current)) {
+        affected.add(moved)
+      }
+    }
+    pendingDragNodesRef.current = affected
     if (dragRerouteRaf.current != null) return
     dragRerouteRaf.current = window.requestAnimationFrame(() => {
       dragRerouteRaf.current = null
@@ -2674,16 +2684,19 @@ function ConnectionDiagramCanvasInner(
     }
   }, [])
 
-  /** Merge only the dragged node position — never replace the full node list
-   *  (RF's 3rd arg can omit children → absolutePos falls back to 0,0). */
-  const syncDraggedNodePosition = useCallback((node: Node) => {
-    nodesRef.current = nodesRef.current.map((n) =>
-      n.id === node.id ? { ...n, position: node.position } : n
-    )
+  /** Merge dragged positions into the live list — never replace it.
+   *  RF's 3rd arg can omit children → absolutePos would fall back to 0,0. */
+  const syncDraggedNodePositions = useCallback((dragged: Node[]) => {
+    if (dragged.length === 0) return
+    const byId = new Map(dragged.map((node) => [node.id, node.position]))
+    nodesRef.current = nodesRef.current.map((n) => {
+      const position = byId.get(n.id)
+      return position ? { ...n, position } : n
+    })
   }, [])
 
   const onNodeDrag = useCallback(
-    (_event: ReactMouseEvent, node: Node) => {
+    (_event: ReactMouseEvent, node: Node, draggedNodes: Node[] = []) => {
       if (node.parentId && node.type === 'simpleDevice') {
         const withMin = clampDeviceNodeMinInParent(
           node,
@@ -2714,7 +2727,7 @@ function ConnectionDiagramCanvasInner(
             y: Math.max(minY, node.position.y),
           },
         }
-        syncDraggedNodePosition(clamped)
+        syncDraggedNodePositions([clamped])
         setNodes((prev) =>
           prev.map((n) =>
             n.id === node.id ? { ...n, position: clamped.position } : n
@@ -2724,19 +2737,20 @@ function ConnectionDiagramCanvasInner(
         return
       }
 
-      syncDraggedNodePosition(node)
-      scheduleRerouteDuringDrag(node.id)
+      const moving = draggedNodes.length > 0 ? draggedNodes : [node]
+      syncDraggedNodePositions(moving)
+      scheduleRerouteDuringDrag(moving.map((n) => n.id))
     },
     [
       hidePickerForPrint,
       scheduleRerouteDuringDrag,
       setNodes,
-      syncDraggedNodePosition,
+      syncDraggedNodePositions,
     ]
   )
 
   const onNodeDragStop = useCallback(
-    (_event: ReactMouseEvent, node: Node) => {
+    (_event: ReactMouseEvent, node: Node, draggedNodes: Node[] = []) => {
       if (dragRerouteRaf.current != null) {
         window.cancelAnimationFrame(dragRerouteRaf.current)
         dragRerouteRaf.current = null
@@ -2771,7 +2785,7 @@ function ConnectionDiagramCanvasInner(
             y: Math.max(minY, node.position.y),
           },
         }
-        syncDraggedNodePosition(clamped)
+        syncDraggedNodePositions([clamped])
         setNodes((prev) =>
           prev.map((n) =>
             n.id === node.id ? { ...n, position: clamped.position } : n
@@ -2781,14 +2795,15 @@ function ConnectionDiagramCanvasInner(
         return
       }
 
-      syncDraggedNodePosition(node)
+      const moving = draggedNodes.length > 0 ? draggedNodes : [node]
+      syncDraggedNodePositions(moving)
       rerouteCables()
     },
     [
       hidePickerForPrint,
       rerouteCables,
       setNodes,
-      syncDraggedNodePosition,
+      syncDraggedNodePositions,
     ]
   )
 
@@ -2887,6 +2902,10 @@ function ConnectionDiagramCanvasInner(
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         elementsSelectable
+        selectionOnDrag={false}
+        selectionKeyCode={treeMode ? 'Shift' : null}
+        multiSelectionKeyCode={treeMode ? 'Control' : null}
+        selectionMode={treeMode ? SelectionMode.Partial : SelectionMode.Full}
         deleteKeyCode={null}
         minZoom={0.15}
         maxZoom={1.5}

@@ -2242,7 +2242,8 @@ export default function ConnectionDiagramPage() {
           {layoutMode === 'tree' ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs leading-snug text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
               Modo árbol: agregá equipos desde áreas/racks como siempre; en el canvas se
-              muestran sin contenedores físicos.
+              muestran sin contenedores físicos. Shift y arrastrar selecciona varios;
+              Control y clic agrega o quita uno. Arrastrá cualquiera para mover el grupo.
             </p>
           ) : null}
 
