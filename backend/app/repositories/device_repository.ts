@@ -116,6 +116,25 @@ export default class DeviceRepository {
       .firstOrFail()
   }
 
+  /**
+   * Active device in the project with the same type and name (case-insensitive).
+   * Soft-deleted rows do not count.
+   */
+  async findActiveByTypeAndName(
+    projectId: string,
+    deviceTypeId: string,
+    name: string,
+    excludeId?: string,
+  ) {
+    const query = Device.query()
+      .where('project_id', projectId)
+      .where('device_type_id', deviceTypeId)
+      .whereNull('deleted_at')
+      .whereRaw('lower(btrim(name)) = ?', [name.trim().toLowerCase()])
+    if (excludeId) query.whereNot('id', excludeId)
+    return query.first()
+  }
+
   /** Lightweight load for authz checks (no heavy preloads). */
   async findActiveSummaryOrFail(id: string) {
     return Device.query()

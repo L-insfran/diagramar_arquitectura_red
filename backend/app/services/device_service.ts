@@ -91,8 +91,30 @@ export default class DeviceService {
     })
   }
 
+  private async assertNameAvailable(
+    projectId: string,
+    deviceTypeId: string,
+    name: string,
+    excludeId?: string,
+  ) {
+    const existing = await this.devices.findActiveByTypeAndName(
+      projectId,
+      deviceTypeId,
+      name,
+      excludeId,
+    )
+    if (!existing) return
+    const type = await this.devices.findDeviceType(deviceTypeId)
+    const typeLabel = type?.name?.trim() || 'este tipo'
+    throw new Exception(
+      `Ya existe un dispositivo de tipo "${typeLabel}" con el nombre "${name.trim()}"`,
+      { status: 409 },
+    )
+  }
+
   async create(data: CreateDeviceInput, actorId: string) {
     const template = await this.templates.getActiveWithPorts(data.deviceTemplateId)
+    await this.assertNameAvailable(data.projectId, template.deviceTypeId, data.name)
 
     const heightU = Math.max(1, template.rackUnits ?? 1)
     let siteId = data.siteId ?? null
@@ -407,6 +429,12 @@ export default class DeviceService {
 
   async update(id: string, data: UpdateDeviceInput, actorId: string) {
     const device = await this.devices.findActiveSummaryOrFail(id)
+    if (data.name !== undefined) {
+      const nextName = data.name.trim()
+      if (nextName.toLowerCase() !== device.name.trim().toLowerCase()) {
+        await this.assertNameAvailable(device.projectId, device.deviceTypeId, nextName, device.id)
+      }
+    }
     const projectId = data.projectId ?? device.projectId
     const confirmDiagramRelocate = data.confirmDiagramRelocate === true
 

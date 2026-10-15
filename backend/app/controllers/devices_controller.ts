@@ -100,8 +100,8 @@ export default class DevicesController {
       const device = await this.deviceService.create(data, user.id)
       return ctx.response.created({ success: true, data: device })
     } catch (error: any) {
-      if (error?.status === 422) {
-        return ctx.response.unprocessableEntity({ success: false, message: error.message })
+      if (error?.status === 422 || error?.status === 409) {
+        return ctx.response.status(error.status).send({ success: false, message: error.message })
       }
       throw error
     }
@@ -202,8 +202,8 @@ export default class DevicesController {
           message: error.message,
         })
       }
-      if (error?.status === 422) {
-        return response.unprocessableEntity({ success: false, message: error.message })
+      if (error?.status === 422 || error?.status === 409) {
+        return response.status(error.status).send({ success: false, message: error.message })
       }
       throw error
     }

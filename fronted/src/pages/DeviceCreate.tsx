@@ -14,7 +14,7 @@ import { devicesService, type UpdateDevicePayload } from '../services/devices.se
 import { deviceTemplatesService } from '../services/device-templates.service'
 import { sitesService } from '../services/sites.service'
 import { containersService } from '../services/containers.service'
-import type { Container, DeviceRelocationImpact, DeviceTemplate, Site } from '../types'
+import type { Container, Device, DeviceRelocationImpact, DeviceTemplate, Site } from '../types'
 import { formatLinkCode } from '../utils/diagram/linkLabel'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
@@ -62,6 +62,10 @@ function containerSelectLabel(c: Container): string {
   return c.name
 }
 
+function normalizeDeviceName(name: string): string {
+  return name.trim().toLowerCase()
+}
+
 function formatApiError(error: unknown, fallback: string): string {
   const err = error as { response?: { data?: { message?: string } }; message?: string }
   return err?.response?.data?.message || err?.message || fallback
@@ -104,6 +108,10 @@ export default function DeviceCreate() {
     []
   )
   const { data: sites } = useApi<Site[]>(() => sitesService.getAll(), [activeProjectId])
+  const { data: projectDevices } = useApi<Device[]>(
+    () => devicesService.getAll({ summary: true }),
+    [activeProjectId]
+  )
 
   const templates = useMemo(() => {
     if (!allTemplates) return null
@@ -197,6 +205,27 @@ export default function DeviceCreate() {
     ? existingDevice?.deviceType?.name || '—'
     : selectedTemplate?.deviceType?.name || '—'
 
+  const deviceTypeId = isEditMode
+    ? existingDevice?.deviceTypeId
+    : selectedTemplate?.deviceTypeId
+
+  const duplicateNameWarning = useMemo(() => {
+    const typed = form.name.trim()
+    if (!typed || !deviceTypeId || !projectDevices) return null
+    if (isEditMode && normalizeDeviceName(typed) === normalizeDeviceName(existingDevice?.name ?? '')) {
+      return null
+    }
+    const clash = projectDevices.find(
+      (device) =>
+        device.id !== id &&
+        device.deviceTypeId === deviceTypeId &&
+        normalizeDeviceName(device.name) === normalizeDeviceName(typed)
+    )
+    if (!clash) return null
+    const label = typeLabel !== '—' ? typeLabel : 'este tipo'
+    return `Ya existe un dispositivo de tipo "${label}" con el nombre "${clash.name}". Elegí otro nombre.`
+  }, [form.name, deviceTypeId, projectDevices, isEditMode, existingDevice?.name, id, typeLabel])
+
   const buildDevicePayload = (): UpdateDevicePayload => {
     const identityFields = {
       name: form.name.trim(),
@@ -267,6 +296,11 @@ export default function DeviceCreate() {
 
     if (!form.name.trim()) {
       setFormError('El nombre del dispositivo es obligatorio.')
+      return
+    }
+
+    if (duplicateNameWarning) {
+      setFormError(duplicateNameWarning)
       return
     }
 
@@ -467,12 +501,13 @@ export default function DeviceCreate() {
                 <Select
                   label="Template"
                   value={form.deviceTemplateId}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setFormError(null)
                     setForm((prev) => ({
                       ...prev,
                       deviceTemplateId: event.target.value,
                     }))
-                  }
+                  }}
                   options={(templates || []).map((tpl) => ({
                     value: tpl.id,
                     label: `${tpl.name}${tpl.deviceType?.name ? ` (${tpl.deviceType.name})` : ''}`,
@@ -508,12 +543,18 @@ export default function DeviceCreate() {
             description="Datos de este equipo concreto (no vienen del template)."
           >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Input
-                label="Nombre"
-                value={form.name}
-                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                required
-              />
+              <div>
+                <Input
+                  label="Nombre"
+                  value={form.name}
+                  onChange={(event) => {
+                    setFormError(null)
+                    setForm((prev) => ({ ...prev, name: event.target.value }))
+                  }}
+                  required
+                  error={duplicateNameWarning ?? undefined}
+                />
+              </div>
               <Select
                 label="Estado"
                 value={form.status}
@@ -644,7 +685,12 @@ export default function DeviceCreate() {
             </div>
           </FormSection>
 
-          {formError && (
+          {duplicateNameWarning && (
+            <p className="text-sm text-amber-600 dark:text-amber-400" role="alert">
+              {duplicateNameWarning}
+            </p>
+          )}
+          {formError && formError !== duplicateNameWarning && (
             <p className="text-sm text-red-500" role="alert">
               {formError}
             </p>
@@ -660,7 +706,8 @@ export default function DeviceCreate() {
               disabled={
                 isSubmitting ||
                 !form.name.trim() ||
-                (!isEditMode && !form.deviceTemplateId)
+                (!isEditMode && !form.deviceTemplateId) ||
+                Boolean(duplicateNameWarning)
               }
             >
               {isEditMode ? 'Actualizar dispositivo' : 'Guardar dispositivo'}
