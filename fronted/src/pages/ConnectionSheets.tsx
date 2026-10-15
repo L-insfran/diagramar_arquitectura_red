@@ -288,7 +288,7 @@ export default function ConnectionSheets() {
   return (
     <div className="space-y-6 pb-8">
       <PageHeader
-        title="Planillas de conexión"
+        title="Exportar conexiones"
         subtitle="Elegí los equipos y descargá una planilla con todos."
       />
 
