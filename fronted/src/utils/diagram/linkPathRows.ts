@@ -18,6 +18,22 @@ export type LinkPathRow = {
   cable: string | null
 }
 
+/** Celda fusionada verticalmente: inicio de bloque o continuación (no renderizar). */
+export type LinkPathCellSpan = { rowSpan: number } | { skip: true }
+
+export type LinkPathSpans = {
+  originSite: LinkPathCellSpan
+  originArea: LinkPathCellSpan
+  originContainer: LinkPathCellSpan
+  originDevice: LinkPathCellSpan
+  cable: LinkPathCellSpan
+  destinationSite: LinkPathCellSpan
+  destinationArea: LinkPathCellSpan
+  destinationContainer: LinkPathCellSpan
+  destinationDevice: LinkPathCellSpan
+}
+
+/** Flags de continuación respecto a la fila anterior (base del cálculo de spans). */
 export type LinkPathRepeatFlags = {
   originSite: boolean
   originArea: boolean
@@ -31,9 +47,13 @@ export type LinkPathRepeatFlags = {
 }
 
 export type AnnotatedLinkPathRow = LinkPathRow & {
+  spans: LinkPathSpans
+  /** True cuando la celda es continuación del bloque anterior (equivalente a skip). */
   repeat: LinkPathRepeatFlags
   groupStart: boolean
 }
+
+type SpanKey = keyof LinkPathSpans
 
 function localeCmp(a: string | null | undefined, b: string | null | undefined): number {
   return (a ?? '').localeCompare(b ?? '', 'es', { sensitivity: 'accent' })
@@ -99,63 +119,124 @@ function emptyRepeat(): LinkPathRepeatFlags {
   }
 }
 
+function unitSpans(): LinkPathSpans {
+  return {
+    originSite: { rowSpan: 1 },
+    originArea: { rowSpan: 1 },
+    originContainer: { rowSpan: 1 },
+    originDevice: { rowSpan: 1 },
+    cable: { rowSpan: 1 },
+    destinationSite: { rowSpan: 1 },
+    destinationArea: { rowSpan: 1 },
+    destinationContainer: { rowSpan: 1 },
+    destinationDevice: { rowSpan: 1 },
+  }
+}
+
 /**
- * Cascade suppression against the previous row.
+ * Cascade continuation against the previous row.
  * Origin and destination sides are evaluated independently from their root
- * (site → area → container → device). A segment is hidden only when it and
+ * (site → area → container → device). A segment continues only when it and
  * all ancestors match the previous row.
  */
+function continuationFlags(prev: LinkPathRow, row: LinkPathRow): LinkPathRepeatFlags {
+  const originSite =
+    sameId(row.origin.siteId, prev.origin.siteId) && sameText(row.origin.site, prev.origin.site)
+  const originArea =
+    originSite &&
+    sameId(row.origin.areaId, prev.origin.areaId) &&
+    sameText(row.origin.area, prev.origin.area)
+  const originContainer = originArea && sameText(row.origin.container, prev.origin.container)
+  const originDevice =
+    originContainer &&
+    sameId(row.origin.deviceId, prev.origin.deviceId) &&
+    sameText(row.origin.device, prev.origin.device)
+
+  const destinationSite =
+    sameId(row.destination.siteId, prev.destination.siteId) &&
+    sameText(row.destination.site, prev.destination.site)
+  const destinationArea =
+    destinationSite &&
+    sameId(row.destination.areaId, prev.destination.areaId) &&
+    sameText(row.destination.area, prev.destination.area)
+  const destinationContainer =
+    destinationArea && sameText(row.destination.container, prev.destination.container)
+  const destinationDevice =
+    destinationContainer &&
+    sameId(row.destination.deviceId, prev.destination.deviceId) &&
+    sameText(row.destination.device, prev.destination.device)
+
+  const cable = originDevice && sameText(row.cable, prev.cable)
+
+  return {
+    originSite,
+    originArea,
+    originContainer,
+    originDevice,
+    cable,
+    destinationSite,
+    destinationArea,
+    destinationContainer,
+    destinationDevice,
+  }
+}
+
+const SPAN_KEYS: SpanKey[] = [
+  'originSite',
+  'originArea',
+  'originContainer',
+  'originDevice',
+  'cable',
+  'destinationSite',
+  'destinationArea',
+  'destinationContainer',
+  'destinationDevice',
+]
+
+/**
+ * Assign rowSpan / skip for each mergeable column from continuation flags.
+ */
+function assignSpans(continuations: LinkPathRepeatFlags[]): LinkPathSpans[] {
+  const n = continuations.length
+  const spans: LinkPathSpans[] = Array.from({ length: n }, () => unitSpans())
+
+  for (const key of SPAN_KEYS) {
+    let i = 0
+    while (i < n) {
+      let span = 1
+      while (i + span < n && continuations[i + span][key]) {
+        span++
+      }
+      spans[i][key] = { rowSpan: span }
+      for (let k = 1; k < span; k++) {
+        spans[i + k][key] = { skip: true }
+      }
+      i += span
+    }
+  }
+
+  return spans
+}
+
+/**
+ * Annotate path rows with cascade suppression + vertical merge spans.
+ */
 export function annotateRepeatedSegments(rows: LinkPathRow[]): AnnotatedLinkPathRow[] {
-  return rows.map((row, index) => {
-    if (index === 0) {
-      return { ...row, repeat: emptyRepeat(), groupStart: true }
-    }
-    const prev = rows[index - 1]
+  if (rows.length === 0) return []
 
-    const originSite = sameId(row.origin.siteId, prev.origin.siteId) && sameText(row.origin.site, prev.origin.site)
-    const originArea =
-      originSite &&
-      sameId(row.origin.areaId, prev.origin.areaId) &&
-      sameText(row.origin.area, prev.origin.area)
-    const originContainer =
-      originArea && sameText(row.origin.container, prev.origin.container)
-    const originDevice =
-      originContainer &&
-      sameId(row.origin.deviceId, prev.origin.deviceId) &&
-      sameText(row.origin.device, prev.origin.device)
-
-    const destinationSite =
-      sameId(row.destination.siteId, prev.destination.siteId) &&
-      sameText(row.destination.site, prev.destination.site)
-    const destinationArea =
-      destinationSite &&
-      sameId(row.destination.areaId, prev.destination.areaId) &&
-      sameText(row.destination.area, prev.destination.area)
-    const destinationContainer =
-      destinationArea && sameText(row.destination.container, prev.destination.container)
-    const destinationDevice =
-      destinationContainer &&
-      sameId(row.destination.deviceId, prev.destination.deviceId) &&
-      sameText(row.destination.device, prev.destination.device)
-
-    const cable = originDevice && sameText(row.cable, prev.cable)
-
-    return {
-      ...row,
-      repeat: {
-        originSite,
-        originArea,
-        originContainer,
-        originDevice,
-        cable,
-        destinationSite,
-        destinationArea,
-        destinationContainer,
-        destinationDevice,
-      },
-      groupStart: !originSite,
-    }
+  const continuations: LinkPathRepeatFlags[] = rows.map((row, index) => {
+    if (index === 0) return emptyRepeat()
+    return continuationFlags(rows[index - 1], row)
   })
+
+  const spans = assignSpans(continuations)
+
+  return rows.map((row, index) => ({
+    ...row,
+    spans: spans[index],
+    repeat: continuations[index],
+    groupStart: index === 0 || !continuations[index].originSite,
+  }))
 }
 
 /** Full linear path as plain text (ASCII separators). */

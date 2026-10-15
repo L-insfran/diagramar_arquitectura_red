@@ -1,10 +1,11 @@
 import { TruncatedText } from '../Tooltip'
+import type { LinkPathCellSpan } from '../../utils/diagram/linkPathRows'
 
 type Props = {
   /** Display value when not suppressed. */
   value: string | null
-  /** True when this segment matches the previous row (cascade). */
-  repeated: boolean
+  /** Vertical merge for repeated hierarchy values. */
+  span: LinkPathCellSpan
   /** Visual role for chip styling. */
   kind?: 'default' | 'port' | 'cable' | 'device'
   /** Show trailing chevron separator (except last segment of a group). */
@@ -22,47 +23,43 @@ const kindClass: Record<NonNullable<Props['kind']>, string> = {
 
 /**
  * Single segment cell for the linear path table.
- * Repeated segments show a continuity guide instead of an empty cell.
+ * Repeated hierarchy values use HTML rowspan so the label sits centered
+ * across the block of rows it covers.
  */
 export function LinkPathSegment({
   value,
-  repeated,
+  span,
   kind = 'default',
   showSeparator = false,
   className = '',
 }: Props) {
+  if ('skip' in span) return null
+
   const display = value?.trim() || '—'
   const title = display
-
-  if (repeated) {
-    return (
-      <td
-        className={`relative bg-slate-50/80 px-1.5 py-1.5 align-middle dark:bg-slate-800/40 ${className}`}
-        title={`${title} (igual que la fila anterior)`}
-      >
-        <span className="sr-only">{display}</span>
-        <div className="flex h-full min-h-[1.5rem] items-stretch gap-1">
-          <div
-            className="mx-auto w-px flex-1 border-l border-dashed border-slate-300 dark:border-slate-600"
-            aria-hidden
-          />
-          {showSeparator ? (
-            <span className="self-center text-[10px] text-slate-300 dark:text-slate-600" aria-hidden>
-              ›
-            </span>
-          ) : null}
-        </div>
-      </td>
-    )
-  }
+  const rowSpan = Math.max(1, span.rowSpan)
+  const merged = rowSpan > 1
 
   return (
-    <td className={`px-1.5 py-1.5 align-middle ${className}`} title={title}>
-      <div className="flex min-w-0 items-center gap-1">
+    <td
+      rowSpan={rowSpan}
+      className={`px-1.5 py-1.5 align-middle ${
+        merged
+          ? 'border-x border-slate-200/80 bg-slate-50/90 dark:border-slate-700/80 dark:bg-slate-800/50'
+          : ''
+      } ${className}`}
+      title={merged ? `${title} · ${rowSpan} enlaces` : title}
+    >
+      <div className="flex min-h-[1.5rem] min-w-0 items-center justify-center gap-1">
         {kind === 'port' || kind === 'cable' ? (
           <span className={`shrink-0 ${kindClass[kind]}`}>{display}</span>
         ) : (
-          <TruncatedText text={display} className={`min-w-0 text-[11px] ${kindClass[kind]}`} />
+          <TruncatedText
+            text={display}
+            className={`min-w-0 text-center text-[11px] ${kindClass[kind]} ${
+              merged ? 'font-medium' : ''
+            }`}
+          />
         )}
         {showSeparator ? (
           <span className="shrink-0 text-[10px] text-slate-300 dark:text-slate-600" aria-hidden>

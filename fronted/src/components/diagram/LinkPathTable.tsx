@@ -76,7 +76,7 @@ export function LinkPathTable({
         </thead>
         <tbody>
           {rows.map((row) => {
-            const { edge, code, origin, destination, cable, repeat, groupStart } = row
+            const { edge, code, origin, destination, cable, spans, groupStart } = row
             const isSelected = selectedLinkId === edge.id
             const isStale = staleSet.has(edge.id)
             const canSelect = Boolean(onSelectLink)
@@ -131,51 +131,46 @@ export function LinkPathTable({
                   </span>
                 </td>
 
-                <LinkPathSegment value={origin.site} repeated={repeat.originSite} showSeparator />
-                <LinkPathSegment value={origin.area} repeated={repeat.originArea} showSeparator />
+                <LinkPathSegment value={origin.site} span={spans.originSite} showSeparator />
+                <LinkPathSegment value={origin.area} span={spans.originArea} showSeparator />
                 <LinkPathSegment
                   value={origin.container}
-                  repeated={repeat.originContainer}
+                  span={spans.originContainer}
                   showSeparator
                 />
                 <LinkPathSegment
                   value={origin.device}
-                  repeated={repeat.originDevice}
+                  span={spans.originDevice}
                   kind="device"
                   showSeparator
                 />
-                <LinkPathSegment value={origin.port} repeated={false} kind="port" showSeparator />
+                <LinkPathSegment value={origin.port} span={{ rowSpan: 1 }} kind="port" showSeparator />
 
-                <LinkPathSegment
-                  value={cable}
-                  repeated={repeat.cable}
-                  kind="cable"
-                  showSeparator
-                />
+                <LinkPathSegment value={cable} span={spans.cable} kind="cable" showSeparator />
 
                 <LinkPathSegment
                   value={destination.port}
-                  repeated={false}
+                  span={{ rowSpan: 1 }}
                   kind="port"
                   showSeparator
                 />
                 <LinkPathSegment
                   value={destination.device}
-                  repeated={repeat.destinationDevice}
+                  span={spans.destinationDevice}
                   kind="device"
                   showSeparator
                 />
                 <LinkPathSegment
                   value={destination.container}
-                  repeated={repeat.destinationContainer}
+                  span={spans.destinationContainer}
                   showSeparator
                 />
                 <LinkPathSegment
                   value={destination.area}
-                  repeated={repeat.destinationArea}
+                  span={spans.destinationArea}
                   showSeparator
                 />
-                <LinkPathSegment value={destination.site} repeated={repeat.destinationSite} />
+                <LinkPathSegment value={destination.site} span={spans.destinationSite} />
 
                 <td className="max-w-[10rem] px-2 py-1.5 align-middle text-slate-500 dark:text-slate-400">
                   <span className="line-clamp-2">{edge.description?.trim() || '—'}</span>
