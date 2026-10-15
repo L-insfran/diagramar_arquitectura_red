@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Eye, Pencil, Trash2, Layers } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
-import { StatusBadge } from '../components/StatusBadge'
 import { Button } from '../components/Button'
 import { Select } from '../components/Select'
 import { Modal } from '../components/Modal'
@@ -257,7 +256,6 @@ export default function Devices() {
         </span>
       ),
     },
-    { key: 'status', header: 'Estado', render: (d) => <StatusBadge status={d.status} /> },
     {
       key: 'location',
       header: 'Ubicación',

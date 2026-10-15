@@ -14,6 +14,8 @@ export type ScannedRoutes = {
     'system_branding.download_logo': { paramsTuple?: []; params?: {} }
     'system_branding.update': { paramsTuple?: []; params?: {} }
     'system_branding.destroy_logo': { paramsTuple?: []; params?: {} }
+    'release.show': { paramsTuple?: []; params?: {} }
+    'release.ack': { paramsTuple?: []; params?: {} }
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.store': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -172,6 +174,7 @@ export type ScannedRoutes = {
     'dashboard.show': { paramsTuple?: []; params?: {} }
     'system_branding.show': { paramsTuple?: []; params?: {} }
     'system_branding.download_logo': { paramsTuple?: []; params?: {} }
+    'release.show': { paramsTuple?: []; params?: {} }
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
@@ -241,6 +244,7 @@ export type ScannedRoutes = {
     'dashboard.show': { paramsTuple?: []; params?: {} }
     'system_branding.show': { paramsTuple?: []; params?: {} }
     'system_branding.download_logo': { paramsTuple?: []; params?: {} }
+    'release.show': { paramsTuple?: []; params?: {} }
     'projects.index': { paramsTuple?: []; params?: {} }
     'projects.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
@@ -308,6 +312,7 @@ export type ScannedRoutes = {
     'auth.login': { paramsTuple?: []; params?: {} }
     'auth.register': { paramsTuple?: []; params?: {} }
     'auth.logout': { paramsTuple?: []; params?: {} }
+    'release.ack': { paramsTuple?: []; params?: {} }
     'projects.store': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'devices.assign_container': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }

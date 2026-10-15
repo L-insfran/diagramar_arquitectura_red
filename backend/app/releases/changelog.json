@@ -1,0 +1,12 @@
+{
+  "releases": [
+    {
+      "version": "1.0.0",
+      "title": "Aviso de novedades",
+      "highlights": [
+        "Al entrar vas a ver, una sola vez, qué cambió en la versión que está publicada.",
+        "La versión actual queda al pie del menú. Desde ahí se puede volver a abrir el historial."
+      ]
+    }
+  ]
+}

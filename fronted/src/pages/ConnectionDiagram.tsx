@@ -24,6 +24,7 @@ import { SimpleLinkModal } from '../components/diagram/SimpleLinkModal'
 import { DiagramLinkReferenceList } from '../components/diagram/DiagramLinkReferenceList'
 import { PrintModePanel } from '../components/diagram/PrintModePanel'
 import { DiagramCanvasOptionsMenu } from '../components/diagram/DiagramCanvasOptionsMenu'
+import { DiagramViewMenu } from '../components/diagram/DiagramViewMenu'
 import { SIMPLE_DEVICE_GAP, simpleDeviceHeight, resolveDeviceGap, resolveDeviceNodeSize, SIMPLE_DEVICE_WIDTH, CONTAINER_PAD } from '../components/diagram/SimpleDeviceNode'
 import { AREA_BODY_PAD } from '../components/diagram/AreaContainerNode'
 import {
@@ -198,7 +199,7 @@ function createViewErrorMessage(error: unknown): string {
   if (typeof fromBody === 'string' && fromBody.trim()) return fromBody
   if (typeof err?.message === 'string' && err.message.trim()) return err.message
   if (err?.response?.status) return `HTTP ${err.response.status}`
-  return 'No se pudo crear la vista'
+  return 'No se pudo crear el diagrama'
 }
 
 export default function ConnectionDiagramPage() {
@@ -1153,7 +1154,7 @@ export default function ConnectionDiagramPage() {
         toast.error(createViewErrorMessage(null))
         return
       }
-      toast.success('Vista creada')
+      toast.success('Diagrama creado')
       setCreateOpen(false)
       setNewName('')
       await refetchList()
@@ -1335,7 +1336,7 @@ export default function ConnectionDiagramPage() {
         await saveDiagram( updates)
         await refetchGraph()
         setLayoutMode(next)
-        toast.success(next === 'tree' ? 'Modo árbol activado' : 'Modo libre activado')
+        toast.success(next === 'tree' ? 'Vista árbol activada' : 'Vista libre activada')
         window.setTimeout(() => {
           canvasRef.current?.fitView()
           canvasRef.current?.rerouteCables()
@@ -2124,23 +2125,37 @@ export default function ConnectionDiagramPage() {
               className="min-w-[200px]"
               options={diagramOptions}
             />
+            {selectedId ? (
+              <DiagramViewMenu
+                layoutMode={layoutMode}
+                onLayoutModeChange={canMutate ? handleLayoutModeChange : undefined}
+                onReorganizeTree={
+                  canMutate && layoutMode === 'tree' ? () => void handleReorganizeTree() : undefined
+                }
+                disabled={!canMutate}
+              />
+            ) : null}
             {canMutate && (
               <div className="relative" ref={diagramActionsRef}>
                 <Button
                   size="sm"
+                  className="!px-2"
                   variant={diagramActionsOpen ? 'primary' : 'secondary'}
                   icon={<MoreVertical className="h-4 w-4" />}
                   onClick={() => setDiagramActionsOpen((v) => !v)}
                   aria-expanded={diagramActionsOpen}
                   aria-haspopup="menu"
-                >
-                  Vistas
-                </Button>
+                  aria-label="Acciones del diagrama"
+                  title="Acciones del diagrama"
+                />
                 {diagramActionsOpen ? (
                   <div
-                    className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                    className="absolute right-0 top-full z-50 mt-1 min-w-[13.5rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
                     role="menu"
                   >
+                    <p className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Diagrama
+                    </p>
                     <button
                       type="button"
                       role="menuitem"
@@ -2151,7 +2166,7 @@ export default function ConnectionDiagramPage() {
                       }}
                     >
                       <Plus className="h-4 w-4" />
-                      Nueva vista
+                      Nuevo diagrama
                     </button>
                     {selectedId ? (
                       <>
@@ -2165,7 +2180,7 @@ export default function ConnectionDiagramPage() {
                           }}
                         >
                           <Copy className="h-4 w-4" />
-                          Duplicar
+                          Duplicar diagrama
                         </button>
                         <button
                           type="button"
@@ -2177,7 +2192,7 @@ export default function ConnectionDiagramPage() {
                           }}
                         >
                           <Pencil className="h-4 w-4" />
-                          Renombrar
+                          Renombrar diagrama
                         </button>
                         <button
                           type="button"
@@ -2189,7 +2204,7 @@ export default function ConnectionDiagramPage() {
                           }}
                         >
                           <Trash2 className="h-4 w-4" />
-                          Eliminar
+                          Eliminar diagrama
                         </button>
                       </>
                     ) : null}
@@ -2218,7 +2233,7 @@ export default function ConnectionDiagramPage() {
               title="Mostrar panel de alcance"
             >
               <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
-              <span className="text-[10px] font-semibold uppercase tracking-wide writing-vertical-rl rotate-180">
+              <span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide writing-vertical-rl">
                 Alcance
               </span>
             </button>
@@ -2241,7 +2256,7 @@ export default function ConnectionDiagramPage() {
               </div>
           {layoutMode === 'tree' ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs leading-snug text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
-              Modo árbol: agregá equipos desde áreas/racks como siempre; en el canvas se
+              Vista árbol: agregá equipos desde áreas/racks como siempre; en el canvas se
               muestran sin contenedores físicos. Shift y arrastrar selecciona varios;
               Control y clic agrega o quita uno. Arrastrá cualquiera para mover el grupo.
             </p>
@@ -2643,18 +2658,13 @@ export default function ConnectionDiagramPage() {
             ) : null}
             {selectedId ? (
               <DiagramCanvasOptionsMenu
-                layoutMode={layoutMode}
-                onLayoutModeChange={canMutate ? handleLayoutModeChange : undefined}
                 portDisplay={portDisplay}
                 onPortDisplayChange={canMutate ? handlePortDisplayChange : undefined}
                 portFlowInverted={portFlowInverted}
                 onPortFlowInvertedChange={
                   canMutate ? handlePortFlowInvertedChange : undefined
                 }
-                onReorganizeTree={
-                  canMutate && layoutMode === 'tree' ? () => void handleReorganizeTree() : undefined
-                }
-                layoutDisabled={!canMutate}
+                disabled={!canMutate}
               />
             ) : null}
           </div>
@@ -2667,7 +2677,7 @@ export default function ConnectionDiagramPage() {
                   Empezá a documentar enlaces
                 </p>
                 <ol className="mt-3 space-y-1 text-sm text-slate-500 dark:text-slate-400">
-                  <li>1. Creá o seleccioná una vista</li>
+                  <li>1. Creá o seleccioná un diagrama</li>
                   <li>2. Elegí un sitio en el panel izquierdo</li>
                   <li>3. Agregá un área y conectá equipos</li>
                 </ol>
@@ -2678,7 +2688,7 @@ export default function ConnectionDiagramPage() {
                   icon={<Plus className="h-4 w-4" />}
                   onClick={() => setCreateOpen(true)}
                 >
-                  Nueva vista
+                  Nuevo diagrama
                 </Button>
               )}
             </div>
@@ -2828,10 +2838,10 @@ export default function ConnectionDiagramPage() {
         </section>
       </div>
 
-      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Nueva vista">
+      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Nuevo diagrama">
         <div className="space-y-3">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Vista nueva del mismo proyecto. Los enlaces E1, E2… se comparten.
+            Diagrama nuevo del mismo proyecto. Los enlaces E1, E2… se comparten.
           </p>
           <Input
             label="Nombre"

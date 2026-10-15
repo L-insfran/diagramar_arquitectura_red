@@ -4,7 +4,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
 import { ArrowLeft, Server, Cpu, MapPin, Hash, Clock, Pencil, Plus, Download } from 'lucide-react'
 import { Button } from '../components/Button'
-import { StatusBadge } from '../components/StatusBadge'
 import { DataTable, type Column } from '../components/DataTable'
 import { Card } from '../components/Card'
 import { Modal } from '../components/Modal'
@@ -458,7 +457,6 @@ export default function DeviceDetail() {
               </p>
             </div>
           </div>
-          <StatusBadge status={device.status} />
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-200 dark:border-gray-800">

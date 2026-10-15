@@ -45,6 +45,9 @@ export default class SystemUser extends compose(
   @column()
   declare isActive: boolean
 
+  @column({ serializeAs: null })
+  declare lastSeenVersion: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

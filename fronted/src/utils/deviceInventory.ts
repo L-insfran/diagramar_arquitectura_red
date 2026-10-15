@@ -7,14 +7,6 @@ const LOCALE_COMPARE_OPTS: Intl.CollatorOptions = { sensitivity: 'base', numeric
 export type DeviceInventoryInstance = {
   id: string
   name: string
-  status: Device['status']
-}
-
-export type DeviceStatusCounts = {
-  online: number
-  offline: number
-  maintenance: number
-  unknown: number
 }
 
 export type DeviceInventoryRow = {
@@ -24,7 +16,6 @@ export type DeviceInventoryRow = {
   manufacturer: string
   model: string
   count: number
-  byStatus: DeviceStatusCounts
   devices: DeviceInventoryInstance[]
 }
 
@@ -33,10 +24,6 @@ export type DeviceInventorySummary = {
   deviceCount: number
   templateCount: number
   typeCount: number
-}
-
-function emptyStatus(): DeviceStatusCounts {
-  return { online: 0, offline: 0, maintenance: 0, unknown: 0 }
 }
 
 function dash(value: string | null | undefined): string {
@@ -60,14 +47,12 @@ export function groupDevicesByTemplate(devices: Device[]): DeviceInventorySummar
         manufacturer: dash(device.deviceTemplate?.manufacturer ?? device.manufacturer),
         model: dash(device.deviceTemplate?.model ?? device.model),
         count: 0,
-        byStatus: emptyStatus(),
         devices: [],
       }
       map.set(templateId, row)
     }
     row.count += 1
-    row.byStatus[device.status] += 1
-    row.devices.push({ id: device.id, name: device.name, status: device.status })
+    row.devices.push({ id: device.id, name: device.name })
   }
 
   const rows = [...map.values()].sort((a, b) => {
@@ -95,10 +80,6 @@ export const INVENTORY_CSV_HEADERS = [
   'Fabricante',
   'Modelo',
   'Cantidad',
-  'Online',
-  'Offline',
-  'Maintenance',
-  'Unknown',
 ] as const
 
 export function inventoryRowsToCsvRecords(
@@ -110,9 +91,5 @@ export function inventoryRowsToCsvRecords(
     Fabricante: row.manufacturer,
     Modelo: row.model,
     Cantidad: row.count,
-    Online: row.byStatus.online,
-    Offline: row.byStatus.offline,
-    Maintenance: row.byStatus.maintenance,
-    Unknown: row.byStatus.unknown,
   }))
 }

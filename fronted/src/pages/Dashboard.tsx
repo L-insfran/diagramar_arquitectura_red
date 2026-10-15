@@ -15,7 +15,6 @@ import {
   CircleOff,
 } from 'lucide-react'
 import { Card } from '../components/Card'
-import { StatusBadge } from '../components/StatusBadge'
 import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { useApi } from '../hooks/useApi'
@@ -168,12 +167,7 @@ export default function Dashboard() {
               icon={<Server className="w-5 h-5" />}
               value={c?.devices ?? 0}
               onClick={() => navigate('/devices')}
-            >
-              <div className="flex flex-wrap items-center gap-2 mt-2">
-                <StatusBadge status="online">{c?.devicesOnline ?? 0} online</StatusBadge>
-                <StatusBadge status="offline">{c?.devicesOffline ?? 0} offline</StatusBadge>
-              </div>
-            </Card>
+            />
             <Card
               title="Racks"
               icon={<HardDrive className="w-5 h-5" />}
@@ -409,7 +403,6 @@ export default function Dashboard() {
                           </p>
                         </div>
                       </div>
-                      <StatusBadge status={device.status as 'online' | 'offline' | 'maintenance' | 'unknown'} />
                     </div>
                   )
                 })

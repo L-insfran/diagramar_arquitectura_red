@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronRight, ChevronUp, Download, FileSpreadsheet, Layers } from 'lucide-react'
 import { Button } from './Button'
 import { Card } from './Card'
-import { StatusBadge } from './StatusBadge'
 import { useToast } from '../contexts/ToastContext'
 import { systemBrandingService } from '../services/systemBranding.service'
 import type { Device } from '../types'
@@ -316,7 +315,6 @@ function InventoryRow({
                     }}
                   >
                     <span className="truncate font-medium">{device.name}</span>
-                    <StatusBadge status={device.status} />
                   </button>
                 </li>
               ))}

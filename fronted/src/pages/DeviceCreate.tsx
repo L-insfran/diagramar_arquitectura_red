@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Check, ChevronDown, Search } from 'lucide-react'
 import { Button } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Input } from '../components/Input'
@@ -19,17 +20,9 @@ import { formatLinkCode } from '../utils/diagram/linkLabel'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
 
-const statusOptions = [
-  { value: 'online', label: 'Online' },
-  { value: 'offline', label: 'Offline' },
-  { value: 'maintenance', label: 'Maintenance' },
-  { value: 'unknown', label: 'Unknown' },
-]
-
 interface DeviceFormState {
   name: string
   deviceTemplateId: string
-  status: 'online' | 'offline' | 'maintenance' | 'unknown'
   hostname: string
   ipAddress: string
   macAddress: string
@@ -44,7 +37,6 @@ interface DeviceFormState {
 const initialFormState: DeviceFormState = {
   name: '',
   deviceTemplateId: '',
-  status: 'unknown',
   hostname: '',
   ipAddress: '',
   macAddress: '',
@@ -54,6 +46,182 @@ const initialFormState: DeviceFormState = {
   areaId: '',
   containerId: '',
   notes: '',
+}
+
+function templateSearchText(template: DeviceTemplate): string {
+  return [template.name, template.manufacturer, template.model, template.deviceType?.name]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+}
+
+function templateMeta(template: DeviceTemplate): string {
+  return [template.deviceType?.name, template.manufacturer, template.model].filter(Boolean).join(' · ')
+}
+
+function TemplatePicker({
+  templates,
+  loading,
+  value,
+  onChange,
+}: {
+  templates: DeviceTemplate[] | null
+  loading: boolean
+  value: string
+  onChange: (templateId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [typeId, setTypeId] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  const selected = useMemo(
+    () => templates?.find((template) => template.id === value) ?? null,
+    [templates, value],
+  )
+
+  const typeOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const template of templates ?? []) {
+      const id = template.deviceTypeId
+      const name = template.deviceType?.name?.trim()
+      if (id && name) byId.set(id, name)
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ value: id, label: name }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'))
+  }, [templates])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return (templates ?? [])
+      .filter((template) => !typeId || template.deviceTypeId === typeId)
+      .filter((template) => !q || templateSearchText(template).includes(q))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+  }, [templates, query, typeId])
+
+  useEffect(() => {
+    if (!open) return
+    const frame = window.requestAnimationFrame(() => searchRef.current?.focus())
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const catalogEmpty = !loading && (!templates || templates.length === 0)
+  const closedLabel = loading
+    ? 'Cargando templates...'
+    : catalogEmpty
+      ? 'No hay templates. Créalos en Configuración.'
+      : selected?.name || 'Selecciona un template'
+
+  return (
+    <div ref={rootRef} className="relative space-y-1.5">
+      <label id="template-picker-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        Template
+      </label>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-labelledby="template-picker-label"
+        disabled={loading || catalogEmpty}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 disabled:opacity-60"
+      >
+        <span className={selected ? 'text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500'}>
+          {closedLabel}
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        {selected
+          ? 'Listo. Abajo completá el nombre y los datos de este equipo.'
+          : 'Abrí la lista, buscá el modelo y hacé clic para elegirlo.'}
+      </p>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl">
+          <div className="space-y-3 border-b border-gray-200 dark:border-gray-800 p-3">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Buscá y elegí un modelo del catálogo
+            </p>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <input
+                ref={searchRef}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Nombre, fabricante o modelo"
+                aria-label="Buscar template"
+                className="w-full pl-10 pr-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              />
+            </div>
+            <Select
+              label="Filtrar por tipo"
+              value={typeId}
+              onChange={(event) => setTypeId(event.target.value)}
+              options={typeOptions}
+              placeholder="Todos los tipos"
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto" role="listbox" aria-label="Templates">
+            {filtered.length === 0 ? (
+              <p className="px-3.5 py-6 text-sm text-center text-gray-500 dark:text-gray-400">
+                Ningún template coincide. Probá con otro nombre o tipo.
+              </p>
+            ) : (
+              filtered.map((template) => {
+                const isSelected = template.id === value
+                const meta = templateMeta(template)
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onChange(template.id)
+                      setOpen(false)
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left text-sm border-b border-gray-100 dark:border-gray-800 last:border-b-0 ${
+                      isSelected
+                        ? 'bg-blue-50 text-blue-800 dark:bg-blue-500/15 dark:text-blue-100'
+                        : 'text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-medium truncate">{template.name}</span>
+                      {meta && (
+                        <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">{meta}</span>
+                      )}
+                    </span>
+                    {isSelected && <Check className="h-4 w-4 shrink-0" />}
+                  </button>
+                )
+              })
+            )}
+          </div>
+          <p className="border-t border-gray-200 dark:border-gray-800 px-3.5 py-2 text-xs text-gray-500 dark:text-gray-400">
+            {filtered.length} de {templates?.length ?? 0}
+          </p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function containerSelectLabel(c: Container): string {
@@ -184,7 +352,6 @@ export default function DeviceCreate() {
     setForm({
       name: existingDevice.name ?? '',
       deviceTemplateId: existingDevice.deviceTemplateId ?? '',
-      status: existingDevice.status ?? 'unknown',
       hostname: existingDevice.hostname ?? '',
       ipAddress: existingDevice.ipAddress ?? '',
       macAddress: existingDevice.macAddress ?? '',
@@ -234,7 +401,6 @@ export default function DeviceCreate() {
       macAddress: form.macAddress.trim() || undefined,
       serialNumber: form.serialNumber.trim() || undefined,
       firmwareVersion: form.firmwareVersion.trim() || undefined,
-      status: form.status,
       notes: form.notes.trim() || undefined,
     }
 
@@ -491,56 +657,44 @@ export default function DeviceCreate() {
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6">
         <form className="space-y-8" onSubmit={handleSubmit}>
           <FormSection
-            title="Del template"
-            description="Datos del catálogo; no se editan en la instancia."
+            title="1. Elegí el modelo"
+            description="Es el único dato que sale del catálogo. El resto lo completás vos para este equipo."
           >
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="max-w-xl space-y-3">
               {isEditMode ? (
                 <Input label="Template" value={templateLabel} disabled />
               ) : (
-                <Select
-                  label="Template"
+                <TemplatePicker
+                  templates={templates}
+                  loading={templatesLoading}
                   value={form.deviceTemplateId}
-                  onChange={(event) => {
+                  onChange={(deviceTemplateId) => {
                     setFormError(null)
-                    setForm((prev) => ({
-                      ...prev,
-                      deviceTemplateId: event.target.value,
-                    }))
+                    setForm((prev) => ({ ...prev, deviceTemplateId }))
                   }}
-                  options={(templates || []).map((tpl) => ({
-                    value: tpl.id,
-                    label: `${tpl.name}${tpl.deviceType?.name ? ` (${tpl.deviceType.name})` : ''}`,
-                  }))}
-                  placeholder={
-                    templatesLoading
-                      ? 'Cargando templates...'
-                      : templates && templates.length === 0
-                        ? 'No hay templates — créalos en Configuración'
-                        : 'Selecciona un template'
-                  }
-                  disabled={templatesLoading || !(templates && templates.length > 0)}
-                  required
                 />
               )}
               {showTemplateDetails && (
-                <>
-                  <Input label="Tipo (del template)" value={typeLabel} disabled />
-                  <Input label="Fabricante / Modelo" value={manufacturerModel} disabled />
-                  <Input
-                    label="Altura en rack"
-                    value={`${templateHeightU}U`}
-                    disabled
-                    hint="Definida por el template; determina cuántas U ocupa al montar."
-                  />
-                </>
+                <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3.5 py-3 text-sm">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Viene del catálogo
+                  </p>
+                  <p className="mt-1 text-gray-900 dark:text-gray-100">
+                    {typeLabel}
+                    {manufacturerModel !== '—' ? ` · ${manufacturerModel}` : ''}
+                    {` · ${templateHeightU}U`}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Tipo, marca y altura no se editan acá. La altura define cuántas U ocupa al montarlo.
+                  </p>
+                </div>
               )}
             </div>
           </FormSection>
 
           <FormSection
-            title="Identidad operativa"
-            description="Datos de este equipo concreto (no vienen del template)."
+            title="2. Datos de este equipo"
+            description="Nombre y datos de red de esta instancia. El nombre es obligatorio."
           >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
@@ -555,17 +709,6 @@ export default function DeviceCreate() {
                   error={duplicateNameWarning ?? undefined}
                 />
               </div>
-              <Select
-                label="Estado"
-                value={form.status}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    status: event.target.value as DeviceFormState['status'],
-                  }))
-                }
-                options={statusOptions}
-              />
               <Input
                 label="Dirección IP"
                 value={form.ipAddress}
@@ -620,8 +763,8 @@ export default function DeviceCreate() {
           </FormSection>
 
           <FormSection
-            title="Ubicación"
-            description="Sitio, área y contenedor donde se documenta el equipo."
+            title="3. Dónde está"
+            description="Opcional. Sitio, área y contenedor donde se documenta el equipo."
           >
             {isLocationLocked && (
               <p className="text-xs text-amber-600 dark:text-amber-400">

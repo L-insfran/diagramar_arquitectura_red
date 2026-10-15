@@ -933,7 +933,7 @@ export class SystemSettingSchema extends BaseModel {
 }
 
 export class SystemUserSchema extends BaseModel {
-  static $columns = ['createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'password', 'projectId', 'role', 'updatedAt'] as const
+  static $columns = ['createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'lastSeenVersion', 'password', 'projectId', 'role', 'updatedAt'] as const
   $columns = SystemUserSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -947,6 +947,8 @@ export class SystemUserSchema extends BaseModel {
   declare isActive: boolean
   @column()
   declare lastName: string
+  @column()
+  declare lastSeenVersion: string | null
   @column({ serializeAs: null })
   declare password: string
   @column()

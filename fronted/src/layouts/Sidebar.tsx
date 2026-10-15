@@ -201,11 +201,21 @@ interface SidebarProps {
   isOpen: boolean
   isCollapsed: boolean
   isViewer: boolean
+  appVersion: string | null
+  onOpenReleaseHistory: () => void
   onToggleCollapsed: () => void
   onClose: () => void
 }
 
-export function Sidebar({ isOpen, isCollapsed, isViewer, onToggleCollapsed, onClose }: SidebarProps) {
+export function Sidebar({
+  isOpen,
+  isCollapsed,
+  isViewer,
+  appVersion,
+  onOpenReleaseHistory,
+  onToggleCollapsed,
+  onClose,
+}: SidebarProps) {
   const { isGlobalAdmin } = usePermissions()
   const location = useLocation()
   const navEntries = filterVisible(allNavEntries, isGlobalAdmin, isViewer)
@@ -438,6 +448,39 @@ export function Sidebar({ isOpen, isCollapsed, isViewer, onToggleCollapsed, onCl
               </NavLink>
             </div>
           )}
+
+          <div
+            className={`${isViewer ? 'mt-auto' : ''} ${isCollapsed ? 'px-2 pb-4' : 'px-3 pb-4'} ${
+              isViewer
+                ? isCollapsed
+                  ? 'pt-4 lg:border-t lg:border-slate-200/60 lg:dark:border-slate-800/50'
+                  : 'pt-4 border-t border-slate-200 dark:border-slate-800/80'
+                : ''
+            }`}
+          >
+            <button
+              type="button"
+              onClick={onOpenReleaseHistory}
+              disabled={!appVersion}
+              title={appVersion ? `Versión ${appVersion}` : 'Versión'}
+              className={`group relative flex w-full items-center rounded-xl text-slate-500 transition-colors hover:bg-slate-200/80 hover:text-slate-800 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-slate-500 dark:text-slate-400 dark:hover:bg-slate-800/80 dark:hover:text-slate-200 dark:disabled:hover:bg-transparent dark:disabled:hover:text-slate-400 ${
+                isCollapsed ? 'justify-center px-2 py-2' : 'px-3 py-2'
+              }`}
+            >
+              <span
+                className={`text-xs font-medium ${
+                  isCollapsed ? 'max-w-full truncate' : ''
+                }`}
+              >
+                {appVersion ? `v${appVersion}` : 'v—'}
+              </span>
+              {isCollapsed && appVersion && (
+                <span className="pointer-events-none absolute left-full top-1/2 z-[70] ml-3 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity duration-150 group-hover:opacity-100">
+                  Versión {appVersion}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </aside>
 
