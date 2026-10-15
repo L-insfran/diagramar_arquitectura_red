@@ -194,8 +194,12 @@ export default class DiagramLinkService {
   }
 
   async create(data: CreateDiagramLinkInput, actorId: string) {
+    const linkTypeId =
+      data.linkTypeId === undefined
+        ? await this.linkTypes.findDefaultId(data.projectId)
+        : data.linkTypeId
     await this.assertCableTypeExists(data.cableTypeId)
-    await this.assertLinkType(data.projectId, data.linkTypeId)
+    await this.assertLinkType(data.projectId, linkTypeId)
     await this.assertDevicesAndPorts(
       data.projectId,
       data.sourceDeviceId,
@@ -237,6 +241,7 @@ export default class DiagramLinkService {
         return this.links.create(
           {
             ...data,
+            linkTypeId,
             sourcePortLabel,
             targetPortLabel,
             createdBy: actorId,

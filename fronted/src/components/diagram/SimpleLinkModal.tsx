@@ -624,7 +624,11 @@ export function SimpleLinkModal({
         targetPortLabel: tgtLabel,
         description: description.trim() || null,
         cableTypeId: cableTypeId || null,
-        linkTypeId: linkTypeId || null,
+        ...(linkTypeId
+          ? { linkTypeId }
+          : linkTypeTouchedRef.current
+            ? { linkTypeId: null }
+            : {}),
       }
       if (isEdit && edge?.id) {
         await diagramLinksService.update(edge.id, payload)

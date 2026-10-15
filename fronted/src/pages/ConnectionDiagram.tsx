@@ -45,6 +45,7 @@ import {
   type UpdateConnectionDiagramPayload,
 } from '../services/connection-diagrams.service'
 import { diagramLinksService } from '../services/diagram-links.service'
+import { diagramLinkTypesService } from '../services/diagram-link-types.service'
 import { devicesService } from '../services/devices.service'
 import { boardsService } from '../services/boards.service'
 import { racksService } from '../services/racks.service'
@@ -1827,9 +1828,19 @@ export default function ConnectionDiagramPage() {
       const targetParsed = parseDiagramHandlePort(params.targetHandleId)
       const sourcePortLabel = (sourceParsed.portLabel ?? params.sourceLabel).trim()
       const targetPortLabel = (targetParsed.portLabel ?? params.targetLabel).trim()
-      if (!sourcePortLabel || !targetPortLabel) return
+      if (!sourcePortLabel || !targetPortLabel) {
+        toast.error('No se pudo identificar el puerto de origen o destino')
+        return
+      }
       creatingLinkRef.current = true
       try {
+        let defaultLinkTypeId: string | undefined
+        try {
+          const types = await diagramLinkTypesService.getAll()
+          defaultLinkTypeId = types.find((type) => type.isDefault)?.id
+        } catch {
+          defaultLinkTypeId = undefined
+        }
         const link = await diagramLinksService.create({
           projectId,
           sourceDeviceId: params.sourceDeviceId,
@@ -1840,6 +1851,7 @@ export default function ConnectionDiagramPage() {
           targetPortLabel,
           cableTypeId: null,
           description: null,
+          ...(defaultLinkTypeId ? { linkTypeId: defaultLinkTypeId } : {}),
         })
         toast.success(`Enlace ${formatLinkCode(link.code)} creado`)
         await refetchGraph()

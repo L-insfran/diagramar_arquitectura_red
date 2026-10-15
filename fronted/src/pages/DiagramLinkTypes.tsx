@@ -211,10 +211,10 @@ export default function DiagramLinkTypes() {
       )}
 
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        Cada tipo pinta los enlaces del diagrama con su color y su estilo de línea. Anillo, acceso
-        a equipo final o troncal se eligen al crear o editar el enlace. El color y el trazo se
-        cambian acá y se actualizan en todos los enlaces de ese tipo. El tipo de cable sigue siendo
-        el medio físico.
+        Cada tipo pinta los enlaces del diagrama con su color y su estilo de línea. El marcado en
+        «Al crear» queda elegido al arrastrar un enlace o al abrir el formulario; ahí se puede
+        cambiar. El color y el trazo se cambian acá y se actualizan en todos los enlaces de ese
+        tipo. El tipo de cable sigue siendo el medio físico.
       </p>
 
       <DataTable

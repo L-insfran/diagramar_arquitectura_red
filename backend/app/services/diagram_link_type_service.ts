@@ -40,6 +40,11 @@ export default class DiagramLinkTypeService {
     return this.types.findByIdOrFail(id)
   }
 
+  async findDefaultId(projectId: string) {
+    const row = await this.types.findDefaultByProject(projectId)
+    return row?.id ?? null
+  }
+
   async assertActiveInProject(id: string, projectId: string) {
     const type = await this.types.findActiveInProject(id, projectId)
     if (!type) {

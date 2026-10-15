@@ -38,6 +38,14 @@ export default class DiagramLinkTypeRepository {
     return query.first()
   }
 
+  async findDefaultByProject(projectId: string) {
+    return DiagramLinkType.query()
+      .where('project_id', projectId)
+      .where('is_default', true)
+      .whereNull('deleted_at')
+      .first()
+  }
+
   async countActiveLinks(typeId: string) {
     const row = await DiagramLink.query()
       .where('link_type_id', typeId)
