@@ -100,6 +100,19 @@ export default class DeviceRepository {
     return query
   }
 
+  /** Equipos activos del proyecto, con puertos y ubicación, para la planilla grupal. */
+  async findActiveForSheetByIds(projectId: string, ids: string[]) {
+    if (ids.length === 0) return []
+    return Device.query()
+      .where('project_id', projectId)
+      .whereNull('deleted_at')
+      .whereIn('id', ids)
+      .preload('site')
+      .preload('area')
+      .preload('container')
+      .preload('ports', (q) => q.orderBy('port_number', 'asc'))
+  }
+
   async findByIdOrFail(id: string) {
     return Device.query()
       .where('id', id)

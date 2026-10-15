@@ -23,6 +23,7 @@ export type ScannedRoutes = {
     'projects.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.index': { paramsTuple?: []; params?: {} }
     'devices.filter_options': { paramsTuple?: []; params?: {} }
+    'devices.connection_sheets': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'devices.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'devices.connection_sheet': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -314,6 +315,7 @@ export type ScannedRoutes = {
     'auth.logout': { paramsTuple?: []; params?: {} }
     'release.ack': { paramsTuple?: []; params?: {} }
     'projects.store': { paramsTuple?: []; params?: {} }
+    'devices.connection_sheets': { paramsTuple?: []; params?: {} }
     'devices.store': { paramsTuple?: []; params?: {} }
     'devices.assign_container': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'ports.store': { paramsTuple?: []; params?: {} }

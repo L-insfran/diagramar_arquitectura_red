@@ -33,6 +33,13 @@ export const createDeviceValidator = vine.compile(
   })
 )
 
+export const connectionSheetsValidator = vine.compile(
+  vine.object({
+    deviceIds: vine.array(vine.string().uuid()).minLength(1).maxLength(60),
+    layout: vine.enum(['tabs', 'combined'] as const),
+  })
+)
+
 export const assignContainerValidator = vine.compile(
   vine.object({
     containerId: vine.string().uuid().nullable().optional(),

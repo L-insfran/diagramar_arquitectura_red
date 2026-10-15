@@ -16,6 +16,7 @@ import {
   createDeviceValidator,
   updateDeviceValidator,
   assignContainerValidator,
+  connectionSheetsValidator,
 } from '#validators/device_validator'
 import { bulkUpdatePortStatusValidator, bulkUpdatePortPassthroughValidator } from '#validators/port_validator'
 
@@ -141,6 +142,23 @@ export default class DevicesController {
     response.header('Content-Length', String(file.buffer.length))
     response.header('Cache-Control', 'no-store')
     return response.stream(Readable.from(file.buffer))
+  }
+
+  async connectionSheets(ctx: HttpContext) {
+    const context = await requireProjectContext(ctx)
+    if (!context) return
+
+    const data = await ctx.request.validateUsing(connectionSheetsValidator)
+    const file = await this.connectionSheetService.buildGroup(
+      context.projectId,
+      data.deviceIds,
+      data.layout,
+    )
+    ctx.response.header('Content-Type', file.mimeType)
+    ctx.response.header('Content-Disposition', `attachment; filename="${file.filename}"`)
+    ctx.response.header('Content-Length', String(file.buffer.length))
+    ctx.response.header('Cache-Control', 'no-store')
+    return ctx.response.stream(Readable.from(file.buffer))
   }
 
   async relocationImpact({ auth, params, request, response }: HttpContext) {

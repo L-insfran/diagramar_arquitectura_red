@@ -196,6 +196,32 @@ export default class DiagramLinkRepository {
       .orderBy('code', 'asc')
   }
 
+  /** Enlaces activos que tocan alguno de los equipos, para armar varias planillas de una vez. */
+  async findActiveForDevicesSheet(projectId: string, deviceIds: string[]) {
+    if (deviceIds.length === 0) return []
+    return whereBothEndpointsActive(
+      DiagramLink.query()
+        .where('project_id', projectId)
+        .whereNull('deleted_at')
+        .where((builder) => {
+          builder
+            .whereIn('source_device_id', deviceIds)
+            .orWhereIn('target_device_id', deviceIds)
+        }),
+    )
+      .preload('sourceDevice', (q) => {
+        q.preload('site').preload('area').preload('container')
+      })
+      .preload('targetDevice', (q) => {
+        q.preload('site').preload('area').preload('container')
+      })
+      .preload('sourcePort')
+      .preload('targetPort')
+      .preload('cableType')
+      .preload('linkType')
+      .orderBy('code', 'asc')
+  }
+
   async softDeleteByDeviceIds(
     projectId: string,
     deviceIds: string[],
