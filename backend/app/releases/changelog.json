@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "1.0.2",
+      "title": "Versión 1.0.2",
+      "highlights": [
+        "Mejorar el alta de equipos en contenedores y la búsqueda en el diagrama.",
+        "Registrar las rutas de impresión y exportación DXF.",
+        "Agregar exportación DXF y renombrar planillas a Exportar conexiones.",
+        "Mover la impresión del diagrama a una página dedicada.",
+        "Fusionar celdas repetidas en la tabla de recorrido de enlaces.",
+        "Actualizar la marca a Insfrabyte en login y favicon.",
+        "Estrechar el menú lateral para dar más espacio al diagrama."
+      ]
+    },
+    {
       "version": "1.0.1",
       "title": "Versión 1.0.1",
       "highlights": [
