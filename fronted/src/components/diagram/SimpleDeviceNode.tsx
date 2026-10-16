@@ -71,7 +71,6 @@ export function resolveDeviceGap(opts?: DeviceStackLayoutOpts): number {
 }
 export const CONTAINER_PAD = 12
 export const CONTAINER_HEADER_H = 68
-export const CONTAINER_SELECTOR_H = 40
 
 export type SimpleDevicePortClick = {
   handleId: string

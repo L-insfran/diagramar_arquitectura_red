@@ -8,7 +8,6 @@ import {
 import {
   CONTAINER_HEADER_H,
   CONTAINER_PAD,
-  CONTAINER_SELECTOR_H,
   resolveDeviceGap,
   SIMPLE_DEVICE_STACK_PAD,
   SIMPLE_DEVICE_WIDTH,
@@ -110,29 +109,20 @@ function RackContainerNodeComponent({
             {data.label ?? rack.name}
           </div>
         </div>
-        <span className={`shrink-0 rounded px-1.5 py-0.5 ${DIAGRAM_CONTAINER_BADGE} text-slate-500 ring-1 ring-slate-300/80 dark:text-slate-400 dark:ring-slate-600`}>
-          Rack
-        </span>
-      </div>
-
-      {showPicker ? (
-        <div
-          className="nodrag nopan shrink-0 border-b border-slate-200/80 px-2 py-1.5 dark:border-slate-700/80"
-          style={{ height: CONTAINER_SELECTOR_H }}
-        >
-          <ContainerDevicePicker
-            options={data.deviceOptions}
-            onAdd={(id) => data.onAddDevice?.(id)}
-            onOpenChange={data.onPickerOpenChange}
-            accent="slate"
-          />
+        <div className="flex shrink-0 items-center gap-1">
+          {showPicker ? (
+            <ContainerDevicePicker
+              options={data.deviceOptions}
+              onAdd={(id) => data.onAddDevice?.(id)}
+              onOpenChange={data.onPickerOpenChange}
+              accent="slate"
+            />
+          ) : null}
+          <span className={`rounded px-1.5 py-0.5 ${DIAGRAM_CONTAINER_BADGE} text-slate-500 ring-1 ring-slate-300/80 dark:text-slate-400 dark:ring-slate-600`}>
+            Rack
+          </span>
         </div>
-      ) : data.readOnly && !data.hidePicker ? (
-        <div
-          style={{ height: CONTAINER_SELECTOR_H }}
-          className="shrink-0 border-b border-slate-200/80 dark:border-slate-700/80"
-        />
-      ) : null}
+      </div>
 
       <div
         className="pointer-events-none relative min-h-0 flex-1 bg-[radial-gradient(circle,_rgb(148_163_184/0.35)_1px,_transparent_1px)] [background-size:14px_14px] dark:bg-[radial-gradient(circle,_rgb(100_116_139/0.45)_1px,_transparent_1px)]"
@@ -140,7 +130,7 @@ function RackContainerNodeComponent({
       >
         {data.deviceIds.length === 0 ? (
           <div className={`pointer-events-none absolute inset-0 flex items-center justify-center px-3 text-center ${DIAGRAM_EMPTY_HINT} text-slate-400 dark:text-slate-500`}>
-            {data.hidePicker ? 'Sin equipos' : 'Sin equipos · usá el buscador'}
+            {data.hidePicker ? 'Sin equipos' : 'Sin equipos · usá el botón +'}
           </div>
         ) : null}
       </div>

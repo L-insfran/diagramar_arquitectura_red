@@ -8,7 +8,6 @@ import {
 import {
   CONTAINER_HEADER_H,
   CONTAINER_PAD,
-  CONTAINER_SELECTOR_H,
   SIMPLE_DEVICE_STACK_PAD,
 } from './SimpleDeviceNode'
 import {
@@ -84,29 +83,20 @@ function BoardContainerNodeComponent({
             {data.label ?? board.name}
           </div>
         </div>
-        <span className={`shrink-0 rounded px-1.5 py-0.5 ${DIAGRAM_CONTAINER_BADGE} text-amber-800 ring-1 ring-amber-400/60 dark:text-amber-200 dark:ring-amber-600/60`}>
-          Tablero
-        </span>
-      </div>
-
-      {showPicker ? (
-        <div
-          className="nodrag nopan shrink-0 border-b border-amber-300/40 px-2 py-1.5 dark:border-amber-700/40"
-          style={{ height: CONTAINER_SELECTOR_H }}
-        >
-          <ContainerDevicePicker
-            options={data.deviceOptions}
-            onAdd={(id) => data.onAddDevice?.(id)}
-            onOpenChange={data.onPickerOpenChange}
-            accent="amber"
-          />
+        <div className="flex shrink-0 items-center gap-1">
+          {showPicker ? (
+            <ContainerDevicePicker
+              options={data.deviceOptions}
+              onAdd={(id) => data.onAddDevice?.(id)}
+              onOpenChange={data.onPickerOpenChange}
+              accent="amber"
+            />
+          ) : null}
+          <span className={`rounded px-1.5 py-0.5 ${DIAGRAM_CONTAINER_BADGE} text-amber-800 ring-1 ring-amber-400/60 dark:text-amber-200 dark:ring-amber-600/60`}>
+            Tablero
+          </span>
         </div>
-      ) : data.readOnly && !data.hidePicker ? (
-        <div
-          style={{ height: CONTAINER_SELECTOR_H }}
-          className="shrink-0 border-b border-amber-300/40 dark:border-amber-700/40"
-        />
-      ) : null}
+      </div>
 
       <div
         className="pointer-events-none relative min-h-0 flex-1 bg-[radial-gradient(circle,_rgb(217_119_6/0.22)_1px,_transparent_1px)] [background-size:14px_14px] dark:bg-[radial-gradient(circle,_rgb(180_83_9/0.35)_1px,_transparent_1px)]"
@@ -114,7 +104,7 @@ function BoardContainerNodeComponent({
       >
         {data.deviceIds.length === 0 ? (
           <div className={`pointer-events-none absolute inset-0 flex items-center justify-center px-3 text-center ${DIAGRAM_EMPTY_HINT} text-amber-700/60 dark:text-amber-300/50`}>
-            {data.hidePicker ? 'Sin equipos' : 'Sin equipos · usá el buscador'}
+            {data.hidePicker ? 'Sin equipos' : 'Sin equipos · usá el botón +'}
           </div>
         ) : null}
       </div>

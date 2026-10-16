@@ -61,7 +61,6 @@ import {
   devicePortAreaTop,
   CONTAINER_PAD,
   CONTAINER_HEADER_H,
-  CONTAINER_SELECTOR_H,
   resolveDeviceGap,
   resolveDeviceNodeSize,
   type PortConnectDragParams,
@@ -150,6 +149,8 @@ export type ConnectionDiagramCanvasHandle = {
   rerouteCables: () => void
   /** Resalta un enlace en el canvas y centra la vista sobre su ruta. */
   selectLink: (edgeId: string) => void
+  /** Selecciona nodos del canvas, limpia el enlace enfocado y centra la cámara. */
+  selectNodes: (nodeIds: string[]) => void
   /** Captura PNG del diagrama para export PDF (respeta el layout actual, sin reempaquetar). */
   captureDiagramPng: (
     format: PaperFormat,
@@ -290,14 +291,13 @@ function cloneFlowEdges(edges: Edge<RoutedLinkEdgeData>[]): Edge<RoutedLinkEdgeD
   }))
 }
 
-function containerChromeHeight(node: Node): number {
-  const hidePicker = Boolean((node.data as { hidePicker?: boolean })?.hidePicker)
-  return CONTAINER_HEADER_H + (hidePicker ? 0 : CONTAINER_SELECTOR_H)
+function containerChromeHeight(_node: Node): number {
+  return CONTAINER_HEADER_H
 }
 
 /**
  * Rack/board/área son huecos: los cables pueden pasar entre equipos apilados.
- * Solo bloquean el chrome (título + buscador) y los equipos individuales.
+ * Solo bloquean el chrome (título) y los equipos individuales.
  */
 function collectRouteObstacles(nodes: Node[]): DiagramRect[] {
   const obstacles: DiagramRect[] = []
@@ -2189,10 +2189,43 @@ function ConnectionDiagramCanvasInner(
 
   const selectLink = useCallback(
     (edgeId: string) => {
+      setNodes((prev) =>
+        prev.map((n) => (n.selected ? { ...n, selected: false } : n))
+      )
       callbacksRef.current.onFocusedLinkChange?.(edgeId)
       requestAnimationFrame(() => focusCameraOnLink(edgeId))
     },
-    [focusCameraOnLink]
+    [focusCameraOnLink, setNodes]
+  )
+
+  const focusCameraOnNodes = useCallback((nodeIds: string[]) => {
+    const instance = rfInstanceRef.current
+    if (!instance || nodeIds.length === 0) return
+    const present = nodeIds.filter((id) =>
+      nodesRef.current.some((n) => n.id === id)
+    )
+    if (present.length === 0) return
+    void instance.fitView({
+      nodes: present.map((id) => ({ id })),
+      padding: 0.35,
+      duration: 280,
+      maxZoom: 1.15,
+    })
+  }, [])
+
+  const selectNodes = useCallback(
+    (nodeIds: string[]) => {
+      const idSet = new Set(nodeIds)
+      callbacksRef.current.onFocusedLinkChange?.(null)
+      setNodes((prev) =>
+        prev.map((n) => {
+          const nextSelected = idSet.has(n.id)
+          return n.selected === nextSelected ? n : { ...n, selected: nextSelected }
+        })
+      )
+      requestAnimationFrame(() => focusCameraOnNodes(nodeIds))
+    },
+    [focusCameraOnNodes, setNodes]
   )
 
   const rerouteCables = useCallback((options?: { affectedNodeIds?: ReadonlySet<string> }) => {
@@ -2475,6 +2508,7 @@ function ConnectionDiagramCanvasInner(
     () => ({
       rerouteCables,
       selectLink,
+      selectNodes,
       captureDiagramPng,
       getContentBounds: () => {
         const top = getTopLevelVisibleNodes(nodesRef.current)
@@ -2639,6 +2673,7 @@ function ConnectionDiagramCanvasInner(
     [
       rerouteCables,
       selectLink,
+      selectNodes,
       captureDiagramPng,
       diagram.containers,
       diagram.layoutMode,

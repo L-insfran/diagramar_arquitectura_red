@@ -21,6 +21,7 @@ import { TruncatedText } from '../components/Tooltip'
 import { SimpleLinkModal } from '../components/diagram/SimpleLinkModal'
 import { DiagramLinkReferenceList } from '../components/diagram/DiagramLinkReferenceList'
 import { DiagramCanvasOptionsMenu } from '../components/diagram/DiagramCanvasOptionsMenu'
+import { DiagramObjectSearch } from '../components/diagram/DiagramObjectSearch'
 import { DiagramViewMenu } from '../components/diagram/DiagramViewMenu'
 import { SIMPLE_DEVICE_GAP, simpleDeviceHeight, resolveDeviceGap, resolveDeviceNodeSize, SIMPLE_DEVICE_WIDTH, CONTAINER_PAD } from '../components/diagram/SimpleDeviceNode'
 import { AREA_BODY_PAD } from '../components/diagram/AreaContainerNode'
@@ -55,6 +56,10 @@ import {
   formatLinkReference,
   occupancyEdgesFromDiagramLinks,
 } from '../utils/diagram/linkLabel'
+import {
+  buildDiagramSearchCatalog,
+  type DiagramSearchItem,
+} from '../utils/diagram/diagramObjectSearch'
 import { boardFlowNodeId } from '../utils/boardPlacement'
 import { areaFlowNodeId } from '../utils/areaPlacement'
 import { rackFlowNodeId } from '../utils/diagram/rackLayout'
@@ -1847,6 +1852,29 @@ export default function ConnectionDiagramPage() {
       .filter((o): o is { value: string; label: string } => Boolean(o))
       .sort((a, b) => a.label.localeCompare(b.label, 'es'))
   }, [containerByDeviceId, graphPayload?.inventory])
+
+  const diagramSearchItems = useMemo(() => {
+    if (!graphPayload) return []
+    return buildDiagramSearchCatalog({
+      inventory: graphPayload.inventory,
+      edges: graphPayload.graph.edges,
+      areas: graphPayload.areas ?? [],
+      racks: graphPayload.racks,
+      boards: graphPayload.boards,
+      deviceIdsOnCanvas: Object.keys(containerByDeviceId),
+      containerByDeviceId,
+      visibleContainerIds,
+      layoutMode,
+    })
+  }, [containerByDeviceId, graphPayload, layoutMode, visibleContainerIds])
+
+  const handleDiagramSearchSelect = useCallback((item: DiagramSearchItem) => {
+    if (item.kind === 'link') {
+      canvasRef.current?.selectLink(item.targetId)
+      return
+    }
+    canvasRef.current?.selectNodes([item.targetId])
+  }, [])
   const diagramOptions = useMemo(
     () => [
       { value: '', label: 'Seleccionar diagrama…' },
@@ -2406,6 +2434,12 @@ export default function ConnectionDiagramPage() {
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="relative min-h-0 flex-1 overflow-hidden">
           <div className="absolute right-3 top-3 z-20 flex flex-wrap items-center justify-end gap-2">
+            {selectedId && scopeSiteId && diagramForCanvas && graphPayload ? (
+              <DiagramObjectSearch
+                items={diagramSearchItems}
+                onSelect={handleDiagramSearchSelect}
+              />
+            ) : null}
             {canMutate && selectedId && (
               <Button
                 size="sm"

@@ -7,7 +7,6 @@ import {
 } from './ContainerDevicePicker'
 import {
   CONTAINER_HEADER_H,
-  CONTAINER_SELECTOR_H,
   resolveDeviceGap,
   SIMPLE_DEVICE_WIDTH,
   simpleDeviceHeight,
@@ -48,9 +47,9 @@ export const AREA_LABEL_LANE = 52
 /** Max row width before wrapping to the next line. */
 const AREA_WRAP_AT = 980
 
-/** Height reserved for area header + device picker (must match the node chrome). */
-export function areaChromeHeight(opts?: { hidePicker?: boolean }): number {
-  return CONTAINER_HEADER_H + (opts?.hidePicker ? 0 : CONTAINER_SELECTOR_H)
+/** Height reserved for area header (must match the node chrome). */
+export function areaChromeHeight(_opts?: { hidePicker?: boolean }): number {
+  return CONTAINER_HEADER_H
 }
 
 /** Y where nested racks/boards may start (below chrome + label lane + body pad). */
@@ -281,28 +280,20 @@ function AreaContainerNodeComponent({
               </div>
             ) : null}
           </div>
-          <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 ${DIAGRAM_CONTAINER_BADGE} text-sky-800 ring-1 ring-sky-500/50 dark:text-sky-200 dark:ring-sky-500/50`}>
-            Área
-          </span>
-        </div>
-        {showPicker ? (
-          <div
-            className="nodrag nopan pointer-events-auto border-b border-sky-300/50 bg-sky-50/95 px-2 py-1.5 dark:border-sky-800/60 dark:bg-sky-950/90"
-            style={{ height: CONTAINER_SELECTOR_H }}
-          >
-            <ContainerDevicePicker
-              options={data.deviceOptions}
-              onAdd={(id) => data.onAddDevice?.(id)}
-              onOpenChange={data.onPickerOpenChange}
-              accent="slate"
-            />
+          <div className="mt-0.5 flex shrink-0 items-center gap-1">
+            {showPicker ? (
+              <ContainerDevicePicker
+                options={data.deviceOptions}
+                onAdd={(id) => data.onAddDevice?.(id)}
+                onOpenChange={data.onPickerOpenChange}
+                accent="sky"
+              />
+            ) : null}
+            <span className={`rounded px-1.5 py-0.5 ${DIAGRAM_CONTAINER_BADGE} text-sky-800 ring-1 ring-sky-500/50 dark:text-sky-200 dark:ring-sky-500/50`}>
+              Área
+            </span>
           </div>
-        ) : data.readOnly && !data.hidePicker ? (
-          <div
-            style={{ height: CONTAINER_SELECTOR_H }}
-            className="border-b border-sky-300/40 dark:border-sky-800/50"
-          />
-        ) : null}
+        </div>
       </div>
 
       <div className="shrink-0" style={{ height: chromeH }} aria-hidden />
@@ -319,7 +310,7 @@ function AreaContainerNodeComponent({
         <div className={`flex flex-1 items-center justify-center px-4 text-center ${DIAGRAM_EMPTY_HINT} text-sky-700/65 dark:text-sky-300/55`}>
           {data.hidePicker
             ? 'Vacío'
-            : 'Agregá racks, tableros o equipos sueltos'}
+            : 'Agregá equipos con el botón +'}
         </div>
       ) : (
         <div

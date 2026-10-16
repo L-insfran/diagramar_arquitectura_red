@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, X } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
 
 export type ContainerDeviceOption = {
   id: string
@@ -17,11 +17,17 @@ export type ContainerDeviceOption = {
 type Props = {
   options: ContainerDeviceOption[]
   onAdd: (deviceId: string) => void
-  accent?: 'slate' | 'amber'
+  accent?: 'slate' | 'amber' | 'sky'
   onOpenChange?: (open: boolean) => void
 }
 
 type PanelPos = { top: number; left: number; width: number }
+
+const PANEL_WIDTH = 280
+const PANEL_ESTIMATED_H = 280
+
+/** Solo un picker abierto a la vez en el diagrama. */
+let closeActivePicker: (() => void) | null = null
 
 export function ContainerDevicePicker({
   options,
@@ -37,6 +43,8 @@ export function ContainerDevicePicker({
   const panelRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const anchorRectRef = useRef<{ top: number; left: number; bottom: number } | null>(null)
+  const openRef = useRef(false)
 
   const available = useMemo(() => options.filter((o) => !o.alreadyIn), [options])
 
@@ -69,46 +77,108 @@ export function ContainerDevicePicker({
     })
   }, [available, query, typeFilter])
 
-  const updateOpen = useCallback(
-    (next: boolean) => {
-      setOpen(next)
-      onOpenChange?.(next)
-    },
-    [onOpenChange]
-  )
+  const closerRef = useRef<(() => void) | null>(null)
 
-  const updatePosition = useCallback(() => {
-    const btn = buttonRef.current
-    if (!btn) return
-    const rect = btn.getBoundingClientRect()
-    const width = Math.max(rect.width, 240)
-    const left = Math.min(rect.left, window.innerWidth - width - 8)
-    let top = rect.bottom + 4
-    const estimatedHeight = 280
-    if (top + estimatedHeight > window.innerHeight - 8) {
-      top = Math.max(8, rect.top - estimatedHeight - 4)
+  const close = useCallback(() => {
+    if (!openRef.current) return
+    openRef.current = false
+    setOpen(false)
+    onOpenChange?.(false)
+    if (closerRef.current && closeActivePicker === closerRef.current) {
+      closeActivePicker = null
     }
-    setPos({ top, left: Math.max(8, left), width })
+    closerRef.current = null
+  }, [onOpenChange])
+
+  const openPicker = useCallback(() => {
+    closeActivePicker?.()
+    const closer = () => {
+      openRef.current = false
+      setOpen(false)
+      onOpenChange?.(false)
+      if (closeActivePicker === closer) closeActivePicker = null
+      closerRef.current = null
+    }
+    closerRef.current = closer
+    closeActivePicker = closer
+    openRef.current = true
+    setOpen(true)
+    onOpenChange?.(true)
+  }, [onOpenChange])
+
+  const toggle = useCallback(() => {
+    if (openRef.current) close()
+    else openPicker()
+  }, [close, openPicker])
+
+  const computePosition = useCallback((): PanelPos | null => {
+    const btn = buttonRef.current
+    if (!btn) return null
+    const rect = btn.getBoundingClientRect()
+    const width = PANEL_WIDTH
+    // Prefer align right edge of panel with right edge of button
+    let left = rect.right - width
+    left = Math.min(Math.max(8, left), window.innerWidth - width - 8)
+    let top = rect.bottom + 4
+    if (top + PANEL_ESTIMATED_H > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - PANEL_ESTIMATED_H - 4)
+    }
+    return { top, left, width }
   }, [])
 
   useLayoutEffect(() => {
     if (!open) {
       setPos(null)
+      anchorRectRef.current = null
       return
     }
-    updatePosition()
-  }, [open, updatePosition])
+    const next = computePosition()
+    setPos(next)
+    const btn = buttonRef.current
+    if (btn) {
+      const r = btn.getBoundingClientRect()
+      anchorRectRef.current = { top: r.top, left: r.left, bottom: r.bottom }
+    }
+  }, [open, computePosition])
+
+  // Close when the canvas pans/zooms or the container is dragged (React Flow uses CSS transform).
+  useEffect(() => {
+    if (!open) return
+    let raf = 0
+    const tick = () => {
+      const btn = buttonRef.current
+      const anchor = anchorRectRef.current
+      if (btn && anchor) {
+        const r = btn.getBoundingClientRect()
+        const moved =
+          Math.abs(r.top - anchor.top) > 1 ||
+          Math.abs(r.left - anchor.left) > 1 ||
+          Math.abs(r.bottom - anchor.bottom) > 1
+        if (moved) {
+          close()
+          return
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [open, close])
 
   useEffect(() => {
     if (!open) return
-    const onReposition = () => updatePosition()
-    window.addEventListener('resize', onReposition)
-    window.addEventListener('scroll', onReposition, true)
-    return () => {
-      window.removeEventListener('resize', onReposition)
-      window.removeEventListener('scroll', onReposition, true)
+    const onResize = () => {
+      const next = computePosition()
+      setPos(next)
+      const btn = buttonRef.current
+      if (btn) {
+        const r = btn.getBoundingClientRect()
+        anchorRectRef.current = { top: r.top, left: r.left, bottom: r.bottom }
+      }
     }
-  }, [open, updatePosition])
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [open, computePosition])
 
   useEffect(() => {
     if (!open) return
@@ -116,11 +186,22 @@ export function ContainerDevicePicker({
       const target = e.target as Node
       if (rootRef.current?.contains(target)) return
       if (panelRef.current?.contains(target)) return
-      updateOpen(false)
+      close()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        close()
+      }
     }
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open, updateOpen])
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, close])
 
   useEffect(() => {
     if (open) {
@@ -130,18 +211,32 @@ export function ContainerDevicePicker({
     }
   }, [open])
 
-  const border =
-    accent === 'amber'
-      ? 'border-amber-300 dark:border-amber-700'
-      : 'border-slate-300 dark:border-slate-600'
+  useEffect(() => {
+    return () => {
+      if (openRef.current) {
+        openRef.current = false
+        closeActivePicker = null
+      }
+    }
+  }, [])
+
   const panelBorder =
     accent === 'amber'
       ? 'border-amber-300/80 dark:border-amber-600/70'
-      : 'border-slate-300/80 dark:border-slate-600'
+      : accent === 'sky'
+        ? 'border-sky-300/80 dark:border-sky-600/70'
+        : 'border-slate-300/80 dark:border-slate-600'
+
+  const buttonHover =
+    accent === 'amber'
+      ? 'hover:bg-amber-100 hover:text-amber-900 dark:hover:bg-amber-900/50 dark:hover:text-amber-100'
+      : accent === 'sky'
+        ? 'hover:bg-sky-100 hover:text-sky-900 dark:hover:bg-sky-900/50 dark:hover:text-sky-100'
+        : 'hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200'
 
   const pick = (id: string) => {
     onAdd(id)
-    updateOpen(false)
+    close()
     setQuery('')
     setTypeFilter('')
   }
@@ -163,6 +258,9 @@ export function ContainerDevicePicker({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="space-y-1.5 border-b border-slate-100 p-2.5 dark:border-slate-800">
+              <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Agregar dispositivo
+              </p>
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <input
@@ -232,19 +330,23 @@ export function ContainerDevicePicker({
       : null
 
   return (
-    <div ref={rootRef} className="nodrag nopan relative">
+    <div ref={rootRef} className="nodrag nopan relative shrink-0">
       <button
         ref={buttonRef}
         type="button"
-        className={`flex w-full items-center justify-between rounded-md border bg-white px-2.5 py-1.5 text-left text-xs text-slate-600 shadow-sm transition-colors hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 ${border}`}
+        title="Agregar dispositivo"
+        aria-label="Agregar dispositivo"
+        aria-expanded={open}
+        className={`nodrag nopan rounded p-0.5 text-slate-400 transition-colors ${buttonHover} ${
+          open ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' : ''
+        }`}
         onClick={(e) => {
           e.stopPropagation()
-          updateOpen(!open)
+          toggle()
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <span>Agregar dispositivo…</span>
-        <Search className="h-3.5 w-3.5 opacity-50" />
+        <Plus className="h-3.5 w-3.5" />
       </button>
       {panel}
     </div>

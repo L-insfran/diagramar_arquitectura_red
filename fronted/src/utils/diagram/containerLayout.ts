@@ -6,7 +6,6 @@ import {
 import {
   CONTAINER_PAD,
   CONTAINER_HEADER_H,
-  CONTAINER_SELECTOR_H,
   SIMPLE_DEVICE_STACK_PAD,
   SIMPLE_DEVICE_WIDTH,
   simpleDeviceHeight,
@@ -15,10 +14,9 @@ import {
 
 export type ContainerKind = 'area' | 'rack' | 'board'
 
-/** Y where devices may start inside a rack or board (below chrome + picker). */
-export function rackBoardContentTop(opts?: DeviceStackLayoutOpts): number {
-  const selectorH = opts?.hidePicker ? 0 : CONTAINER_SELECTOR_H
-  return CONTAINER_HEADER_H + selectorH + SIMPLE_DEVICE_STACK_PAD
+/** Y where devices may start inside a rack or board (below header). */
+export function rackBoardContentTop(_opts?: DeviceStackLayoutOpts): number {
+  return CONTAINER_HEADER_H + SIMPLE_DEVICE_STACK_PAD
 }
 
 export function areaLooseOrigin(
