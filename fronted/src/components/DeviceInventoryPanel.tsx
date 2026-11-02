@@ -217,7 +217,7 @@ export function DeviceInventoryPanel({
 
       <p className="flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400">
         <Layers className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
-        Expandí una fila para ver los nombres. Clic en el modelo para filtrar la lista de dispositivos.
+        Expandí una fila para ver los nombres. Clic en el modelo para filtrar por esa plantilla.
       </p>
     </div>
   )

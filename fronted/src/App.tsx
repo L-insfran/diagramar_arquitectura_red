@@ -18,6 +18,7 @@ import NetworkCreate from './pages/NetworkCreate'
 import ConnectionDiagram from './pages/ConnectionDiagram'
 import ConnectionSheets from './pages/ConnectionSheets'
 import ExportDxf from './pages/ExportDxf'
+import ExportDeviceInventory from './pages/ExportDeviceInventory'
 import PrintDiagram from './pages/PrintDiagram'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
@@ -131,6 +132,7 @@ function AppRoutes() {
         <Route path="/topology" element={<Navigate to="/connection-diagram" replace />} />
         <Route path="/connection-diagram" element={<ConnectionDiagram />} />
         <Route path="/connection-sheets" element={<ConnectionSheets />} />
+        <Route path="/export/inventory" element={<ExportDeviceInventory />} />
         <Route path="/export/dxf" element={<ExportDxf />} />
         <Route path="/print" element={<PrintDiagram />} />
         <Route path="/employees" element={<Navigate to="/" replace />} />

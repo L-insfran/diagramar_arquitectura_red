@@ -149,6 +149,15 @@ const allNavEntries: NavEntry[] = [
     children: [
       {
         kind: 'link',
+        id: 'export-inventory',
+        to: '/export/inventory',
+        icon: Layers,
+        label: 'Inventario por modelo',
+        viewerVisible: true,
+        adminOnly: false,
+      },
+      {
+        kind: 'link',
         id: 'connection-sheets',
         to: '/connection-sheets',
         icon: FileSpreadsheet,

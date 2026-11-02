@@ -1,21 +1,17 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Eye, Pencil, Trash2, Layers } from 'lucide-react'
+import { Plus, Search, Eye, Pencil, Trash2 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { Button } from '../components/Button'
 import { Select } from '../components/Select'
-import { Modal } from '../components/Modal'
-import { DeviceInventoryPanel } from '../components/DeviceInventoryPanel'
 import { useApi } from '../hooks/useApi'
 import { usePermissions } from '../hooks/usePermissions'
-import { useAuth } from '../contexts/AuthContext'
 import { useProject } from '../contexts/ProjectContext'
 import { useToast } from '../contexts/ToastContext'
 import { devicesService } from '../services/devices.service'
 import { deviceTypesService } from '../services/device-types.service'
 import { containersService } from '../services/containers.service'
-import { UNSET_TEMPLATE_ID } from '../utils/deviceInventory'
 import type { Device } from '../types'
 
 const NOTEBOOK_NAMES = ['notebook', 'notebock']
@@ -71,8 +67,7 @@ function DevicePagination({
 export default function Devices() {
   const navigate = useNavigate()
   const { canMutate, isViewer } = usePermissions()
-  const { user } = useAuth()
-  const { activeProjectId, activeProject } = useProject()
+  const { activeProjectId } = useProject()
   const toast = useToast()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -80,10 +75,6 @@ export default function Devices() {
   const [containerFilter, setContainerFilter] = useState('')
   const [deviceTypeFilter, setDeviceTypeFilter] = useState('')
   const [deviceTemplateFilter, setDeviceTemplateFilter] = useState('')
-  const [inventoryOpen, setInventoryOpen] = useState(false)
-  const [inventorySession, setInventorySession] = useState(0)
-  const [inventoryResult, setInventoryResult] = useState<{ key: string; devices: Device[] } | null>(null)
-  const [inventoryFailed, setInventoryFailed] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
 
@@ -142,40 +133,6 @@ export default function Devices() {
 
   const devices = devicePage?.items
   const total = devicePage?.total ?? 0
-  const inventoryKey = `${inventorySession}\0${filterKey}`
-  const inventoryDevices = inventoryResult?.key === inventoryKey ? inventoryResult.devices : null
-
-  useEffect(() => {
-    if (!inventoryOpen) return
-    let cancelled = false
-    setInventoryFailed(false)
-    devicesService
-      .getAll({
-        search: debouncedSearch,
-        summary: true,
-        areaId: areaFilter || undefined,
-        containerId: containerFilter || undefined,
-        deviceTypeId: deviceTypeFilter || undefined,
-        deviceTemplateId: deviceTemplateFilter || undefined,
-      })
-      .then((rows) => {
-        if (!cancelled) setInventoryResult({ key: inventoryKey, devices: rows })
-      })
-      .catch(() => {
-        if (!cancelled) setInventoryFailed(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [
-    inventoryOpen,
-    inventoryKey,
-    debouncedSearch,
-    areaFilter,
-    containerFilter,
-    deviceTypeFilter,
-    deviceTemplateFilter,
-  ])
 
   useEffect(() => {
     if (!devicePage) return
@@ -199,9 +156,6 @@ export default function Devices() {
       .map((c) => ({ value: c.id, label: c.name }))
   }, [containers])
 
-  const filtersActive = Boolean(search || areaFilter || containerFilter || deviceTypeFilter || deviceTemplateFilter)
-  const authorName = user?.firstName ? `${user.firstName} ${user.lastName}` : undefined
-
   const isNotebook = (d: Device) =>
     d.deviceType?.name ? NOTEBOOK_NAMES.includes(d.deviceType.name.toLowerCase()) : false
 
@@ -221,7 +175,6 @@ export default function Devices() {
       toast.success('Dispositivo borrado', `${d.name} se eliminó correctamente.`)
       refetch()
       refetchFilters()
-      if (inventoryOpen) setInventorySession((current) => current + 1)
     } catch (err: any) {
       toast.error('No se pudo borrar el dispositivo', err?.response?.data?.message || err?.message)
     } finally {
@@ -345,22 +298,9 @@ export default function Devices() {
         title="Dispositivos"
         subtitle={`${total} equipos en el inventario`}
         actions={
-          <>
-            <Button
-              type="button"
-              variant="ghost"
-              icon={<Layers className="w-4 h-4" />}
-              onClick={() => {
-                setInventorySession((current) => current + 1)
-                setInventoryOpen(true)
-              }}
-            >
-              Inventario por modelo
-            </Button>
-            <Button icon={<Plus className="w-4 h-4" />} onClick={() => navigate(addButtonTarget)}>
-              {isViewer ? 'Agregar notebook' : 'Agregar dispositivo'}
-            </Button>
-          </>
+          <Button icon={<Plus className="w-4 h-4" />} onClick={() => navigate(addButtonTarget)}>
+            {isViewer ? 'Agregar notebook' : 'Agregar dispositivo'}
+          </Button>
         }
       />
 
@@ -425,38 +365,6 @@ export default function Devices() {
           onPageChange={setPage}
         />
       )}
-
-      <Modal
-        isOpen={inventoryOpen}
-        onClose={() => setInventoryOpen(false)}
-        title="Inventario por modelo"
-        size="xl"
-      >
-        {inventoryFailed ? (
-          <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-            No se pudo cargar el inventario.
-          </p>
-        ) : inventoryDevices ? (
-          <DeviceInventoryPanel
-            devices={inventoryDevices}
-            filtersActive={filtersActive}
-            projectName={activeProject?.name}
-            clientName={activeProject?.clientName ?? undefined}
-            authorName={authorName}
-            onSelectTemplate={(templateId) => {
-              if (templateId !== UNSET_TEMPLATE_ID) {
-                setDeviceTemplateFilter(templateId)
-              }
-              setInventoryOpen(false)
-            }}
-          />
-        ) : (
-          <div className="py-12 text-center">
-            <div className="inline-block w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Cargando inventario…</p>
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }
