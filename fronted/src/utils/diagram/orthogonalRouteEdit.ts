@@ -51,7 +51,8 @@ export function forceOrthogonal(points: DiagramPoint[]): DiagramPoint[] {
   return collapseColinear(pts)
 }
 
-function simpleOrthogonal(start: DiagramPoint, goal: DiagramPoint): DiagramPoint[] {
+/** Minimal H/V path between two points (no obstacle avoidance). */
+export function simpleOrthogonal(start: DiagramPoint, goal: DiagramPoint): DiagramPoint[] {
   if (almostEq(start.x, goal.x) || almostEq(start.y, goal.y)) {
     return [start, goal]
   }
@@ -59,9 +60,19 @@ function simpleOrthogonal(start: DiagramPoint, goal: DiagramPoint): DiagramPoint
   return [start, { x: start.x, y: midY }, { x: goal.x, y: midY }, goal]
 }
 
+function segmentLength(a: DiagramPoint, b: DiagramPoint): number {
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+/** Max stub length before a reattach is considered exploded. */
+function maxStubLength(source: DiagramPoint, target: DiagramPoint): number {
+  return Math.max(120, Math.hypot(target.x - source.x, target.y - source.y) * 0.75)
+}
+
 /**
  * Stick first/last points to current port positions and keep the rest of the
  * manual route, repairing stub orthogonality.
+ * If the first/last stub would stretch absurdly far, fall back to a simple path.
  */
 export function reattachOrthogonalEnds(
   points: DiagramPoint[],
@@ -95,6 +106,14 @@ export function reattachOrthogonalEnds(
     pts[n - 2] = { x: pts[n - 2].x, y: target.y }
   } else {
     pts[n - 2] = { x: target.x, y: pts[n - 2].y }
+  }
+
+  const maxStub = maxStubLength(source, target)
+  if (
+    segmentLength(pts[0], pts[1]) > maxStub ||
+    segmentLength(pts[n - 2], pts[n - 1]) > maxStub
+  ) {
+    return simpleOrthogonal(source, target)
   }
 
   return forceOrthogonal(pts)

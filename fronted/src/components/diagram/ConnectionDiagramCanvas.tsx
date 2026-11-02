@@ -1744,7 +1744,11 @@ function ConnectionDiagramCanvasInner(
   const [hideMarginsForCapture, setHideMarginsForCapture] = useState(false)
   const nodesRef = useRef(nodes)
   const edgesRef = useRef(edges)
-  nodesRef.current = nodes
+  /** While true, keep drag-synced positions in nodesRef (do not overwrite from React state). */
+  const draggingNodesRef = useRef(false)
+  if (!draggingNodesRef.current) {
+    nodesRef.current = nodes
+  }
   edgesRef.current = edges
   const didFitRef = useRef(false)
   /** Invalida reintentos de encuadre si el efecto se vuelve a correr. */
@@ -2758,8 +2762,96 @@ function ConnectionDiagramCanvasInner(
     })
   }, [])
 
+  const MANUAL_ROUTE_REAUTH_PX = 64
+
+  /**
+   * After a large move, drop routeManual so A* regenerates the path.
+   * Small nudges keep the user-authored polyline.
+   */
+  const clearManualRoutesAfterLargeMove = useCallback(
+    (movedRootIds: Iterable<string>) => {
+      const affected = new Set<string>()
+      for (const id of movedRootIds) {
+        for (const moved of collectMovedNodeIds(id, nodesRef.current)) {
+          affected.add(moved)
+        }
+      }
+      if (affected.size === 0) return
+
+      const currentNodes = nodesRef.current
+      const anchors = handleAnchorsRef.current
+      let changed = false
+      const next = edgesRef.current.map((e) => {
+        if (!e.data?.routeManual) return e
+        if (!affected.has(e.source) && !affected.has(e.target)) return e
+        const pts = e.data.routePoints
+        if (!pts || pts.length < 2) return e
+
+        const sourceAbs = absolutePos(currentNodes, e.source)
+        const targetAbs = absolutePos(currentNodes, e.target)
+        const sourceNode = currentNodes.find((n) => n.id === e.source)
+        const targetNode = currentNodes.find((n) => n.id === e.target)
+        if (!sourceAbs || !targetAbs || !sourceNode || !targetNode) return e
+
+        const sourceEp = resolveNodeHandleEndpoint(
+          sourceNode,
+          e.sourceHandle ?? DIAGRAM_CONNECT_SOURCE_HANDLE,
+          'source',
+          anchors,
+          sourceAbs
+        )
+        const targetEp = resolveNodeHandleEndpoint(
+          targetNode,
+          e.targetHandle ?? DIAGRAM_CONNECT_TARGET_HANDLE,
+          'target',
+          anchors,
+          targetAbs
+        )
+        const prevSource = pts[0]
+        const prevTarget = pts[pts.length - 1]
+        const sourceMoved = Math.hypot(
+          sourceEp.x - prevSource.x,
+          sourceEp.y - prevSource.y
+        )
+        const targetMoved = Math.hypot(
+          targetEp.x - prevTarget.x,
+          targetEp.y - prevTarget.y
+        )
+        if (
+          sourceMoved <= MANUAL_ROUTE_REAUTH_PX &&
+          targetMoved <= MANUAL_ROUTE_REAUTH_PX
+        ) {
+          return e
+        }
+        changed = true
+        return {
+          ...e,
+          data: {
+            ...e.data,
+            routeManual: false,
+            routeStale: false,
+          },
+        }
+      })
+      if (!changed) return
+      edgesRef.current = next
+      setEdges(next)
+    },
+    [setEdges]
+  )
+
+  const finishNodeDrag = useCallback(
+    (movedRootIds: Iterable<string>) => {
+      draggingNodesRef.current = false
+      clearManualRoutesAfterLargeMove(movedRootIds)
+      rerouteCables()
+    },
+    [clearManualRoutesAfterLargeMove, rerouteCables]
+  )
+
   const onNodeDrag = useCallback(
     (_event: ReactMouseEvent, node: Node, draggedNodes: Node[] = []) => {
+      draggingNodesRef.current = true
       if (node.parentId && node.type === 'simpleDevice') {
         const withMin = clampDeviceNodeMinInParent(
           node,
@@ -2832,7 +2924,7 @@ function ConnectionDiagramCanvasInner(
         next = expandAncestorsToFit(dragged, next, hidePickerForPrint)
         nodesRef.current = next
         setNodes(next)
-        rerouteCables()
+        finishNodeDrag([node.id])
         return
       }
 
@@ -2854,17 +2946,17 @@ function ConnectionDiagramCanvasInner(
             n.id === node.id ? { ...n, position: clamped.position } : n
           )
         )
-        rerouteCables()
+        finishNodeDrag([node.id])
         return
       }
 
       const moving = draggedNodes.length > 0 ? draggedNodes : [node]
       syncDraggedNodePositions(moving)
-      rerouteCables()
+      finishNodeDrag(moving.map((n) => n.id))
     },
     [
+      finishNodeDrag,
       hidePickerForPrint,
-      rerouteCables,
       setNodes,
       syncDraggedNodePositions,
     ]

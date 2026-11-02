@@ -5,12 +5,45 @@
  */
 
 import { type DiagramPoint } from './orthogonalPath'
-import { forceOrthogonal, reattachOrthogonalEnds } from './orthogonalRouteEdit'
+import {
+  forceOrthogonal,
+  reattachOrthogonalEnds,
+  simpleOrthogonal,
+} from './orthogonalRouteEdit'
 import type { DiagramRect } from './orthogonalRouter'
 
 const RIGID_EPS = 1.5
 const AXIS_EPS = 1e-3
 const STALE_SHRINK = 4
+const EXPLODED_PATH_PAD = 48
+const EXPLODED_PATH_FACTOR = 3
+
+function pathBBoxDiagonal(points: DiagramPoint[]): number {
+  if (points.length === 0) return 0
+  let minX = points[0].x
+  let maxX = points[0].x
+  let minY = points[0].y
+  let maxY = points[0].y
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i]
+    if (p.x < minX) minX = p.x
+    if (p.x > maxX) maxX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.y > maxY) maxY = p.y
+  }
+  return Math.hypot(maxX - minX, maxY - minY)
+}
+
+/** True when the polyline spans far more than the source–target distance. */
+function isPathExploded(
+  points: DiagramPoint[],
+  source: DiagramPoint,
+  target: DiagramPoint
+): boolean {
+  if (points.length < 2) return false
+  const endSpan = Math.hypot(target.x - source.x, target.y - source.y)
+  return pathBBoxDiagonal(points) > EXPLODED_PATH_FACTOR * endSpan + EXPLODED_PATH_PAD
+}
 
 export function repairManualRoute(
   points: DiagramPoint[],
@@ -35,7 +68,11 @@ export function repairManualRoute(
     ? translateRoute(points, (dSx + dTx) / 2, (dSy + dTy) / 2)
     : remapAnchored(points, prevSource, prevTarget, source, target)
 
-  return reattachOrthogonalEnds(forceOrthogonal(next), source, target)
+  const repaired = reattachOrthogonalEnds(forceOrthogonal(next), source, target)
+  if (isPathExploded(repaired, source, target)) {
+    return simpleOrthogonal(source, target)
+  }
+  return repaired
 }
 
 function translateRoute(points: DiagramPoint[], dx: number, dy: number): DiagramPoint[] {
