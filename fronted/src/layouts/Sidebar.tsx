@@ -392,7 +392,7 @@ export function Sidebar({
       <aside
         className={`fixed top-0 left-0 z-50 h-full transform transition-transform duration-200 lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${isCollapsed ? 'lg:w-20' : 'lg:w-52'} w-52 transition-[width] duration-200 ease-out ${
+        } ${isCollapsed ? 'lg:w-20' : 'lg:w-60'} w-60 transition-[width] duration-200 ease-out ${
           isCollapsed
             ? 'bg-transparent dark:bg-transparent lg:bg-transparent lg:dark:bg-transparent'
             : 'bg-slate-50 dark:bg-slate-950'
@@ -404,34 +404,30 @@ export function Sidebar({
           }`}
         >
           <div
-            className={`flex items-center justify-between h-16 ${
+            className={`flex items-center justify-between gap-1 ${
+              isCollapsed ? 'h-16' : 'h-[4.25rem]'
+            } ${
               isCollapsed
                 ? 'lg:border-b lg:border-slate-200/60 lg:dark:border-slate-800/50'
                 : 'border-b border-slate-200 dark:border-slate-800/80'
-            } px-3`}
+            } px-2.5`}
           >
-            <div className={`min-w-0 flex-1 flex flex-col ${isCollapsed ? 'gap-0' : 'gap-0.5'}`}>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 flex items-center">
+              {isCollapsed ? (
                 <img
                   src="/favicon.png"
-                  alt=""
-                  className="h-8 w-8 flex-shrink-0 rounded-lg object-cover"
+                  alt="InfraRed PX Control"
+                  className="mx-auto h-9 w-9 rounded-lg object-cover ring-1 ring-black/10 dark:ring-white/10 shadow-sm"
                 />
-                <span
-                  className={`text-base font-bold text-slate-900 dark:text-white origin-left transition-all duration-200 ${
-                    isCollapsed ? 'w-0 opacity-0 scale-95 ml-0 overflow-hidden' : 'opacity-100 scale-100 truncate'
-                  }`}
-                >
-                  Insfrabyte
-                </span>
-              </div>
-              {!isCollapsed ? (
-                <p className="pl-10 text-[10px] leading-tight text-slate-500 dark:text-slate-400">
-                  Documentación de conexiones
-                </p>
-              ) : null}
+              ) : (
+                <img
+                  src="/infrared-px-logo.jpg"
+                  alt="InfraRed PX Control"
+                  className="w-full h-[3.15rem] object-contain object-left rounded-md ring-1 ring-black/10 dark:ring-white/10 shadow-sm"
+                />
+              )}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 flex-shrink-0">
               <button
                 type="button"
                 onClick={onToggleCollapsed}

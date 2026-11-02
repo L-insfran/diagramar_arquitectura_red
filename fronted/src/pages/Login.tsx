@@ -33,8 +33,8 @@ export default function Login() {
         <div className="text-center mb-8">
           <h1>
             <img
-              src="/insfrabyte-logo.png"
-              alt="Insfrabyte"
+              src="/infrared-px-logo.jpg"
+              alt="InfraRed PX Control"
               className="mx-auto h-36 w-auto rounded-2xl dark:mix-blend-screen"
             />
           </h1>

@@ -83,7 +83,7 @@ export function MainLayout() {
         onClose={closeNotice}
       />
       <div
-        className={`flex h-dvh min-h-0 flex-col overflow-hidden transition-[margin] duration-200 ease-out ${sidebarCollapsed ? 'lg:ml-20' : 'lg:ml-52'}`}
+        className={`flex h-dvh min-h-0 flex-col overflow-hidden transition-[margin] duration-200 ease-out ${sidebarCollapsed ? 'lg:ml-20' : 'lg:ml-60'}`}
       >
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <main
