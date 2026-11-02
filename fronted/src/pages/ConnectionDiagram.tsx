@@ -93,6 +93,7 @@ import type {
   TopologyNode,
 } from '../types'
 import { computeTreeLayout, collectVisibleDeviceIds } from '../utils/diagram/treeLayout'
+import { resolveDeviceLocation } from '../utils/diagram/deviceLocation'
 import {
   buildLayoutUpdate,
   hasTreeLayoutPositions,
@@ -1235,11 +1236,19 @@ export default function ConnectionDiagramPage() {
           })
         : []
       const rows = portSlotsVerticalRows(preliminary)
+      const hasLocation = Boolean(
+        resolveDeviceLocation(
+          dev,
+          graphPayload?.racks ?? [],
+          graphPayload?.boards ?? []
+        )
+      )
       const autoH = simpleDeviceHeight(
         rows,
         dev?.label ?? '',
         nodeWidth,
-        preliminary.length > 0 && preliminary.every((s) => !s.connected)
+        preliminary.length > 0 && preliminary.every((s) => !s.connected),
+        hasLocation
       )
       return resolveDeviceNodeSize(autoH, saved)
     },

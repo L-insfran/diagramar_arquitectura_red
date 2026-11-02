@@ -102,6 +102,7 @@ import {
   type DiagramHandleAnchor,
 } from '../../utils/diagram/handleAnchor'
 import { isTreeLayoutMode } from '../../utils/diagram/treeLayout'
+import { resolveDeviceLocation } from '../../utils/diagram/deviceLocation'
 import {
   domPortDropTarget,
   flowPortDropTarget,
@@ -802,11 +803,15 @@ function buildGraph(params: {
       savedAnchors: deviceAnchorsFor(deviceId),
     })
     const rows = portSlotsVerticalRows(preliminary)
+    const hasLocation =
+      treeMode &&
+      Boolean(resolveDeviceLocation(dev, racks, boards))
     const portAreaTop = devicePortAreaTop(
       dev.label,
       rows,
       portCount,
-      nodeWidth
+      nodeWidth,
+      hasLocation
     )
     const slots = resolveDevicePortSlots({
       deviceId,
@@ -920,6 +925,8 @@ function buildGraph(params: {
       for (const slot of slots) {
         deviceHandleAnchors[slot.id] = slot.anchor
       }
+      const treeLocation =
+        treeMode ? resolveDeviceLocation(dev, racks, boards) : null
       nodes.push({
         id: did,
         type: 'simpleDevice',
@@ -938,6 +945,13 @@ function buildGraph(params: {
           status: dev.data.status,
           portsInUse: usedPortsByDevice.get(did)?.size ?? 0,
           portCount: dev.data.portCount ?? dev.data.ports?.length ?? 0,
+          ...(treeLocation
+            ? {
+                locationLabel: treeLocation.label,
+                locationTitle: treeLocation.title,
+                locationKind: treeLocation.kind,
+              }
+            : {}),
           accentColor: accentColorForDeviceType(accentByDeviceType, dev.data.deviceType),
           readOnly: readOnly || hidePicker,
           slots,
@@ -1020,11 +1034,14 @@ function buildGraph(params: {
         })
       : []
     const rows = portSlotsVerticalRows(preliminary)
+    const hasLocation =
+      treeMode && Boolean(resolveDeviceLocation(dev, racks, boards))
     const autoH = simpleDeviceHeight(
       rows,
       dev?.label ?? '',
       nodeWidth,
-      preliminary.length > 0 && preliminary.every((s) => !s.connected)
+      preliminary.length > 0 && preliminary.every((s) => !s.connected),
+      hasLocation
     )
     return resolveDeviceNodeSize(autoH, saved)
   }
@@ -1546,10 +1563,14 @@ function resolveNodeHandleEndpoint(
   const slots = (node.data?.slots as DiagramPortSlot[] | undefined) ?? []
   const label = (node.data?.label as string) ?? ''
   const portCount = (node.data?.portCount as number) ?? 0
+  const hasLocation = Boolean(
+    typeof node.data?.locationLabel === 'string' &&
+      (node.data.locationLabel as string).trim()
+  )
   const rows = portSlotsVerticalRows(slots)
   const hasCompact = slots.some((s) => !s.connected)
   const compact = hasCompact && slots.every((s) => !s.connected)
-  const contentMinH = simpleDeviceHeight(rows, label, w, compact)
+  const contentMinH = simpleDeviceHeight(rows, label, w, compact, hasLocation)
   const rawH = Number(measured?.height ?? styleH)
   const h = rawH > 0 ? Math.max(rawH, contentMinH) : contentMinH
   const slot = slots.find((s) => s.id === neutralId)
@@ -1558,7 +1579,7 @@ function resolveNodeHandleEndpoint(
     return anchorToEndpoint(slot.anchor, absPos.x, absPos.y, w, h)
   }
 
-  const portAreaTop = devicePortAreaTop(label, rows, portCount, w)
+  const portAreaTop = devicePortAreaTop(label, rows, portCount, w, hasLocation)
   const nodeAnchors =
     (node.data?.handleAnchors as Record<string, DiagramHandleAnchor> | undefined) ?? {}
   const saved =
@@ -1591,10 +1612,14 @@ function collectPortHitNodes(nodes: Node[]): PortHitNode[] {
         ? Number(measured?.width ?? styleW)
         : SIMPLE_DEVICE_WIDTH
     const label = (node.data?.label as string) ?? ''
+    const hasLocation = Boolean(
+      typeof node.data?.locationLabel === 'string' &&
+        (node.data.locationLabel as string).trim()
+    )
     const rows = portSlotsVerticalRows(slots)
     const hasCompact = slots.some((s) => !s.connected)
     const compact = hasCompact && slots.every((s) => !s.connected)
-    const contentMinH = simpleDeviceHeight(rows, label, w, compact)
+    const contentMinH = simpleDeviceHeight(rows, label, w, compact, hasLocation)
     const rawH = Number(measured?.height ?? styleH)
     const h = rawH > 0 ? Math.max(rawH, contentMinH) : contentMinH
     result.push({ id: node.id, absX: abs.x, absY: abs.y, width: w, height: h, slots })

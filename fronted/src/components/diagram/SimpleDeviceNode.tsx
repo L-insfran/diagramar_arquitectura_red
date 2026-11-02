@@ -28,6 +28,7 @@ import {
   DIAGRAM_DEVICE_META,
   DIAGRAM_DEVICE_NAME,
 } from '../../utils/diagram/diagramTypography'
+import type { DeviceLocationKind } from '../../utils/diagram/deviceLocation'
 export const SIMPLE_DEVICE_WIDTH = 360
 export const SIMPLE_DEVICE_MIN_WIDTH = 180
 export const SIMPLE_DEVICE_BASE_H = 40
@@ -36,6 +37,8 @@ export const SIMPLE_DEVICE_PORT_ROW_COMPACT_H = 16
 export const SIMPLE_DEVICE_NAME_LINE_H = 22
 export const SIMPLE_DEVICE_NAME_ROW_H = 28
 export const SIMPLE_DEVICE_META_H = 16
+/** Location strip (`Área › Contenedor`) shown in tree layout. */
+export const SIMPLE_DEVICE_LOCATION_H = 16
 export const SIMPLE_DEVICE_GAP = 28
 export const DEVICE_GAP_MIN = 8
 export const DEVICE_GAP_MAX = 72
@@ -96,6 +99,12 @@ export type SimpleDeviceNodeData = {
   accentColor: string
   portsInUse?: number
   portCount?: number
+  /** Tree layout: compact placement label (Área › Contenedor). */
+  locationLabel?: string | null
+  /** Tree layout: full path for tooltip (Sitio › Área › Contenedor). */
+  locationTitle?: string | null
+  /** Tree layout: tint the location strip like free-view containers. */
+  locationKind?: DeviceLocationKind | null
   readOnly?: boolean
   slots?: DiagramPortSlot[]
   handleAnchors?: Record<string, DiagramHandleAnchor>
@@ -130,12 +139,14 @@ export function simpleDeviceHeight(
   label = '',
   nodeWidth = SIMPLE_DEVICE_WIDTH,
   compact = false,
+  hasLocation = false,
 ): number {
   const rows = Math.max(0, portRows)
   const rowH = compact ? SIMPLE_DEVICE_PORT_ROW_COMPACT_H : SIMPLE_DEVICE_PORT_ROW_H
   const nameLines = estimateDeviceNameLines(label, nodeWidth)
   const nameBlock = nameLines * SIMPLE_DEVICE_NAME_LINE_H + 4
-  const header = nameBlock + SIMPLE_DEVICE_META_H
+  const locationH = hasLocation ? SIMPLE_DEVICE_LOCATION_H : 0
+  const header = nameBlock + locationH + SIMPLE_DEVICE_META_H
   if (rows <= 0) return Math.max(SIMPLE_DEVICE_BASE_H, header + 8)
   return Math.max(SIMPLE_DEVICE_BASE_H, header + rows * rowH + 8)
 }
@@ -145,12 +156,24 @@ export function devicePortAreaTop(
   portRowCount: number,
   portCount: number,
   nodeWidth = SIMPLE_DEVICE_WIDTH,
+  hasLocation = false,
 ): number {
   if (portRowCount <= 0) return 0
   const nameLines = estimateDeviceNameLines(label, nodeWidth)
   const nameBlockH = nameLines * SIMPLE_DEVICE_NAME_LINE_H + 4
+  const locationH = hasLocation ? SIMPLE_DEVICE_LOCATION_H : 0
   const showPortCounter = portCount > 0
-  return nameBlockH + (showPortCounter ? SIMPLE_DEVICE_META_H : 0)
+  return nameBlockH + locationH + (showPortCounter ? SIMPLE_DEVICE_META_H : 0)
+}
+
+export function locationStripClass(kind: DeviceLocationKind | null | undefined): string {
+  if (kind === 'board') {
+    return 'text-amber-800 dark:text-amber-200/90'
+  }
+  if (kind === 'rack') {
+    return 'text-slate-600 dark:text-slate-300'
+  }
+  return 'text-sky-700 dark:text-sky-300/90'
 }
 
 export type SavedDeviceExtent = {
@@ -557,11 +580,24 @@ function SimpleDeviceNodeComponent({
         1
       )
     : 0
+  const portCount = data.portCount ?? 0
+  const portsInUse = data.portsInUse ?? 0
+  const showPortCounter = portCount > 0
+  const locationLabel =
+    typeof data.locationLabel === 'string' && data.locationLabel.trim()
+      ? data.locationLabel.trim()
+      : null
+  const hasLocation = Boolean(locationLabel)
+  const locationTitle =
+    typeof data.locationTitle === 'string' && data.locationTitle.trim()
+      ? data.locationTitle.trim()
+      : locationLabel ?? undefined
   const contentMinH = simpleDeviceHeight(
     portRows,
     data.label,
     nodeWidth,
-    hasCompact && slots.every((s) => !s.connected)
+    hasCompact && slots.every((s) => !s.connected),
+    hasLocation
   )
   const displayHeight = Number(height) > 0 ? Math.max(Number(height), contentMinH) : contentMinH
   const canResize = !data.readOnly
@@ -571,9 +607,6 @@ function SimpleDeviceNodeComponent({
     !data.readOnly &&
     (Boolean(data.onSlotsReorder) || Boolean(data.onHandleAnchorChange))
   const canDoubleClickLink = !data.readOnly && Boolean(data.onDeviceDoubleClick)
-  const portCount = data.portCount ?? 0
-  const portsInUse = data.portsInUse ?? 0
-  const showPortCounter = portCount > 0
   const nameLines = estimateDeviceNameLines(data.label, nodeWidth)
   const nameBlockH = nameLines * SIMPLE_DEVICE_NAME_LINE_H + 4
 
@@ -822,6 +855,19 @@ function SimpleDeviceNodeComponent({
             </div>
           ) : null}
         </div>
+        {locationLabel ? (
+          <div
+            className="flex items-center"
+            style={{ height: SIMPLE_DEVICE_LOCATION_H }}
+            title={locationTitle}
+          >
+            <span
+              className={`truncate ${DIAGRAM_DEVICE_META} ${locationStripClass(data.locationKind)}`}
+            >
+              {locationLabel}
+            </span>
+          </div>
+        ) : null}
         {showPortCounter ? (
           <div className="flex items-center" style={{ height: SIMPLE_DEVICE_META_H }}>
             <span

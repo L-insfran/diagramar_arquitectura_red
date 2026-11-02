@@ -116,6 +116,13 @@ function nodeSize(node: FlowNode): { width: number; height: number } {
  * Device box used by the orthogonal router (`resolveNodeHandleEndpoint`).
  * Measured size wins, but never smaller than the port-row content height.
  */
+function nodeHasLocation(node: FlowNode): boolean {
+  return (
+    typeof node.data?.locationLabel === 'string' &&
+    Boolean((node.data.locationLabel as string).trim())
+  )
+}
+
 function deviceBox(node: FlowNode): { width: number; height: number } {
   const size = nodeSize(node)
   const slots = (node.data?.slots as DiagramPortSlot[] | undefined) ?? []
@@ -123,7 +130,7 @@ function deviceBox(node: FlowNode): { width: number; height: number } {
   const width = size.width > 0 ? size.width : SIMPLE_DEVICE_WIDTH
   const rows = portSlotsVerticalRows(slots)
   const compact = slots.length > 0 && slots.every((s) => !s.connected)
-  const contentMinH = simpleDeviceHeight(rows, label, width, compact)
+  const contentMinH = simpleDeviceHeight(rows, label, width, compact, nodeHasLocation(node))
   const height = size.height > 0 ? Math.max(size.height, contentMinH) : contentMinH
   return { width, height }
 }
@@ -145,7 +152,13 @@ function handleEndpoint(
   const label = typeof node.data?.label === 'string' ? node.data.label : ''
   const portCount = typeof node.data?.portCount === 'number' ? node.data.portCount : 0
   const rows = portSlotsVerticalRows(slots)
-  const portAreaTop = devicePortAreaTop(label, rows, portCount, box.width)
+  const portAreaTop = devicePortAreaTop(
+    label,
+    rows,
+    portCount,
+    box.width,
+    nodeHasLocation(node)
+  )
   const nodeAnchors =
     (node.data?.handleAnchors as Record<string, DiagramHandleAnchor> | undefined) ?? {}
   const idx = slots.findIndex((s) => s.id === neutralId)
