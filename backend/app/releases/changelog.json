@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "1.1.1",
+      "title": "Versión 1.1.1",
+      "highlights": [
+        "Ajustar el login y actualizar el logo y favicon de InfraRed PX.",
+        "Mejorar el sidebar colapsado con flyouts y tooltips fijos.",
+        "Exponer el manual de usuario desde el menú del perfil.",
+        "Añadir el manual de usuario de InfraRed PX con encabezado legible."
+      ]
+    },
+    {
       "version": "1.1.0",
       "title": "Versión 1.1.0",
       "highlights": [
