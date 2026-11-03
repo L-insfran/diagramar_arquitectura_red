@@ -1,4 +1,4 @@
-import { Building2, Check, ChevronDown, LogOut, Menu, Moon, Search, Sun } from 'lucide-react'
+import { BookOpen, Building2, Check, ChevronDown, LogOut, Menu, Moon, Search, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTheme } from '../contexts/ThemeContext'
@@ -191,9 +191,22 @@ export function Topbar({ onMenuClick }: TopbarProps) {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} aria-hidden />
                 <div
-                  className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg z-50 py-1"
+                  className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg z-50 py-1"
                   role="menu"
                 >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.open('/manual/Manual-Usuario-InfraRed-PX.html', '_blank', 'noopener,noreferrer')
+                      setShowUserMenu(false)
+                    }}
+                    className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    role="menuitem"
+                  >
+                    <BookOpen className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                    Manual de usuario
+                  </button>
+                  <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
                   <button
                     type="button"
                     onClick={() => {
