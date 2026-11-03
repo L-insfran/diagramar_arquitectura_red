@@ -28,23 +28,22 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
+    <div className="flex h-dvh w-full items-center justify-center overflow-hidden bg-gray-50 px-4 py-3 dark:bg-gray-950">
+      <div className="flex w-full min-w-0 max-w-md flex-col">
+        <div className="mb-4 text-center sm:mb-5">
           <h1>
             <img
               src="/infrared-px-logo.jpg"
               alt="InfraRed PX Control"
-              className="mx-auto h-36 w-auto rounded-2xl dark:mix-blend-screen"
+              className="mx-auto h-auto max-h-[min(28dvh,12.5rem)] w-full max-w-full rounded-2xl object-contain shadow-lg ring-1 ring-black/10"
             />
           </h1>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
             Documentá conexiones de comunicación de forma rápida
           </p>
         </div>
 
-        {/* Form */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-500">
@@ -74,7 +73,7 @@ export default function Login() {
           </form>
         </div>
 
-        <p className="mt-4 text-center text-xs text-gray-500 dark:text-gray-500">
+        <p className="mt-3 text-center text-xs text-gray-500 dark:text-gray-500">
           Plataforma de documentación de infraestructura
         </p>
       </div>
