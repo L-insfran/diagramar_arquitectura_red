@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual de usuario — InfraRed PX</title>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #e2e8f0;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --accent: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --ok: #166534;
+      --ok-bg: #f0fdf4;
+      --warn: #92400e;
+      --warn-bg: #fffbeb;
+      --tip: #1e3a8a;
+      --tip-bg: #eff6ff;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Calibri, "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.25rem;
+      background: rgba(255,255,255,0.92);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+    .toolbar strong { color: var(--accent); }
+    .toolbar-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .btn {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 0.5rem;
+      padding: 0.45rem 0.9rem;
+      font: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .btn:hover { filter: brightness(0.97); }
+
+    .page {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 1.5rem 1.25rem 4rem;
+    }
+
+    .cover {
+      background: linear-gradient(145deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+      color: #fff;
+      border-radius: 1rem;
+      padding: 2.5rem 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
+    }
+    .cover .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.75rem;
+      margin: 0 0 0.75rem;
+      font-weight: 600;
+      color: #bfdbfe;
+    }
+    .cover h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(1.8rem, 4vw, 2.4rem);
+      line-height: 1.15;
+      font-weight: 700;
+      color: #fff;
+    }
+    .cover p {
+      margin: 0;
+      max-width: 36rem;
+      font-size: 1.05rem;
+      color: #e2e8f0;
+    }
+    .cover-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin-top: 1.5rem;
+      font-size: 0.875rem;
+      color: #f1f5f9;
+    }
+
+    h2 {
+      margin: 2.5rem 0 1rem;
+      padding-bottom: 0.45rem;
+      border-bottom: 2px solid var(--accent);
+      font-size: 1.45rem;
+      color: #0f172a;
+      scroll-margin-top: 4.5rem;
+    }
+    h3 {
+      margin: 1.6rem 0 0.6rem;
+      font-size: 1.1rem;
+      color: #1e293b;
+      scroll-margin-top: 4.5rem;
+    }
+    h4 {
+      margin: 1.1rem 0 0.4rem;
+      font-size: 1rem;
+      color: #334155;
+    }
+    p { margin: 0.55rem 0; color: #1e293b; }
+    ul, ol { margin: 0.5rem 0 0.9rem; padding-left: 1.35rem; }
+    li { margin: 0.35rem 0; }
+    li::marker { color: var(--accent); }
+    a { color: var(--accent); }
+
+    .toc {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 0.85rem;
+      padding: 1.25rem 1.4rem;
+    }
+    .toc ol { margin: 0.4rem 0 0; columns: 1; }
+    @media (min-width: 640px) {
+      .toc ol { columns: 2; column-gap: 2rem; }
+    }
+    .toc a { text-decoration: none; font-weight: 500; }
+    .toc a:hover { text-decoration: underline; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 0.85rem;
+      padding: 1rem 1.15rem;
+      margin: 1rem 0;
+    }
+    .steps {
+      counter-reset: step;
+      list-style: none;
+      padding: 0;
+      margin: 0.75rem 0 1rem;
+    }
+    .steps > li {
+      position: relative;
+      padding: 0.85rem 0.95rem 0.85rem 3.1rem;
+      margin: 0.55rem 0;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 0.75rem;
+    }
+    .steps > li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0.85rem;
+      top: 0.85rem;
+      width: 1.65rem;
+      height: 1.65rem;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    .callout {
+      border-radius: 0.75rem;
+      padding: 0.85rem 1rem;
+      margin: 1rem 0;
+      border: 1px solid transparent;
+    }
+    .callout strong { display: block; margin-bottom: 0.2rem; }
+    .tip { background: var(--tip-bg); border-color: #bfdbfe; color: var(--tip); }
+    .tip p, .ok p, .warn p { color: inherit; margin: 0; }
+    .ok { background: var(--ok-bg); border-color: #bbf7d0; color: var(--ok); }
+    .warn { background: var(--warn-bg); border-color: #fde68a; color: var(--warn); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.85rem 0 1.1rem;
+      font-size: 0.92rem;
+      background: var(--card);
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 0.55rem 0.7rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--accent-soft);
+      color: #1e3a8a;
+      font-weight: 650;
+    }
+    code, .kbd {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.86em;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.3rem;
+      padding: 0.05rem 0.35rem;
+    }
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+      margin: 0.85rem 0;
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+    .flow span {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.35rem 0.7rem;
+    }
+    .flow .arrow { border: none; background: transparent; color: var(--muted); padding: 0; }
+
+    .footer-note {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    @media print {
+      .toolbar { display: none !important; }
+      body { background: #fff; font-size: 11.5pt; }
+      .page { max-width: none; padding: 0; }
+      .cover {
+        box-shadow: none;
+        break-after: page;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      h2 { break-after: avoid; page-break-after: avoid; }
+      .steps > li, .card, .callout, table { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <div><strong>InfraRed PX</strong> · Manual de usuario</div>
+    <div class="toolbar-actions">
+      <button type="button" class="btn btn-primary" onclick="window.print()">Imprimir / Guardar PDF</button>
+      <a class="btn" href="#indice">Ir al índice</a>
+    </div>
+  </div>
+
+  <main class="page">
+    <header class="cover">
+      <p class="eyebrow">Documentación para el usuario final</p>
+      <h1>Manual de uso de InfraRed PX</h1>
+      <p>
+        Guía paso a paso para documentar infraestructura IT y redes:
+        sitios, racks, equipos, enlaces, VLANs y reportes.
+      </p>
+      <div class="cover-meta">
+        <span>Versión del manual: 1.0</span>
+        <span>Idioma: español</span>
+        <span>Público: operadores y administradores</span>
+      </div>
+    </header>
+
+    <section id="indice" class="toc">
+      <h2 style="margin-top:0; border:none; padding:0;">Índice</h2>
+      <ol>
+        <li><a href="#conceptos">Conceptos básicos</a></li>
+        <li><a href="#inicio">Primeros pasos</a></li>
+        <li><a href="#panel">Panel</a></li>
+        <li><a href="#sitios">Sitios y áreas</a></li>
+        <li><a href="#contenedores">Contenedores</a></li>
+        <li><a href="#templates">Templates de dispositivo</a></li>
+        <li><a href="#dispositivos">Dispositivos</a></li>
+        <li><a href="#diagrama">Diagrama de conexión</a></li>
+        <li><a href="#red">Redes y VLANs</a></li>
+        <li><a href="#exportar">Exportar e imprimir</a></li>
+        <li><a href="#config">Configuración y catálogos</a></li>
+        <li><a href="#roles">Roles y permisos</a></li>
+        <li><a href="#flujo">Orden de trabajo recomendado</a></li>
+        <li><a href="#faq">Preguntas frecuentes</a></li>
+      </ol>
+    </section>
+
+    <section id="conceptos">
+      <h2>1. Conceptos básicos</h2>
+      <p>
+        InfraRed PX documenta la infraestructura de un <strong>proyecto</strong>
+        (por ejemplo, la red completa de un cliente). Todo lo que creés queda
+        dentro del proyecto activo.
+      </p>
+
+      <div class="flow">
+        <span>Proyecto</span><span class="arrow">→</span>
+        <span>Sitio</span><span class="arrow">→</span>
+        <span>Área</span><span class="arrow">→</span>
+        <span>Contenedor</span><span class="arrow">→</span>
+        <span>Dispositivo</span><span class="arrow">→</span>
+        <span>Puertos / Enlaces</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Concepto</th><th>Qué es, en simple</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Proyecto</strong></td><td>La infraestructura completa de un cliente o sitio de trabajo.</td></tr>
+          <tr><td><strong>Sitio</strong></td><td>Una sede física (edificio, planta, sucursal).</td></tr>
+          <tr><td><strong>Área</strong></td><td>Una zona dentro del sitio (sala de servers, piso 2, datacenter).</td></tr>
+          <tr><td><strong>Contenedor</strong></td><td>Dónde se monta el equipo: rack, tablero o “por defecto” (sueltos).</td></tr>
+          <tr><td><strong>Template</strong></td><td>Modelo de fábrica (marca, modelo, U, puertos). Se reutiliza en todos los proyectos.</td></tr>
+          <tr><td><strong>Dispositivo</strong></td><td>Un equipo real instalado, nacido de un template.</td></tr>
+          <tr><td><strong>Enlace (E1, E2…)</strong></td><td>Conexión documentada entre dos equipos en el diagrama.</td></tr>
+          <tr><td><strong>VLAN / Red</strong></td><td>Capa lógica de red (segmentación e IP).</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout tip">
+        <strong>Idea clave</strong>
+        <p>El valor del sistema no es solo listar equipos: es dejar claro <em>cómo se conectan</em>.</p>
+      </div>
+    </section>
+
+    <section id="inicio">
+      <h2>2. Primeros pasos</h2>
+
+      <h3>2.1 Iniciar sesión</h3>
+      <ol class="steps">
+        <li>Abrí la aplicación en el navegador.</li>
+        <li>Ingresá tu <strong>email</strong> y <strong>contraseña</strong>.</li>
+        <li>Pulsá el botón de acceso. Si los datos son correctos, entrarás al sistema.</li>
+      </ol>
+
+      <h3>2.2 Elegir el proyecto</h3>
+      <p>
+        Si tenés acceso a más de un proyecto, la primera pantalla te pedirá
+        elegir con cuál trabajar.
+      </p>
+      <ol class="steps">
+        <li>Revisá la lista de proyectos disponibles.</li>
+        <li>Hacé clic en el proyecto deseado.</li>
+        <li>Entrarás al <strong>Panel</strong> de ese proyecto.</li>
+      </ol>
+      <div class="callout tip">
+        <strong>Cambiar de proyecto después</strong>
+        <p>Usá el selector de proyecto en la barra superior (Topbar) para cambiar sin cerrar sesión.</p>
+      </div>
+
+      <h3>2.3 Menú lateral</h3>
+      <p>Desde el menú izquierdo vas a encontrar:</p>
+      <ul>
+        <li><strong>Panel</strong> — resumen y alertas.</li>
+        <li><strong>Infraestructura</strong> — diagrama, sitios, contenedores y dispositivos.</li>
+        <li><strong>Capa de red</strong> — redes y VLANs.</li>
+        <li><strong>Exportar</strong> — inventario, planillas y DXF.</li>
+        <li><strong>Imprimir</strong> — PDF del diagrama.</li>
+        <li><strong>Configuración</strong> — catálogos, usuarios y preferencias (según tu rol).</li>
+      </ul>
+    </section>
+
+    <section id="panel">
+      <h2>3. Panel</h2>
+      <p>
+        El Panel es la pantalla de inicio del proyecto. Muestra métricas rápidas
+        (equipos, racks, enlaces, etc.), ocupación de racks y alertas útiles
+        (por ejemplo, equipos sin ubicación o sin documentación).
+      </p>
+      <ol class="steps">
+        <li>Entrá a <strong>Panel</strong> desde el menú.</li>
+        <li>Revisá los contadores para tener una foto general del proyecto.</li>
+        <li>Si hay alertas, usalas como checklist de trabajo pendiente.</li>
+        <li>En el widget de racks podés cambiar la vista de ocupación: Front, Back o ambas.</li>
+      </ol>
+    </section>
+
+    <section id="sitios">
+      <h2>4. Sitios y áreas</h2>
+      <p>
+        Primero se define la ubicación física. Sin sitios y áreas, los equipos
+        quedan “sueltos” y es más difícil ordenar el inventario.
+      </p>
+      <p><strong>Ruta:</strong> Infraestructura → Sitios y áreas (también desde Configuración).</p>
+
+      <h3>4.1 Crear un sitio</h3>
+      <ol class="steps">
+        <li>Abrí <strong>Sitios y áreas</strong>.</li>
+        <li>Pulsá <strong>Nuevo sitio</strong> (o el botón equivalente de alta).</li>
+        <li>Completá el <strong>nombre</strong> (obligatorio). Dirección y notas son opcionales.</li>
+        <li>Guardá.</li>
+      </ol>
+
+      <h3>4.2 Crear áreas dentro del sitio</h3>
+      <ol class="steps">
+        <li>En la fila del sitio, abrí la gestión de <strong>áreas</strong>.</li>
+        <li>Indicá el nombre del área (por ejemplo: “Sala racks”, “Piso 1”).</li>
+        <li>Guardá. Podés crear varias áreas por sitio.</li>
+      </ol>
+
+      <div class="callout ok">
+        <strong>Documentación del sitio</strong>
+        <p>Podés adjuntar planos, links o notas al sitio desde el panel de documentación del objeto.</p>
+      </div>
+    </section>
+
+    <section id="contenedores">
+      <h2>5. Contenedores (racks, tableros y default)</h2>
+      <p>
+        Un contenedor vive dentro de un área y agrupa equipos. Hay tres tipos:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Tipo</th><th>Cuándo usarlo</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Rack</strong></td><td>Gabinete 19" con altura en U (por ejemplo 42U).</td></tr>
+          <tr><td><strong>Tablero</strong></td><td>Panel mural / grilla (eléctrico, comunicaciones o genérico).</td></tr>
+          <tr><td><strong>Default</strong></td><td>Equipos sueltos del área que no van en rack ni tablero.</td></tr>
+        </tbody>
+      </table>
+      <p><strong>Ruta:</strong> Infraestructura → Contenedores.</p>
+
+      <h3>5.1 Crear un rack</h3>
+      <ol class="steps">
+        <li>Abrí <strong>Contenedores</strong> y pulsá crear.</li>
+        <li>Elegí tipo <strong>Rack</strong>.</li>
+        <li>Seleccioná sitio y área.</li>
+        <li>Completá nombre, código (si aplica) y altura en U.</li>
+        <li>Opcional: marca, modelo y notas. Guardá.</li>
+      </ol>
+
+      <h3>5.2 Crear un tablero</h3>
+      <ol class="steps">
+        <li>En el alta, elegí tipo <strong>Tablero</strong>.</li>
+        <li>Indicá sitio, área y nombre.</li>
+        <li>Elegí el tipo de tablero (eléctrico / comunicaciones / genérico).</li>
+        <li>Definí filas y columnas de la grilla. Guardá.</li>
+      </ol>
+
+      <div class="callout tip">
+        <strong>Atajo</strong>
+        <p>También podés crear racks y tableros desde el propio Diagrama de conexión, al armar la vista.</p>
+      </div>
+    </section>
+
+    <section id="templates">
+      <h2>6. Templates de dispositivo</h2>
+      <p>
+        Antes de cargar equipos reales, conviene tener el <strong>template</strong>
+        (SKU): marca, modelo, altura en U, imagen y puertos de fábrica.
+        El catálogo es <strong>global</strong>: se reutiliza en todos los proyectos.
+      </p>
+      <p><strong>Ruta:</strong> Configuración → Templates de dispositivo.</p>
+
+      <ol class="steps">
+        <li>Entrá a Configuración y abrí <strong>Templates de dispositivo</strong>.</li>
+        <li>Creá un template con nombre, tipo de dispositivo, marca y modelo.</li>
+        <li>Definí altura en U y si es full-depth (ocupa frente y fondo).</li>
+        <li>Agregá los <strong>puertos</strong> del modelo (nombre, número, tipo).</li>
+        <li>Si es patch panel, marcá el puerto como <strong>puente (passthrough)</strong> para caras front/rear.</li>
+        <li>Guardá. Ya podés usarlo al crear dispositivos.</li>
+      </ol>
+
+      <div class="callout warn">
+        <strong>Importante</strong>
+        <p>
+          En el dispositivo (instancia) solo editás datos operativos: nombre, serie, IP, MAC,
+          hostname, ubicación, estado y notas. Marca/modelo/U vienen del template.
+        </p>
+      </div>
+    </section>
+
+    <section id="dispositivos">
+      <h2>7. Dispositivos</h2>
+      <p><strong>Ruta:</strong> Infraestructura → Dispositivos.</p>
+
+      <h3>7.1 Crear un dispositivo</h3>
+      <ol class="steps">
+        <li>Pulsá <strong>Agregar dispositivo</strong>.</li>
+        <li>Elegí el <strong>template</strong> (buscá por marca, modelo o tipo).</li>
+        <li>Completá el nombre del equipo (obligatorio).</li>
+        <li>Opcional: hostname, IP, MAC, número de serie, firmware y notas.</li>
+        <li>Asigná <strong>sitio → área → contenedor</strong>.</li>
+        <li>Guardá. Se crean los puertos según el template.</li>
+      </ol>
+
+      <h3>7.2 Ficha del dispositivo</h3>
+      <p>Al abrir un equipo vas a poder:</p>
+      <ul>
+        <li>Ver y editar datos de identidad operativa.</li>
+        <li>Gestionar <strong>puertos</strong> (agregar, editar, marcar puente front/rear).</li>
+        <li>Asignar <strong>VLANs</strong> a un puerto (access = 1 VLAN; trunk = varias).</li>
+        <li>Cargar <strong>secretos</strong> (credenciales) y documentación adjunta.</li>
+      </ul>
+
+      <h3>7.3 Editar o eliminar</h3>
+      <ol class="steps">
+        <li>Desde el listado, abrí el equipo o usá la acción de editar.</li>
+        <li>Modificá los campos permitidos y guardá.</li>
+        <li>Para borrar, usá la acción de eliminar y confirmá. El borrado es lógico (soft delete).</li>
+      </ol>
+    </section>
+
+    <section id="diagrama">
+      <h2>8. Diagrama de conexión</h2>
+      <p>
+        Es el lienzo principal para documentar enlaces entre equipos.
+        Podés tener <strong>varios diagramas nombrados</strong> en el mismo proyecto
+        (por ejemplo: “Planta baja”, “Core”, “CCTV”).
+      </p>
+      <p><strong>Ruta:</strong> Infraestructura → Diagrama de conexión.</p>
+
+      <h3>8.1 Crear o elegir un diagrama</h3>
+      <ol class="steps">
+        <li>Abrí Diagrama de conexión.</li>
+        <li>Creá un <strong>nuevo diagrama</strong> con un nombre claro, o seleccioná uno existente.</li>
+        <li>Podés renombrar, duplicar o eliminar diagramas desde las acciones del encabezado.</li>
+      </ol>
+
+      <h3>8.2 Armar el alcance (sitios, áreas, contenedores)</h3>
+      <ol class="steps">
+        <li>Usá el panel de alcance para agregar el sitio y sus áreas al canvas.</li>
+        <li>Agregá racks o tableros al área (o crealos desde ahí si faltan).</li>
+        <li>Incorporá los dispositivos al contenedor correspondiente.</li>
+      </ol>
+
+      <h3>8.3 Documentar un enlace (E1, E2…)</h3>
+      <ol class="steps">
+        <li>Arrastrá desde el puerto/handle de un equipo hacia el otro.</li>
+        <li>Confirmá el enlace. El sistema asigna un código correlativo visible (<strong>E1</strong>, <strong>E2</strong>…).</li>
+        <li>Completá, si corresponde: etiqueta de puerto, tipo de cable y <strong>tipo de enlace</strong> (anillo, troncal, acceso…).</li>
+        <li>Ajustá el recorrido del cable (ruteo ortogonal) y la posición de etiquetas.</li>
+        <li>Pulsá <strong>Guardar layout</strong> para conservar la disposición.</li>
+      </ol>
+
+      <h3>8.4 Modo libre y modo árbol</h3>
+      <ul>
+        <li><strong>Vista libre:</strong> posicionás nodos a mano.</li>
+        <li><strong>Vista árbol:</strong> organiza jerárquicamente; tiene su propio layout guardado.</li>
+      </ul>
+      <div class="callout tip">
+        <strong>Color del cable en el diagrama</strong>
+        <p>
+          El color y el trazo salen del <em>tipo de enlace</em> (función: anillo, acceso, etc.).
+          El tipo de cable (UTP, fibra…) es el medio físico y no pinta el trazo.
+        </p>
+      </div>
+    </section>
+
+    <section id="red">
+      <h2>9. Redes y VLANs</h2>
+
+      <h3>9.1 VLANs</h3>
+      <p><strong>Ruta:</strong> Capa de red → VLANs.</p>
+      <ol class="steps">
+        <li>Abrí VLANs y creá una nueva.</li>
+        <li>Indicá ID/número, nombre y datos adicionales si aplica.</li>
+        <li>Guardá.</li>
+        <li>Luego asigná esa VLAN a los puertos desde la ficha del dispositivo.</li>
+      </ol>
+
+      <h3>9.2 Redes</h3>
+      <p><strong>Ruta:</strong> Capa de red → Redes.</p>
+      <ol class="steps">
+        <li>Abrí Redes y creá una red (por ejemplo un segmento IP/CIDR).</li>
+        <li>Relacionala con una VLAN si corresponde.</li>
+        <li>Guardá. Usá el listado para consultar y editar.</li>
+      </ol>
+    </section>
+
+    <section id="exportar">
+      <h2>10. Exportar e imprimir</h2>
+
+      <h3>10.1 Inventario por modelo</h3>
+      <p><strong>Ruta:</strong> Exportar → Inventario por modelo.</p>
+      <ol class="steps">
+        <li>Abrí la pantalla de inventario agrupado por plantilla.</li>
+        <li>Revisá el resumen de cantidades.</li>
+        <li>Exportá a <strong>CSV</strong> o <strong>PDF</strong> según necesites.</li>
+      </ol>
+
+      <h3>10.2 Exportar conexiones (planilla)</h3>
+      <p><strong>Ruta:</strong> Exportar → Exportar conexiones.</p>
+      <ol class="steps">
+        <li>Filtrá/buscá los equipos que querés incluir (máximo según el límite de la pantalla).</li>
+        <li>Elegí el layout: <strong>una hoja por equipo</strong> o <strong>todo en una hoja</strong>.</li>
+        <li>Descargá el archivo de planilla.</li>
+      </ol>
+
+      <h3>10.3 Exportar a DXF</h3>
+      <p><strong>Ruta:</strong> Exportar → Exportar a DXF.</p>
+      <ol class="steps">
+        <li>Seleccioná el diagrama y el modo de layout (libre o árbol).</li>
+        <li>Descargá el archivo DXF para usarlo en CAD.</li>
+      </ol>
+
+      <h3>10.4 Imprimir / PDF del diagrama</h3>
+      <p><strong>Ruta:</strong> Imprimir.</p>
+      <ol class="steps">
+        <li>Elegí el diagrama y el modo de vista.</li>
+        <li>Configurá papel (A4 u otro), orientación, leyenda y tabla de enlaces.</li>
+        <li>Ajustá el marco de impresión sobre el canvas si hace falta.</li>
+        <li>Generá el PDF.</li>
+      </ol>
+      <div class="callout ok">
+        <strong>Marca en reportes</strong>
+        <p>
+          El administrador global puede cargar logo y tagline en Configuración → Marca de reportes.
+          Eso aparece en la cabecera de los PDF.
+        </p>
+      </div>
+    </section>
+
+    <section id="config">
+      <h2>11. Configuración y catálogos</h2>
+      <p><strong>Ruta:</strong> Configuración (ícono de engranaje / menú Settings).</p>
+
+      <table>
+        <thead>
+          <tr><th>Sección</th><th>Para qué sirve</th><th>Quién suele usarla</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Perfil / Tema</td><td>Ver tu usuario y cambiar claro/oscuro.</td><td>Todos</td></tr>
+          <tr><td>Marca de reportes</td><td>Logo y tagline de PDF.</td><td>Admin global</td></tr>
+          <tr><td>Sitios y áreas</td><td>Ubicación física.</td><td>Operador / Admin</td></tr>
+          <tr><td>Contenedores</td><td>Racks y tableros.</td><td>Operador / Admin</td></tr>
+          <tr><td>Templates</td><td>Catálogo global de modelos.</td><td>Operador / Admin</td></tr>
+          <tr><td>Tipos de dispositivo</td><td>Categorías (switch, firewall…).</td><td>Admin</td></tr>
+          <tr><td>Tipos de puerto</td><td>Velocidad, color, icono, dirección.</td><td>Admin</td></tr>
+          <tr><td>Tipos de enlace</td><td>Color/trazo por función en el diagrama.</td><td>Operador / Admin</td></tr>
+          <tr><td>Tipos de cable</td><td>Medios (UTP, fibra, DAC…).</td><td>Admin</td></tr>
+          <tr><td>Usuarios</td><td>Alta y baja de usuarios del sistema.</td><td>Admin</td></tr>
+          <tr><td>Proyectos</td><td>Crear proyectos y asignar miembros.</td><td>Admin global</td></tr>
+        </tbody>
+      </table>
+
+      <h3>11.1 Crear un proyecto (admin global)</h3>
+      <ol class="steps">
+        <li>Menú <strong>Proyectos</strong>.</li>
+        <li>Pulsá crear e indicá nombre (obligatorio), cliente y dirección si aplica.</li>
+        <li>Guardá. Luego asigná usuarios con rol admin / operator / viewer.</li>
+      </ol>
+
+      <h3>11.2 Tipos de enlace del diagrama</h3>
+      <ol class="steps">
+        <li>Configuración → Tipos de enlace.</li>
+        <li>Creá tipos como “Troncal”, “Acceso”, “Anillo” con color y estilo de línea.</li>
+        <li>Al documentar un enlace en el diagrama, asignale el tipo para que se pinte solo.</li>
+      </ol>
+    </section>
+
+    <section id="roles">
+      <h2>12. Roles y permisos</h2>
+      <p>Hay roles a nivel plataforma y por proyecto:</p>
+      <table>
+        <thead>
+          <tr><th>Rol</th><th>Qué puede hacer</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Viewer</strong></td><td>Consultar e imprimir/exportar. No modifica inventario ni diagramas.</td></tr>
+          <tr><td><strong>Operator</strong></td><td>Crear y editar sitios, contenedores, dispositivos, diagramas, redes y VLANs.</td></tr>
+          <tr><td><strong>Admin (proyecto)</strong></td><td>Además, administrar catálogos sensibles del contexto y usuarios según pantallas habilitadas.</td></tr>
+          <tr><td><strong>Admin global</strong></td><td>Gestiona proyectos de la plataforma, marca de reportes y usuarios del sistema.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <strong>Si no ves un botón</strong>
+        <p>Es probable que tu rol sea de solo lectura. Pedile a un administrador que te asigne rol operator o admin en el proyecto.</p>
+      </div>
+    </section>
+
+    <section id="flujo">
+      <h2>13. Orden de trabajo recomendado</h2>
+      <p>Para documentar un cliente nuevo sin dar vueltas:</p>
+      <ol class="steps">
+        <li>Crear el <strong>proyecto</strong> y asignar usuarios.</li>
+        <li>Cargar o reutilizar <strong>templates</strong> de los modelos que vas a usar.</li>
+        <li>Crear <strong>sitios</strong> y <strong>áreas</strong>.</li>
+        <li>Crear <strong>contenedores</strong> (racks / tableros).</li>
+        <li>Dar de alta los <strong>dispositivos</strong> y ubicarlos.</li>
+        <li>Completar <strong>VLANs</strong> / redes y asignarlas a puertos si aplica.</li>
+        <li>Armar el <strong>diagrama de conexión</strong> y documentar enlaces E1, E2…</li>
+        <li>Exportar planillas / PDF / DXF para entrega al cliente.</li>
+      </ol>
+    </section>
+
+    <section id="faq">
+      <h2>14. Preguntas frecuentes</h2>
+
+      <div class="card">
+        <h4>¿Puedo editar marca y modelo en el dispositivo?</h4>
+        <p>No. Eso vive en el template. En la instancia solo editás datos operativos del equipo instalado.</p>
+      </div>
+      <div class="card">
+        <h4>¿El diagrama guarda solo una vista?</h4>
+        <p>No. Podés tener varios diagramas nombrados y, dentro de cada uno, layout libre y layout de árbol por separado.</p>
+      </div>
+      <div class="card">
+        <h4>¿Qué diferencia hay entre tipo de enlace y tipo de cable?</h4>
+        <p>
+          Tipo de enlace = función en el dibujo (color/trazo). Tipo de cable = medio físico (UTP, fibra, etc.).
+        </p>
+      </div>
+      <div class="card">
+        <h4>Borré un equipo por error. ¿Se pierde para siempre?</h4>
+        <p>
+          El sistema usa borrado lógico en varios módulos. Consultá con un administrador si hace falta restaurarlo desde soporte/base.
+        </p>
+      </div>
+      <div class="card">
+        <h4>¿Cómo descargo este manual en PDF?</h4>
+        <p>
+          Arriba a la derecha usá <strong>Imprimir / Guardar PDF</strong>, elegí “Guardar como PDF”
+          como destino de impresión, y guardá el archivo.
+        </p>
+      </div>
+    </section>
+
+    <p class="footer-note">
+      InfraRed PX — Manual de usuario v1.0 · Documento orientado a operación diaria.
+      Para detalles técnicos de arquitectura consultar la documentación interna del proyecto.
+    </p>
+  </main>
+</body>
+</html>
